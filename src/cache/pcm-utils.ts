@@ -4,10 +4,17 @@ interface EncodedPacket {
   durationUs: number;
 }
 
+interface DecoderConfig {
+  sampleRate: number;
+  numberOfChannels: number;
+  description: Uint8Array;
+}
+
 interface PacketStream {
   sampleRate: number;
   numberOfChannels: number;
   totalFrames: number;
+  decoderConfig: DecoderConfig;
   packets: EncodedPacket[];
 }
 
@@ -70,6 +77,13 @@ function microsecondsToFrames(microseconds: number, sampleRate: number): number 
   return Math.round((microseconds / 1_000_000) * sampleRate);
 }
 
+function convertFrameCount(frames: number, fromSampleRate: number, toSampleRate: number): number {
+  if (fromSampleRate <= 0) throw new Error(`pcm-utils: fromSampleRate must be positive, got ${fromSampleRate}`);
+  if (toSampleRate <= 0) throw new Error(`pcm-utils: toSampleRate must be positive, got ${toSampleRate}`);
+  if (frames < 0) throw new Error(`pcm-utils: frames must be non-negative, got ${frames}`);
+  return Math.round((frames * toSampleRate) / fromSampleRate);
+}
+
 // -- Prefix boundary arithmetic -----------------------------------------------------------------
 
 function alignToFrameCount(channels: Float32Array[], frameCount: number): Float32Array<ArrayBuffer>[] {
@@ -107,23 +121,47 @@ function concatFrames(chunks: Float32Array[][], numberOfChannels: number): Float
 }
 
 // -- Packet framing -----------------------------------------------------------------
+//
+// Fixed header layout (all fields little-endian uint32 unless noted):
+//   0  formatVersion
+//   4  sampleRate            (encoder input rate)
+//   8  numberOfChannels      (encoder input channels)
+//   12 totalFrames           (encoder input rate frame count)
+//   16 packetCount
+//   20 decoderSampleRate
+//   24 decoderNumberOfChannels
+//   28 descriptionLength
+//   32 description bytes (descriptionLength bytes), then packets.
+//
+// formatVersion lives in the first four bytes specifically so that a
+// pre-version buffer (whose first four bytes were the old header's plain
+// sampleRate, e.g. 44100) can never collide with PACKET_STREAM_FORMAT_VERSION
+// and is rejected instead of misread.
 
-const HEADER_BYTES = 16;
+const PACKET_STREAM_FORMAT_VERSION = 2;
+const FIXED_HEADER_BYTES = 32;
 const PACKET_HEADER_BYTES = 20;
 
 function encodePacketStream(stream: PacketStream): Uint8Array<ArrayBuffer> {
-  let totalBytes = HEADER_BYTES;
+  const description = stream.decoderConfig.description;
+  let totalBytes = FIXED_HEADER_BYTES + description.length;
   for (const packet of stream.packets) totalBytes += PACKET_HEADER_BYTES + packet.data.length;
 
   const buffer = new ArrayBuffer(totalBytes);
   const view = new DataView(buffer);
-  view.setUint32(0, stream.sampleRate, true);
-  view.setUint32(4, stream.numberOfChannels, true);
-  view.setUint32(8, stream.totalFrames, true);
-  view.setUint32(12, stream.packets.length, true);
+  view.setUint32(0, PACKET_STREAM_FORMAT_VERSION, true);
+  view.setUint32(4, stream.sampleRate, true);
+  view.setUint32(8, stream.numberOfChannels, true);
+  view.setUint32(12, stream.totalFrames, true);
+  view.setUint32(16, stream.packets.length, true);
+  view.setUint32(20, stream.decoderConfig.sampleRate, true);
+  view.setUint32(24, stream.decoderConfig.numberOfChannels, true);
+  view.setUint32(28, description.length, true);
 
   const bytes = new Uint8Array(buffer);
-  let offset = HEADER_BYTES;
+  bytes.set(description, FIXED_HEADER_BYTES);
+
+  let offset = FIXED_HEADER_BYTES + description.length;
   for (const packet of stream.packets) {
     view.setUint32(offset, packet.data.length, true);
     view.setFloat64(offset + 4, packet.timestampUs, true);
@@ -137,18 +175,35 @@ function encodePacketStream(stream: PacketStream): Uint8Array<ArrayBuffer> {
 
 function decodePacketStream(buffer: ArrayBuffer | Uint8Array): PacketStream {
   const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
-  if (bytes.length < HEADER_BYTES) {
-    throw new Error(`pcm-utils: packet stream buffer truncated, expected at least ${HEADER_BYTES} bytes`);
+  if (bytes.length < FIXED_HEADER_BYTES) {
+    throw new Error(`pcm-utils: packet stream buffer truncated, expected at least ${FIXED_HEADER_BYTES} bytes`);
   }
 
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  const sampleRate = view.getUint32(0, true);
-  const numberOfChannels = view.getUint32(4, true);
-  const totalFrames = view.getUint32(8, true);
-  const packetCount = view.getUint32(12, true);
+  const formatVersion = view.getUint32(0, true);
+  if (formatVersion !== PACKET_STREAM_FORMAT_VERSION) {
+    throw new Error(
+      `pcm-utils: unsupported packet stream format version ${formatVersion}, expected ${PACKET_STREAM_FORMAT_VERSION}. Stems cached in an older format must be re-separated.`
+    );
+  }
+
+  const sampleRate = view.getUint32(4, true);
+  const numberOfChannels = view.getUint32(8, true);
+  const totalFrames = view.getUint32(12, true);
+  const packetCount = view.getUint32(16, true);
+  const decoderSampleRate = view.getUint32(20, true);
+  const decoderNumberOfChannels = view.getUint32(24, true);
+  const descriptionLength = view.getUint32(28, true);
+
+  const descriptionStart = FIXED_HEADER_BYTES;
+  const descriptionEnd = descriptionStart + descriptionLength;
+  if (descriptionEnd > bytes.length) {
+    throw new Error(`pcm-utils: packet stream buffer truncated at decoder description`);
+  }
+  const description = bytes.slice(descriptionStart, descriptionEnd);
 
   const packets: EncodedPacket[] = [];
-  let offset = HEADER_BYTES;
+  let offset = descriptionEnd;
   for (let i = 0; i < packetCount; i++) {
     if (offset + PACKET_HEADER_BYTES > bytes.length) {
       throw new Error(`pcm-utils: packet stream buffer truncated at packet ${i} header`);
@@ -165,7 +220,13 @@ function decodePacketStream(buffer: ArrayBuffer | Uint8Array): PacketStream {
     offset = dataEnd;
   }
 
-  return { sampleRate, numberOfChannels, totalFrames, packets };
+  return {
+    sampleRate,
+    numberOfChannels,
+    totalFrames,
+    decoderConfig: { sampleRate: decoderSampleRate, numberOfChannels: decoderNumberOfChannels, description },
+    packets,
+  };
 }
 
 export {
@@ -173,9 +234,11 @@ export {
   deinterleave,
   framesToMicroseconds,
   microsecondsToFrames,
+  convertFrameCount,
   alignToFrameCount,
   concatFrames,
   encodePacketStream,
   decodePacketStream,
+  PACKET_STREAM_FORMAT_VERSION,
 };
-export type { EncodedPacket, PacketStream };
+export type { EncodedPacket, DecoderConfig, PacketStream };

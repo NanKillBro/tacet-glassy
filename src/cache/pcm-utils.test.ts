@@ -2,14 +2,16 @@ import { describe, expect, it } from "vitest";
 import {
   alignToFrameCount,
   concatFrames,
+  convertFrameCount,
   decodePacketStream,
   deinterleave,
   encodePacketStream,
   framesToMicroseconds,
   interleave,
   microsecondsToFrames,
+  PACKET_STREAM_FORMAT_VERSION,
 } from "@/cache/pcm-utils";
-import type { EncodedPacket } from "@/cache/pcm-utils";
+import type { DecoderConfig, EncodedPacket, PacketStream } from "@/cache/pcm-utils";
 
 // -- Test helpers -----------------------------------------------------------------
 
@@ -21,6 +23,21 @@ function makeRamp(length: number, offset = 0): Float32Array {
 
 function makePacket(byte: number, length: number, timestampUs: number, durationUs: number): EncodedPacket {
   return { data: new Uint8Array(length).fill(byte), timestampUs, durationUs };
+}
+
+function makeDecoderConfig(overrides: Partial<DecoderConfig> = {}): DecoderConfig {
+  return { sampleRate: 48000, numberOfChannels: 2, description: new Uint8Array([1, 2, 3]), ...overrides };
+}
+
+function makeStream(overrides: Partial<PacketStream> = {}): PacketStream {
+  return {
+    sampleRate: 44100,
+    numberOfChannels: 2,
+    totalFrames: 0,
+    decoderConfig: makeDecoderConfig(),
+    packets: [],
+    ...overrides,
+  };
 }
 
 // -- interleave / deinterleave -----------------------------------------------------------------
@@ -162,6 +179,49 @@ describe("microsecondsToFrames", () => {
   });
 });
 
+describe("convertFrameCount", () => {
+  it("converts 44100 input frames at 44100Hz to the 48000Hz target frame count", () => {
+    // Real codec measurement: 44100 frames in at 44100Hz produced 47688
+    // decoded frames at 48000Hz (Opus pre-skip). The arithmetic target that
+    // alignToFrameCount pads that shortfall up to is 48000, not 47688.
+    expect(convertFrameCount(44100, 44100, 48000)).toBe(48000);
+  });
+
+  it("is the identity when the rates match", () => {
+    expect(convertFrameCount(1000, 44100, 44100)).toBe(1000);
+  });
+
+  it("scales down when the target rate is lower", () => {
+    expect(convertFrameCount(48000, 48000, 44100)).toBe(44100);
+  });
+
+  describe("edge cases", () => {
+    it("returns zero for zero frames", () => {
+      expect(convertFrameCount(0, 44100, 48000)).toBe(0);
+    });
+
+    it("rounds to the nearest integer", () => {
+      expect(convertFrameCount(1, 44100, 48000)).toBe(Math.round(48000 / 44100));
+    });
+  });
+
+  describe("error paths", () => {
+    it("throws for zero or negative fromSampleRate", () => {
+      expect(() => convertFrameCount(100, 0, 48000)).toThrow(/fromSampleRate/i);
+      expect(() => convertFrameCount(100, -44100, 48000)).toThrow(/fromSampleRate/i);
+    });
+
+    it("throws for zero or negative toSampleRate", () => {
+      expect(() => convertFrameCount(100, 44100, 0)).toThrow(/toSampleRate/i);
+      expect(() => convertFrameCount(100, 44100, -48000)).toThrow(/toSampleRate/i);
+    });
+
+    it("throws for negative frames", () => {
+      expect(() => convertFrameCount(-1, 44100, 48000)).toThrow(/frames/i);
+    });
+  });
+});
+
 // -- alignToFrameCount (prefix boundary arithmetic) -----------------------------------------------------------------
 
 describe("alignToFrameCount", () => {
@@ -250,7 +310,7 @@ describe("encodePacketStream / decodePacketStream", () => {
   describe("happy path", () => {
     it("round-trips sampleRate, numberOfChannels, totalFrames and packet bytes", () => {
       const packets = [makePacket(0xaa, 5, 0, 20_000), makePacket(0xbb, 3, 20_000, 20_000)];
-      const encoded = encodePacketStream({ sampleRate: 44100, numberOfChannels: 2, totalFrames: 1764, packets });
+      const encoded = encodePacketStream(makeStream({ totalFrames: 1764, packets }));
       const decoded = decodePacketStream(encoded);
 
       expect(decoded.sampleRate).toBe(44100);
@@ -266,18 +326,36 @@ describe("encodePacketStream / decodePacketStream", () => {
 
     it("accepts the encoded buffer as a plain ArrayBuffer too", () => {
       const packets = [makePacket(0x01, 2, 0, 20_000)];
-      const encoded = encodePacketStream({ sampleRate: 48000, numberOfChannels: 1, totalFrames: 960, packets });
+      const encoded = encodePacketStream(
+        makeStream({ sampleRate: 48000, numberOfChannels: 1, totalFrames: 960, packets })
+      );
       const arrayBuffer = new ArrayBuffer(encoded.byteLength);
       new Uint8Array(arrayBuffer).set(encoded);
       const decoded = decodePacketStream(arrayBuffer);
       expect(decoded.packets.length).toBe(1);
       expect(decoded.totalFrames).toBe(960);
     });
+
+    it("round-trips the decoder config: sampleRate, numberOfChannels and description bytes", () => {
+      const decoderConfig = makeDecoderConfig({
+        sampleRate: 48000,
+        numberOfChannels: 2,
+        description: new Uint8Array([
+          0x4f, 0x70, 0x75, 0x73, 0x48, 0x65, 0x61, 0x64, 1, 2, 0, 128, 187, 0, 0, 0, 0, 0, 0,
+        ]),
+      });
+      const encoded = encodePacketStream(makeStream({ decoderConfig }));
+      const decoded = decodePacketStream(encoded);
+
+      expect(decoded.decoderConfig.sampleRate).toBe(48000);
+      expect(decoded.decoderConfig.numberOfChannels).toBe(2);
+      expect(Array.from(decoded.decoderConfig.description)).toEqual(Array.from(decoderConfig.description));
+    });
   });
 
   describe("edge cases", () => {
     it("round-trips zero packets and zero totalFrames", () => {
-      const encoded = encodePacketStream({ sampleRate: 44100, numberOfChannels: 2, totalFrames: 0, packets: [] });
+      const encoded = encodePacketStream(makeStream());
       const decoded = decodePacketStream(encoded);
       expect(decoded.packets).toEqual([]);
       expect(decoded.sampleRate).toBe(44100);
@@ -287,9 +365,24 @@ describe("encodePacketStream / decodePacketStream", () => {
 
     it("round-trips a zero-length packet", () => {
       const packets = [makePacket(0, 0, 0, 0)];
-      const encoded = encodePacketStream({ sampleRate: 44100, numberOfChannels: 2, totalFrames: 0, packets });
+      const encoded = encodePacketStream(makeStream({ packets }));
       const decoded = decodePacketStream(encoded);
       expect(decoded.packets[0].data.length).toBe(0);
+    });
+
+    it("round-trips an empty description", () => {
+      const encoded = encodePacketStream(
+        makeStream({ decoderConfig: makeDecoderConfig({ description: new Uint8Array(0) }) })
+      );
+      const decoded = decodePacketStream(encoded);
+      expect(decoded.decoderConfig.description.length).toBe(0);
+    });
+
+    it("round-trips an arbitrary-length description", () => {
+      const description = new Uint8Array(257).map((_, i) => i % 256);
+      const encoded = encodePacketStream(makeStream({ decoderConfig: makeDecoderConfig({ description }) }));
+      const decoded = decodePacketStream(encoded);
+      expect(Array.from(decoded.decoderConfig.description)).toEqual(Array.from(description));
     });
   });
 
@@ -299,14 +392,46 @@ describe("encodePacketStream / decodePacketStream", () => {
     });
 
     it("throws when a packet's declared length runs past the buffer", () => {
-      const encoded = encodePacketStream({
-        sampleRate: 44100,
-        numberOfChannels: 2,
-        totalFrames: 5,
-        packets: [makePacket(1, 5, 0, 1000)],
-      });
+      const encoded = encodePacketStream(makeStream({ totalFrames: 5, packets: [makePacket(1, 5, 0, 1000)] }));
       const truncated = encoded.slice(0, encoded.length - 2);
       expect(() => decodePacketStream(truncated)).toThrow(/truncated|short/i);
+    });
+
+    it("throws when the declared description length runs past the buffer", () => {
+      const encoded = encodePacketStream(
+        makeStream({ decoderConfig: makeDecoderConfig({ description: new Uint8Array([1, 2, 3, 4, 5]) }) })
+      );
+      const truncated = encoded.slice(0, encoded.length - 3);
+      expect(() => decodePacketStream(truncated)).toThrow(/truncated|short/i);
+    });
+
+    it("rejects a buffer from an older, pre-versioned packet stream format", () => {
+      // The pre-fix format had no version field: its first four bytes were a
+      // plain little-endian sampleRate (e.g. 44100), which can never equal
+      // PACKET_STREAM_FORMAT_VERSION, so it is rejected rather than misread.
+      // Built long enough (legacy header + one packet) that this is the
+      // version check failing, not the too-short-buffer check.
+      const legacyHeaderBytes = 16;
+      const packetData = new Uint8Array(30).fill(9);
+      const buffer = new ArrayBuffer(legacyHeaderBytes + 20 + packetData.length);
+      const view = new DataView(buffer);
+      view.setUint32(0, 44100, true);
+      view.setUint32(4, 2, true);
+      view.setUint32(8, 0, true);
+      view.setUint32(12, 1, true);
+      view.setUint32(legacyHeaderBytes, packetData.length, true);
+      view.setFloat64(legacyHeaderBytes + 4, 0, true);
+      view.setFloat64(legacyHeaderBytes + 12, 0, true);
+      new Uint8Array(buffer).set(packetData, legacyHeaderBytes + 20);
+
+      expect(() => decodePacketStream(buffer)).toThrow(/version/i);
+    });
+
+    it("rejects a buffer declaring an unknown future version", () => {
+      const encoded = encodePacketStream(makeStream());
+      const withBogusVersion = encoded.slice();
+      new DataView(withBogusVersion.buffer).setUint32(0, PACKET_STREAM_FORMAT_VERSION + 1, true);
+      expect(() => decodePacketStream(withBogusVersion)).toThrow(/version/i);
     });
   });
 });
