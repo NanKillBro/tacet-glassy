@@ -7,6 +7,17 @@ import { encodePcmToOpus } from "../src/cache/opus-codec.js";
 import { getStemRecord, putStemRecord } from "../src/cache/stem-store.js";
 import type { StemRecord } from "../src/cache/stem-store.js";
 import { decodeFileToFloat32 } from "../src/separation/audio-codec.js";
+
+// -- Signal tracing -------------------------------------------------------
+// Every stage reports the right frame COUNT even when the samples are all
+// zero, so shape-based checks pass while the audio is silent. Amplitude is
+// the only thing that catches that.
+function stageRms(channel: Float32Array | undefined): string {
+  if (!channel || channel.length === 0) return "no-data";
+  let sum = 0;
+  for (let i = 0; i < channel.length; i++) sum += channel[i] * channel[i];
+  return Math.sqrt(sum / channel.length).toExponential(3);
+}
 import {
   type CaptureChunkMessage,
   type StemChunkMessage,
@@ -89,8 +100,15 @@ class TrackPipeline {
 
   // The SeparationHost is owned by the caller (one Worker for the whole
   // offscreen document's lifetime, shared with the existing cancel-command
-  // handler in workers/offscreen.ts), not created here.
-  constructor(private separationHost: SeparationHost) {}
+  // handler in workers/offscreen.ts), not created here. getCacheBudgetBytes
+  // is likewise owned by the caller: workers/offscreen.ts keeps the live
+  // value of the cacheBudgetBytes setting in memory and hands it over here on
+  // every put, so a budget change applies to the very next write without this
+  // class needing to know anything about chrome.storage.
+  constructor(
+    private separationHost: SeparationHost,
+    private getCacheBudgetBytes: () => number
+  ) {}
 
   private isStale(videoId: string): boolean {
     return videoId !== this.activeVideoId;
@@ -164,6 +182,9 @@ class TrackPipeline {
 
     this.sendStage(videoId, "decoding");
     const decoded = await decodeFileToFloat32(new Blob([bytes], { type: mimeType }));
+    console.log(
+      `[BLK-RMS] decoded input: frames=${decoded.numFrames}, rate=${decoded.sampleRate}, rms=${stageRms(decoded.channels[0])}`
+    );
     if (this.isStale(videoId)) return;
 
     if (decoded.channels.length !== TARGET_CHANNEL_COUNT) {
@@ -205,6 +226,7 @@ class TrackPipeline {
 
     this.sendStage(videoId, "separating");
     const accumulator = createRegionAccumulator(decoded.numFrames, decoded.channels.length);
+    let loggedRegions = 0;
 
     await this.separationHost.process({
       channels: decoded.channels,
@@ -214,24 +236,41 @@ class TrackPipeline {
         post({ type: "blk-track-progress", videoId, processed, total });
       },
       onRegion: region => {
+        if (loggedRegions < 3) {
+          loggedRegions++;
+          console.log(
+            `[BLK-RMS] region @${region.regionStart}: vocals=${stageRms(region.vocals[0])}, instrumental=${stageRms(
+              region.instrumental[0]
+            )}, frames=${region.vocals[0]?.length ?? 0}`
+          );
+        }
         accumulator.addRegion(region.regionStart, region.vocals, region.instrumental);
       },
     });
     if (this.isStale(videoId)) return;
 
     this.sendStage(videoId, "encoding");
+    console.log(
+      `[BLK-RMS] accumulated: vocals=${stageRms(accumulator.vocals[0])}, instrumental=${stageRms(
+        accumulator.instrumental[0]
+      )}`
+    );
     const [vocalsBlob, instrumentalBlob] = await Promise.all([
       encodePcmToOpus(accumulator.vocals, decoded.sampleRate),
       encodePcmToOpus(accumulator.instrumental, decoded.sampleRate),
     ]);
     if (this.isStale(videoId)) return;
 
-    await putStemRecord(contentKey, {
-      vocals: vocalsBlob,
-      instrumental: instrumentalBlob,
-      framesDone: decoded.numFrames,
-      totalFrames: decoded.numFrames,
-    });
+    await putStemRecord(
+      contentKey,
+      {
+        vocals: vocalsBlob,
+        instrumental: instrumentalBlob,
+        framesDone: decoded.numFrames,
+        totalFrames: decoded.numFrames,
+      },
+      this.getCacheBudgetBytes()
+    );
     await setVideoIdAlias(videoId, contentKey);
     if (this.isStale(videoId)) return;
 
@@ -251,4 +290,4 @@ class TrackPipeline {
   }
 }
 
-export { TrackPipeline };
+export { TrackPipeline, fetchModelUrl };

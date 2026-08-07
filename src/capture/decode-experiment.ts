@@ -21,6 +21,7 @@ interface CaptureCounters {
 interface DecodeAttempt {
   attempted: boolean;
   success: boolean | null;
+  rms?: number | null;
   durationSeconds: number | null;
   channelCount: number | null;
   sampleRate: number | null;
@@ -50,11 +51,19 @@ function toOwnedArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 
 async function decodeBytes(
   bytes: Uint8Array
-): Promise<{ durationSeconds: number; channelCount: number; sampleRate: number }> {
+): Promise<{ durationSeconds: number; channelCount: number; sampleRate: number; rms: number }> {
   const context = new OfflineAudioContext(1, 1, 44100);
   const audioBuffer = await context.decodeAudioData(toOwnedArrayBuffer(bytes));
+  // Duration alone cannot tell a real decode from a silent one, and a silent
+  // decode is exactly what produced empty stems while every stage reported
+  // success.
+  const first = audioBuffer.getChannelData(0);
+  let sumOfSquares = 0;
+  for (let i = 0; i < first.length; i++) sumOfSquares += first[i] * first[i];
+  const rms = Math.sqrt(sumOfSquares / Math.max(1, first.length));
   return {
     durationSeconds: audioBuffer.duration,
+    rms,
     channelCount: audioBuffer.numberOfChannels,
     sampleRate: audioBuffer.sampleRate,
   };
@@ -66,6 +75,7 @@ async function attemptDecode(bytes: Uint8Array): Promise<DecodeAttempt> {
     return {
       attempted: true,
       success: true,
+      rms: decoded.rms,
       durationSeconds: decoded.durationSeconds,
       channelCount: decoded.channelCount,
       sampleRate: decoded.sampleRate,
