@@ -12,7 +12,7 @@ import type { CaptureAccumulator } from "@/capture/accumulator";
 import { isAdPlayingElement, MOVIE_PLAYER_ELEMENT_ID } from "@/capture/ad-guard";
 import type { SliceCapturedMessage } from "@/capture/bridge-protocol";
 import { concatenateChunks, planNaiveConcat } from "@/capture/decode-plan";
-import { bufferedRangeEnd, bufferedRangeStart, decideHop } from "@/capture/edge-hopper";
+import { bufferedRangeStart, decideHop } from "@/capture/edge-hopper";
 import { log, logError } from "@/capture/log";
 import { getVideoIdFromSearch } from "@/capture/video-id";
 import { callSafely, getYtPlayer, suppressAutoAdvance } from "@/capture/yt-player";
@@ -178,9 +178,14 @@ async function runSliceCapture(
     if (beyondCeiling && !video.paused) stopPlayback();
     else if (!beyondCeiling && video.paused) startPlayback();
 
-    cursor = Math.max(cursor, Math.min(video.currentTime, sliceEnd));
+    // Progress is what the player has PLAYED THROUGH, not what it reports as
+    // buffered. A seek can leave video.buffered advertising a range whose end
+    // already passes sliceEnd, so a buffered-based test declared slices done
+    // having captured almost nothing (66 KB and 19 KB against 1.4 MB). Anything
+    // played has necessarily been fetched, and therefore captured.
+    const playedTo = Math.max(cursor, video.currentTime);
     const decision = decideHop({
-      bufferedEnd: bufferedRangeEnd(video.buffered, cursor),
+      bufferedEnd: playedTo,
       cursor,
       sliceEnd,
       trackDuration: duration,
@@ -195,9 +200,9 @@ async function runSliceCapture(
     }
 
     if (decision.action === "seek") {
+      // Playback advances the position on its own; only the bookkeeping moves.
       cursor = decision.cursor;
       stalls = 0;
-      seekTo(decision.to);
     } else if (decision.action === "nudge") {
       stalls++;
       seekTo(decision.to);

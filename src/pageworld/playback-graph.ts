@@ -32,6 +32,10 @@ interface PlaybackGraph {
   setMixLevel(mixLevel: number): void;
   stopStems(): void;
   isEngaged(): boolean;
+  // Detaches the transport listeners and drops the retained stems. A graph that
+  // is discarded without this keeps its listeners on the media element, and each
+  // one restarts the stem sources: audible karaoke with no graph to control it.
+  dispose(): void;
   // Reports what actually reached Web Audio rather than what the pipeline
   // believes it sent. A bypassed graph and a graph fed silence both present as
   // "karaoke is on" everywhere else; only these numbers tell them apart.
@@ -166,6 +170,18 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     bypass.enterBypass();
   }
 
+  function dispose(): void {
+    stopActiveSources();
+    loadedStems = null;
+    if (!transportAttached) return;
+    transportAttached = false;
+    element.removeEventListener("play", syncToElement);
+    element.removeEventListener("playing", syncToElement);
+    element.removeEventListener("pause", stopActiveSources);
+    element.removeEventListener("seeked", syncToElement);
+    element.removeEventListener("ratechange", syncToElement);
+  }
+
   function describe(): GraphState {
     // Report the retained stems, not the live source: sources are torn down and
     // rebuilt on every pause and seek, so a paused graph still has stems loaded.
@@ -194,6 +210,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     setMixLevel,
     stopStems,
     isEngaged: () => !bypass.isBypassed(),
+    dispose,
     describe,
   };
 }

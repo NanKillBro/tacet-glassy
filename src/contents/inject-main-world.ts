@@ -115,6 +115,9 @@ function ensureGraph(): Promise<PlaybackGraph | null> {
       }), rebuilding against the audible one`
     );
     cachedGraph.stopStems();
+    // dispose, not just stop: a discarded graph's transport listeners keep
+    // restarting its stem sources, which plays karaoke that nothing can control.
+    cachedGraph.dispose();
     cachedGraph = null;
     cachedElement = null;
   }
