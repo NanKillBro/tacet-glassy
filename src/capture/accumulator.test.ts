@@ -133,6 +133,64 @@ describe("createCaptureAccumulator", () => {
     });
   });
 
+  describe("standing down", () => {
+    it("drops what it was holding", () => {
+      const accumulator = createCaptureAccumulator(1024);
+      accumulator.setActiveVideoId("song-a");
+      accumulator.addChunk("audio/mp4", ftypBytes());
+      accumulator.addChunk("audio/mp4", moofBytes());
+
+      accumulator.standDown();
+
+      expect(accumulator.getChunks()).toHaveLength(0);
+      expect(accumulator.getStats().stoodDown).toBe(true);
+    });
+
+    it("retains nothing further for the same track", () => {
+      const accumulator = createCaptureAccumulator(1024);
+      accumulator.setActiveVideoId("song-a");
+      accumulator.standDown();
+
+      expect(accumulator.addChunk("audio/mp4", moofBytes())).toBe("stood-down");
+      expect(accumulator.getChunks()).toHaveLength(0);
+    });
+
+    // The stream stays observable even when none of it is kept, so a stood-down
+    // track can still be told apart from one the player never fetched at all.
+    it("keeps counting the stream it is no longer keeping", () => {
+      const accumulator = createCaptureAccumulator(1024);
+      accumulator.setActiveVideoId("song-a");
+      accumulator.standDown();
+      accumulator.addChunk("audio/mp4", bytes(12));
+
+      const stats = accumulator.getStats();
+      expect(stats.appendCount).toBe(1);
+      expect(stats.totalBytes).toBe(12);
+      expect(stats.retainedChunkCount).toBe(0);
+    });
+
+    it("re-arms on a track change", () => {
+      const accumulator = createCaptureAccumulator(1024);
+      accumulator.setActiveVideoId("song-a");
+      accumulator.standDown();
+      accumulator.setActiveVideoId("song-b");
+
+      expect(accumulator.getStats().stoodDown).toBe(false);
+      expect(accumulator.addChunk("audio/mp4", moofBytes())).toBe("added");
+    });
+
+    it("is idempotent", () => {
+      const accumulator = createCaptureAccumulator(1024);
+      accumulator.setActiveVideoId("song-a");
+      accumulator.addChunk("audio/mp4", moofBytes());
+      accumulator.standDown();
+      accumulator.standDown();
+
+      expect(accumulator.getStats().stoodDown).toBe(true);
+      expect(accumulator.getChunks()).toHaveLength(0);
+    });
+  });
+
   describe("edge cases", () => {
     it("addChunk works before any video id has been set", () => {
       const accumulator = createCaptureAccumulator(1024);
@@ -154,6 +212,7 @@ describe("createCaptureAccumulator", () => {
         retainedChunkCount: 0,
         initSegmentCount: 0,
         hitCap: false,
+        stoodDown: false,
       });
     });
 

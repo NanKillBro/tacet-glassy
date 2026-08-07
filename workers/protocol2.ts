@@ -221,6 +221,7 @@ export function isTrackErrorMessage(data: unknown): data is TrackErrorMessage {
 }
 
 export type TrackPipelineOutboundMessage =
+  | CacheHitMessage
   | TrackStageMessage
   | TrackProgressMessage
   | StemChunkMessage
@@ -357,6 +358,25 @@ export function isProbeCacheCommand(data: unknown): data is ProbeCacheCommand {
     typeof data === "object" &&
     data !== null &&
     (data as { type?: unknown }).type === "blk-probe-cache" &&
+    typeof (data as { videoId?: unknown }).videoId === "string"
+  );
+}
+
+// The probe's answer, sent before the stems it found. The tab is sitting in
+// "waiting for capture" at that point, and stem chunks alone do not move it:
+// this is what tells it to take delivery from the cache instead, and to stand
+// the capture down so a track that is already separated is never captured,
+// uploaded or separated a second time.
+export interface CacheHitMessage {
+  type: "blk-cache-hit";
+  videoId: string;
+}
+
+export function isCacheHitMessage(data: unknown): data is CacheHitMessage {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: unknown }).type === "blk-cache-hit" &&
     typeof (data as { videoId?: unknown }).videoId === "string"
   );
 }

@@ -76,6 +76,40 @@ describe("capture-ready", () => {
   });
 });
 
+describe("cache-hit", () => {
+  it("moves waiting-for-capture straight to processing, skipping engagement", () => {
+    const next = reduceKaraokeState(initialKaraokeState("video-1"), { type: "cache-hit", videoId: "video-1" });
+    expect(next.status).toBe("processing");
+    expect(next.stage).toBe("checking-cache");
+  });
+
+  it("is ignored for a videoId that is not the current track", () => {
+    const state = initialKaraokeState("video-1");
+    const next = reduceKaraokeState(state, { type: "cache-hit", videoId: "video-2" });
+    expect(next).toBe(state);
+  });
+
+  // The separation path checks the same cache and delivers the same stems, so a
+  // hit that lands after the user has already engaged has nothing left to do.
+  it("is ignored once the user has already engaged", () => {
+    let state = reduceKaraokeState(initialKaraokeState("video-1"), { type: "capture-ready", videoId: "video-1" });
+    state = reduceKaraokeState(state, { type: "engage", videoId: "video-1" });
+    const again = reduceKaraokeState(state, { type: "cache-hit", videoId: "video-1" });
+    expect(again).toBe(state);
+  });
+
+  it("is idempotent", () => {
+    const hit = reduceKaraokeState(initialKaraokeState("video-1"), { type: "cache-hit", videoId: "video-1" });
+    expect(reduceKaraokeState(hit, { type: "cache-hit", videoId: "video-1" })).toBe(hit);
+  });
+
+  it("reaches engaged once the cached stems load", () => {
+    const hit = reduceKaraokeState(initialKaraokeState("video-1"), { type: "cache-hit", videoId: "video-1" });
+    const loaded = reduceKaraokeState(hit, { type: "stems-loaded", videoId: "video-1" });
+    expect(loaded.status).toBe("engaged");
+  });
+});
+
 describe("engage", () => {
   function readyState(): KaraokeState {
     return reduceKaraokeState(initialKaraokeState("video-1"), { type: "capture-ready", videoId: "video-1" });
@@ -235,6 +269,7 @@ describe("invariants", () => {
     const state = initialKaraokeState("video-1");
     for (const event of [
       { type: "capture-ready" as const, videoId: "other" },
+      { type: "cache-hit" as const, videoId: "other" },
       { type: "engage" as const, videoId: "other" },
       { type: "stems-loaded" as const, videoId: "other" },
       { type: "failed" as const, videoId: "other", reason: "x" },

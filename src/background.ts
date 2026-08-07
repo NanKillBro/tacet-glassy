@@ -7,6 +7,7 @@ import {
   type SettingsChangedMessage,
   type SettingsMessage,
   type TrackPipelineOutboundMessage,
+  isCacheHitMessage,
   isCaptureChunkMessage,
   isProbeCacheCommand,
   isClearModelCacheCommand,
@@ -122,6 +123,7 @@ const tabIdByVideoId = new Map<string, number>();
 
 function isTrackPipelineOutboundMessage(message: unknown): message is TrackPipelineOutboundMessage {
   return (
+    isCacheHitMessage(message) ||
     isTrackStageMessage(message) ||
     isTrackProgressMessage(message) ||
     isStemChunkMessage(message) ||

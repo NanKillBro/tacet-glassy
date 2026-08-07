@@ -173,6 +173,9 @@ class TrackPipeline {
     if (!record || this.isStale(videoId)) return false;
     if (decideCacheLookup(record, null) !== "alias-hit") return false;
 
+    // Before the stems, not after: the tab is waiting on a capture that is
+    // never going to be needed, and only this moves it over to taking delivery.
+    post({ type: "blk-cache-hit", videoId });
     this.sendStage(videoId, "checking-cache");
     await this.deliver(videoId, record);
     return true;

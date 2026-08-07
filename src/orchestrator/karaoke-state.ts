@@ -26,6 +26,7 @@ interface KaraokeState {
 type KaraokeEvent =
   | { type: "track-changed"; videoId: string }
   | { type: "capture-ready"; videoId: string }
+  | { type: "cache-hit"; videoId: string }
   | { type: "engage"; videoId: string }
   | { type: "stage"; videoId: string; stage: string }
   | { type: "progress"; videoId: string; processed: number; total: number }
@@ -55,6 +56,15 @@ function reduceKaraokeState(state: KaraokeState, event: KaraokeEvent): KaraokeSt
   switch (event.type) {
     case "capture-ready":
       return state.status === "waiting-for-capture" ? { ...state, status: "ready-to-engage" } : state;
+
+    // Stems already exist, so this track skips capture and engagement entirely
+    // and goes straight to taking delivery. Only from waiting-for-capture: a hit
+    // that arrives after the user has already engaged changes nothing, since the
+    // separation path checks the same cache and delivers the same stems.
+    case "cache-hit":
+      return state.status === "waiting-for-capture"
+        ? { ...state, status: "processing", stage: "checking-cache" }
+        : state;
 
     case "engage":
       return state.status === "ready-to-engage" ? { ...state, status: "processing" } : state;

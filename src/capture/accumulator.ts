@@ -24,15 +24,21 @@ interface CaptureStats {
   retainedChunkCount: number;
   initSegmentCount: number;
   hitCap: boolean;
+  stoodDown: boolean;
 }
 
-type AddChunkResult = "added" | "cap-hit" | "cap-already-hit";
+type AddChunkResult = "added" | "cap-hit" | "cap-already-hit" | "stood-down";
 
 interface CaptureAccumulator {
   setActiveVideoId(videoId: string): boolean;
   addChunk(mimeType: string, bytes: Uint8Array): AddChunkResult;
   getChunks(): CaptureChunk[];
   getStats(): CaptureStats;
+  // Drops what is retained and stops retaining anything further for the track
+  // now active, for when its stems have already been served from the cache.
+  // Counters keep running, so the stream is still observable; only the memory
+  // goes. A track change re-arms retention by itself.
+  standDown(): void;
 }
 
 function createCaptureAccumulator(maxRetainedBytes: number = DEFAULT_MAX_RETAINED_BYTES): CaptureAccumulator {
@@ -42,6 +48,7 @@ function createCaptureAccumulator(maxRetainedBytes: number = DEFAULT_MAX_RETAINE
   let appendCount = 0;
   let totalBytes = 0;
   let hitCap = false;
+  let stoodDown = false;
   const mimeTypes = new Set<string>();
 
   function resetState(): void {
@@ -50,6 +57,7 @@ function createCaptureAccumulator(maxRetainedBytes: number = DEFAULT_MAX_RETAINE
     appendCount = 0;
     totalBytes = 0;
     hitCap = false;
+    stoodDown = false;
     mimeTypes.clear();
   }
 
@@ -65,6 +73,7 @@ function createCaptureAccumulator(maxRetainedBytes: number = DEFAULT_MAX_RETAINE
     totalBytes += bytes.byteLength;
     mimeTypes.add(mimeType);
 
+    if (stoodDown) return "stood-down";
     if (hitCap) return "cap-already-hit";
 
     if (retainedBytes + bytes.byteLength > maxRetainedBytes) {
@@ -81,6 +90,12 @@ function createCaptureAccumulator(maxRetainedBytes: number = DEFAULT_MAX_RETAINE
     return chunks.slice();
   }
 
+  function standDown(): void {
+    stoodDown = true;
+    chunks = [];
+    retainedBytes = 0;
+  }
+
   function getStats(): CaptureStats {
     return {
       videoId,
@@ -90,10 +105,11 @@ function createCaptureAccumulator(maxRetainedBytes: number = DEFAULT_MAX_RETAINE
       retainedChunkCount: chunks.length,
       initSegmentCount: chunks.filter(chunk => chunk.isInitSegment).length,
       hitCap,
+      stoodDown,
     };
   }
 
-  return { setActiveVideoId, addChunk, getChunks, getStats };
+  return { setActiveVideoId, addChunk, getChunks, getStats, standDown };
 }
 
 export { DEFAULT_MAX_RETAINED_BYTES, createCaptureAccumulator };

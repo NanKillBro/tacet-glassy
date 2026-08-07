@@ -29,6 +29,15 @@ export interface CaptureReadyMessage {
   videoId: string;
 }
 
+// Sent when this track's stems came out of the cache. Capture cannot stop the
+// player fetching audio, but it can stop retaining it: without this a separated
+// track still fills the accumulator on every replay and still announces itself
+// as ready, which re-uploads and re-separates what is already cached.
+export interface CaptureStandDownMessage {
+  type: "blk-capture-stand-down";
+  videoId: string;
+}
+
 export interface DownloadProgressMessage {
   type: "blk-download-progress";
   videoId: string;
@@ -88,6 +97,15 @@ export function isCapturedAudioUnavailableMessage(data: unknown): data is Captur
     (data as { type?: unknown }).type === "blk-captured-audio-unavailable" &&
     typeof (data as { videoId?: unknown }).videoId === "string" &&
     typeof (data as { reason?: unknown }).reason === "string"
+  );
+}
+
+export function isCaptureStandDownMessage(data: unknown): data is CaptureStandDownMessage {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: unknown }).type === "blk-capture-stand-down" &&
+    typeof (data as { videoId?: unknown }).videoId === "string"
   );
 }
 

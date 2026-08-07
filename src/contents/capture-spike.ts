@@ -7,7 +7,7 @@ import type {
   CapturedAudioUnavailableMessage,
   DownloadProgressMessage,
 } from "@/capture/bridge-protocol";
-import { isRequestCapturedAudioMessage } from "@/capture/bridge-protocol";
+import { isCaptureStandDownMessage, isRequestCapturedAudioMessage } from "@/capture/bridge-protocol";
 import { computeBufferedFraction } from "@/capture/buffered-fraction";
 import { concatenateChunks, planNaiveConcat } from "@/capture/decode-plan";
 import { runCaptureDecodeExperiment } from "@/capture/decode-experiment";
@@ -54,10 +54,18 @@ function isAdPlaying(): boolean {
   return isAdPlayingElement(document.getElementById(MOVIE_PLAYER_ELEMENT_ID));
 }
 
+// Tracks whose stems came out of the cache. Nothing here needs capturing: the
+// bytes are retained for nothing, and announcing them as ready would re-upload
+// and re-separate a track that is already done.
+const stoodDownVideoIds = new Set<string>();
+
 function onAudioChunk(mimeType: string, bytes: Uint8Array): void {
   const videoId = getVideoIdFromSearch(window.location.search);
   if (videoId !== null && accumulator.setActiveVideoId(videoId)) {
     log(`capture reset for videoId=${videoId}`);
+    // A reset re-arms retention, so a track stood down earlier in this session
+    // has to stand down again when it comes back around.
+    if (stoodDownVideoIds.has(videoId)) accumulator.standDown();
   }
 
   const result = accumulator.addChunk(mimeType, bytes);
@@ -132,6 +140,7 @@ function announceKey(videoId: string, durationSeconds: number): string {
 function announceIfCaptureComplete(element: HTMLVideoElement): void {
   const stats = accumulator.getStats();
   if (!stats.videoId || stats.retainedChunkCount === 0) return;
+  if (stoodDownVideoIds.has(stats.videoId)) return;
   if (isAdPlaying()) return;
   if (!Number.isFinite(element.duration)) return;
 
@@ -157,7 +166,7 @@ function bufferedEndSeconds(element: HTMLVideoElement): number {
 
 function announceDownloadProgress(element: HTMLVideoElement): void {
   const videoId = getVideoIdFromSearch(window.location.search);
-  if (!videoId || isAdPlaying()) return;
+  if (!videoId || stoodDownVideoIds.has(videoId) || isAdPlaying()) return;
   const fraction = computeBufferedFraction(bufferedEndSeconds(element), element.duration);
   const message: DownloadProgressMessage = { type: "blk-download-progress", videoId, fraction };
   window.postMessage(message, window.location.origin);
@@ -247,10 +256,20 @@ function respondToCapturedAudioRequest(videoId: string): void {
   log(`captured-audio sent for videoId=${videoId}, bytes=${bytes.byteLength}`);
 }
 
+function standDownFor(videoId: string): void {
+  if (stoodDownVideoIds.has(videoId)) return;
+  stoodDownVideoIds.add(videoId);
+  if (accumulator.getStats().videoId !== videoId) return;
+  const retainedBefore = accumulator.getStats().retainedChunkCount;
+  accumulator.standDown();
+  log(`capture stood down for videoId=${videoId}, dropped ${retainedBefore} retained chunk(s)`);
+}
+
 window.addEventListener("message", event => {
   if (event.source !== window || event.origin !== window.location.origin) return;
   const data: unknown = event.data;
   if (isRequestCapturedAudioMessage(data)) respondToCapturedAudioRequest(data.videoId);
+  if (isCaptureStandDownMessage(data)) standDownFor(data.videoId);
 });
 
 declare global {

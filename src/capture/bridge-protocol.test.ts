@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import {
   isCaptureReadyMessage,
+  isCaptureStandDownMessage,
   isCapturedAudioMessage,
   isCapturedAudioUnavailableMessage,
   isRequestCapturedAudioMessage,
 } from "@/capture/bridge-protocol";
 import type {
   CaptureReadyMessage,
+  CaptureStandDownMessage,
   CapturedAudioMessage,
   CapturedAudioUnavailableMessage,
   RequestCapturedAudioMessage,
@@ -49,6 +51,11 @@ describe("capture bridge protocol", () => {
     expect(isCaptureReadyMessage(structuredClone(message))).toBe(true);
   });
 
+  it("round-trips blk-capture-stand-down", () => {
+    const message: CaptureStandDownMessage = { type: "blk-capture-stand-down", videoId: "abc123" };
+    expect(isCaptureStandDownMessage(structuredClone(message))).toBe(true);
+  });
+
   describe("edge cases", () => {
     it("rejects null, primitives, and unrelated objects", () => {
       expect(isRequestCapturedAudioMessage(null)).toBe(false);
@@ -59,6 +66,12 @@ describe("capture bridge protocol", () => {
 
     it("rejects a request message missing videoId", () => {
       expect(isRequestCapturedAudioMessage({ type: "blk-request-captured-audio" })).toBe(false);
+    });
+
+    it("rejects a stand-down message missing videoId, and does not confuse it with capture-ready", () => {
+      expect(isCaptureStandDownMessage({ type: "blk-capture-stand-down" })).toBe(false);
+      expect(isCaptureStandDownMessage({ type: "blk-capture-ready", videoId: "abc123" })).toBe(false);
+      expect(isCaptureReadyMessage({ type: "blk-capture-stand-down", videoId: "abc123" })).toBe(false);
     });
 
     it("rejects a captured-audio message whose bytes are not an ArrayBuffer", () => {

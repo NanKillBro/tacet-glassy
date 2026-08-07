@@ -10,6 +10,7 @@
 // pure and independently tested; this module is the impure glue around it.
 
 import {
+  type CaptureStandDownMessage,
   type RequestCapturedAudioMessage,
   isCaptureReadyMessage,
   isCapturedAudioMessage,
@@ -31,6 +32,7 @@ import type {
   StemChunkMessage,
 } from "../../workers/protocol2";
 import {
+  isCacheHitMessage,
   isStemChunkMessage,
   isTrackDoneMessage,
   isTrackErrorMessage,
@@ -72,7 +74,11 @@ function currentVideoId(): string | null {
 }
 
 function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline {
-  let state: KaraokeState = initialKaraokeState(currentVideoId() ?? "");
+  // Deliberately empty rather than the current videoId. checkTrackChange below
+  // is what sends the cache probe, and it only fires on a change, so starting
+  // at the real videoId made a page load look like no change at all: a reload
+  // of an already-separated track never asked the cache and captured it again.
+  let state: KaraokeState = initialKaraokeState("");
   let pendingMixLevel = NEUTRAL_MIX_LEVEL;
   let vocalsAssembler: ChunkAssembler | null = null;
   let instrumentalAssembler: ChunkAssembler | null = null;
@@ -98,7 +104,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   }
 
   function postToPageWorld(
-    message: SetMixLevelMessage | LoadStemsMessage | StopStemsMessage,
+    message: SetMixLevelMessage | LoadStemsMessage | StopStemsMessage | CaptureStandDownMessage,
     transfer?: Transferable[]
   ): void {
     window.postMessage(message, window.location.origin, transfer);
@@ -127,11 +133,14 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
 
     resetStemAssembly();
     dispatch({ type: "track-changed", videoId });
+    probeCacheFor(videoId);
+  }
 
-    // Ask straight away whether this track has already been separated. The
-    // cache lookup used to live only inside the capture-completion path, so a
-    // track had to be fully re-captured before the extension would even look,
-    // and cached stems were therefore never used at all.
+  // Asks straight away whether this track has already been separated. The cache
+  // lookup used to live only inside the capture-completion path, so a track had
+  // to be fully re-captured before the extension would even look, and cached
+  // stems were therefore never used at all.
+  function probeCacheFor(videoId: string): void {
     const probe: ProbeCacheCommand = { type: "blk-probe-cache", videoId };
     chrome.runtime.sendMessage(probe).catch(error => logError("failed to send cache probe", error));
   }
@@ -253,6 +262,16 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   }
 
   function onRuntimeMessage(message: unknown): void {
+    if (isCacheHitMessage(message)) {
+      log(`cached stems found for ${message.videoId}, capture is not needed`);
+      dispatch({ type: "cache-hit", videoId: message.videoId });
+      postToPageWorld({ type: "blk-capture-stand-down", videoId: message.videoId });
+      // The relay from the offscreen document runs through background and does
+      // not guarantee ordering, so the stems can already be complete by the time
+      // the hit itself lands. Without this they would sit assembled and unused.
+      finishStemsIfReady(message.videoId);
+      return;
+    }
     if (isTrackStageMessage(message)) {
       log(`stage for ${message.videoId}: ${message.stage}`);
       dispatch({ type: "stage", videoId: message.videoId, stage: message.stage });
