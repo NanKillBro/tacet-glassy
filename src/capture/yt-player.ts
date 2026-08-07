@@ -8,12 +8,12 @@
 // optional and called through a guard, since this is an undocumented surface
 // that YouTube is free to change.
 
+import { MOVIE_PLAYER_ELEMENT_ID } from "@/capture/ad-guard";
 import type { PlayerVideoData } from "@/capture/ad-guard";
-
-const MOVIE_PLAYER_ID = "movie_player";
 
 interface YtPlayer {
   getVideoData?: () => PlayerVideoData;
+  getDuration?: () => number;
   playVideo?: () => void;
   pauseVideo?: () => void;
   seekTo?: (seconds: number, allowSeekAhead?: boolean) => void;
@@ -29,7 +29,7 @@ interface YtPlayer {
 const PLAYER_STATE_PLAYING = 1;
 
 function getYtPlayer(doc: Document): YtPlayer | null {
-  const element = doc.getElementById(MOVIE_PLAYER_ID);
+  const element = doc.getElementById(MOVIE_PLAYER_ELEMENT_ID);
   return element ? (element as unknown as YtPlayer) : null;
 }
 

@@ -16,8 +16,12 @@ export interface SetMixLevelMessage {
   mixLevel: number;
 }
 
+// videoId is what binds these stems to an element: the page world asks the
+// player which track it is on rather than comparing durations, which cannot
+// tell two recordings of the same length apart.
 export interface LoadStemsMessage {
   type: "blk-load-stems";
+  videoId: string;
   vocals: Float32Array<ArrayBuffer>[];
   instrumental: Float32Array<ArrayBuffer>[];
   sampleRate: number;
@@ -47,6 +51,7 @@ export function isLoadStemsMessage(data: unknown): data is LoadStemsMessage {
     typeof data === "object" &&
     data !== null &&
     (data as { type?: unknown }).type === "blk-load-stems" &&
+    typeof (data as { videoId?: unknown }).videoId === "string" &&
     isFloat32ArrayList((data as { vocals?: unknown }).vocals) &&
     isFloat32ArrayList((data as { instrumental?: unknown }).instrumental) &&
     typeof (data as { sampleRate?: unknown }).sampleRate === "number"

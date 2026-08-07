@@ -18,13 +18,20 @@ describe("audio bridge protocol", () => {
   it("round-trips blk-load-stems with its buffers transferred, not copied", () => {
     const vocals = [new Float32Array([1, 2, 3]), new Float32Array([4, 5, 6])];
     const instrumental = [new Float32Array([7, 8, 9]), new Float32Array([10, 11, 12])];
-    const message: LoadStemsMessage = { type: "blk-load-stems", vocals, instrumental, sampleRate: 48000 };
+    const message: LoadStemsMessage = {
+      type: "blk-load-stems",
+      videoId: "abc123",
+      vocals,
+      instrumental,
+      sampleRate: 48000,
+    };
     const transferList = [...vocals, ...instrumental].map(channel => channel.buffer);
 
     const cloned = structuredClone(message, { transfer: transferList });
 
     expect(isLoadStemsMessage(cloned)).toBe(true);
     if (!isLoadStemsMessage(cloned)) throw new Error("unreachable");
+    expect(cloned.videoId).toBe("abc123");
     expect(Array.from(cloned.vocals[0])).toEqual([1, 2, 3]);
     expect(Array.from(cloned.instrumental[1])).toEqual([10, 11, 12]);
     expect(cloned.sampleRate).toBe(48000);
@@ -53,17 +60,35 @@ describe("audio bridge protocol", () => {
     });
 
     it("rejects a load-stems message whose channel arrays are not Float32Array", () => {
-      const malformed = { type: "blk-load-stems", vocals: [[1, 2, 3]], instrumental: [], sampleRate: 48000 };
+      const malformed = {
+        type: "blk-load-stems",
+        videoId: "abc123",
+        vocals: [[1, 2, 3]],
+        instrumental: [],
+        sampleRate: 48000,
+      };
       expect(isLoadStemsMessage(malformed)).toBe(false);
     });
 
     it("rejects a load-stems message missing sampleRate", () => {
-      const malformed = { type: "blk-load-stems", vocals: [new Float32Array()], instrumental: [new Float32Array()] };
+      const malformed = {
+        type: "blk-load-stems",
+        videoId: "abc123",
+        vocals: [new Float32Array()],
+        instrumental: [new Float32Array()],
+      };
+      expect(isLoadStemsMessage(malformed)).toBe(false);
+    });
+
+    // Without it the page world cannot tell which track these stems belong to,
+    // and binding them to the wrong element is a permanent mistake.
+    it("rejects a load-stems message missing videoId", () => {
+      const malformed = { type: "blk-load-stems", vocals: [], instrumental: [], sampleRate: 48000 };
       expect(isLoadStemsMessage(malformed)).toBe(false);
     });
 
     it("an empty channel list is still a valid (if silent) load-stems message", () => {
-      const message = { type: "blk-load-stems", vocals: [], instrumental: [], sampleRate: 48000 };
+      const message = { type: "blk-load-stems", videoId: "abc123", vocals: [], instrumental: [], sampleRate: 48000 };
       expect(isLoadStemsMessage(message)).toBe(true);
     });
 

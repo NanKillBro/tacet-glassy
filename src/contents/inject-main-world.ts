@@ -4,6 +4,7 @@ import { decideEngagement } from "@/pageworld/engagement";
 import type { TargetPosition } from "@/pageworld/engagement";
 import { createPlaybackGraph } from "@/pageworld/playback-graph";
 import type { PlaybackGraph } from "@/pageworld/playback-graph";
+import { currentPlayerSnapshot, playerVideoElement } from "@/pageworld/player-state";
 import { isLoadStemsMessage, isSetMixLevelMessage, isStopStemsMessage } from "@/pageworld/protocol";
 
 // -- Page-world audio graph --------------------------------------------------
@@ -25,12 +26,10 @@ export const config: PlasmoCSConfig = {
   world: "MAIN",
 };
 
-// How often the binding is re-checked, and how far a duration may sit from the
-// stems' and still be the same recording.
 const RECONCILE_INTERVAL_MS = 1000;
-const DURATION_TOLERANCE_S = 2;
 
 interface LoadedStems {
+  videoId: string;
   vocals: Float32Array<ArrayBuffer>[];
   instrumental: Float32Array<ArrayBuffer>[];
   sampleRate: number;
@@ -43,25 +42,19 @@ let acquiring: Promise<PlaybackGraph | null> | null = null;
 let pendingMixLevel = 1;
 let pendingStems: LoadedStems | null = null;
 
-// YouTube Music runs more than one <video> and only one decodes audio. A graph
-// on the silent one routes nothing while every log still reports success.
 console.log("[BLK-PAGE] karaoke page world ready, build 0.0.3");
 
 function decodedBytes(element: HTMLMediaElement): number {
   return (element as HTMLMediaElement & { webkitAudioDecodedByteCount?: number }).webkitAudioDecodedByteCount ?? 0;
 }
 
-function audibleElement(): HTMLMediaElement | null {
-  const candidates = Array.from(document.querySelectorAll("video"));
-  return candidates.find(candidate => candidate.isConnected && decodedBytes(candidate) > 0) ?? null;
-}
-
-// A preroll is audible, connected and decoding, so every other test calls it
-// the real thing. The stems' own length is what excludes it.
+// The player names the track it is on, so a preroll, a queue advance and a
+// second recording of the same length are all excluded by the same test.
 function elementForStems(stems: LoadedStems): HTMLMediaElement | null {
-  const audible = audibleElement();
-  if (!audible || !Number.isFinite(audible.duration)) return null;
-  return Math.abs(audible.duration - stems.durationSeconds) <= DURATION_TOLERANCE_S ? audible : null;
+  const snapshot = currentPlayerSnapshot(document);
+  if (!snapshot || snapshot.videoId !== stems.videoId) return null;
+  const element = playerVideoElement(document);
+  return element?.isConnected ? element : null;
 }
 
 declare global {
@@ -71,14 +64,17 @@ declare global {
 }
 
 window.blkKaraokeProbe = () => {
-  const audible = audibleElement();
+  const snapshot = currentPlayerSnapshot(document);
+  const element = playerVideoElement(document);
   return {
     hasGraph: cachedGraph !== null,
     stemsPending: pendingStems !== null,
+    stemsVideoId: pendingStems?.videoId ?? null,
     stemDurationSeconds: pendingStems ? +pendingStems.durationSeconds.toFixed(2) : null,
-    audibleDurationSeconds: audible && Number.isFinite(audible.duration) ? +audible.duration.toFixed(2) : null,
+    playerVideoId: snapshot?.videoId ?? null,
+    playerDurationSeconds: snapshot ? +snapshot.durationSeconds.toFixed(2) : null,
     audibleElementDecodedBytes: cachedElement ? decodedBytes(cachedElement) : 0,
-    boundToAudibleElement: cachedElement !== null && cachedElement === audible,
+    boundToPlayerElement: cachedElement !== null && cachedElement === element,
     graph: cachedGraph?.describe() ?? null,
   };
 };
@@ -194,9 +190,10 @@ window.addEventListener("message", event => {
   if (isLoadStemsMessage(data)) {
     const durationSeconds = (data.vocals[0]?.length ?? 0) / data.sampleRate;
     console.log(
-      `[BLK-PAGE] load-stems received, sampleRate=${data.sampleRate}, channels=${data.vocals.length}, duration=${durationSeconds.toFixed(1)}s`
+      `[BLK-PAGE] load-stems received for videoId=${data.videoId}, sampleRate=${data.sampleRate}, channels=${data.vocals.length}, duration=${durationSeconds.toFixed(1)}s`
     );
     pendingStems = {
+      videoId: data.videoId,
       vocals: data.vocals,
       instrumental: data.instrumental,
       sampleRate: data.sampleRate,

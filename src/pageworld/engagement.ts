@@ -1,8 +1,8 @@
 // Decides whether loaded stems engage, hold, or come off the element they are
 // bound to. A spurious teardown rebuilds the AudioContext, and rebuilding it
 // every second wedges playback, so "no target" means "cannot tell right now"
-// and never "wrong element": an element reads zero decoded bytes for a moment
-// after being claimed, and a bound graph must survive that.
+// and never "wrong element": the player reports no track at all while it is
+// loading one or running an ad, and a bound graph must survive that.
 
 type GraphPresence = "none" | "bound";
 

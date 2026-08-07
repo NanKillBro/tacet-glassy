@@ -251,6 +251,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
         const transfer = [...vocals.channels, ...instrumental.channels].map(channel => channel.buffer);
         const message: LoadStemsMessage = {
           type: "blk-load-stems",
+          videoId,
           vocals: vocals.channels,
           instrumental: instrumental.channels,
           sampleRate: vocals.sampleRate,
