@@ -444,6 +444,12 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
   // -- Track: drag, double-click reset, keys -------------------------------------
 
   track.addEventListener("pointerdown", event => {
+    // setPointerCapture retargets pointer events but not the legacy mouse ones
+    // the drag-and-drop machinery runs on, so without this the browser starts
+    // dragging whatever image the pointer crosses and takes the gesture with it.
+    // preventDefault also suppresses the focus that keyboard control needs.
+    event.preventDefault();
+    track.focus();
     track.setPointerCapture(event.pointerId);
 
     function apply(pointerEvent: PointerEvent): void {
