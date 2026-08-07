@@ -14,3 +14,4 @@ function injectScript(fileName: string): void {
 }
 
 injectScript("assets/pageWorld.js");
+injectScript("assets/pageWorldSpike2.js");

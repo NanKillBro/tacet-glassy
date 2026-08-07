@@ -18,5 +18,13 @@
     }
   },
   "include": [".plasmo/index.d.ts", "**/*"],
-  "exclude": ["node_modules", "build", "assets/separator.js", "assets/protocol.js"]
+  "exclude": [
+    "node_modules",
+    "build",
+    "assets/separator.js",
+    "assets/protocol.js",
+    "assets/protocol2.js",
+    "assets/pageWorldSpike2.js",
+    "assets/offscreen.js"
+  ]
 }

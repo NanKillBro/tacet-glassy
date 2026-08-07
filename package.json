@@ -20,16 +20,25 @@
     "@biomejs/biome": "1.8.3",
     "@types/chrome": "^0.2.5",
     "@types/node": "^22.19.6",
+    "@types/trusted-types": "^2.0.7",
     "fake-indexeddb": "^6.2.5",
     "typescript": "^5.9.3",
     "vitest": "^4.1.10"
   },
   "manifest": {
     "host_permissions": ["https://music.youtube.com/*"],
-    "permissions": ["storage"],
+    "permissions": ["storage", "offscreen"],
     "web_accessible_resources": [
       {
-        "resources": ["assets/ort/*", "assets/pageWorld.js", "assets/separator.js", "assets/protocol.js"],
+        "resources": [
+          "assets/ort/*",
+          "assets/pageWorld.js",
+          "assets/pageWorldSpike2.js",
+          "assets/separator.js",
+          "assets/protocol.js",
+          "assets/protocol2.js",
+          "assets/offscreen.*"
+        ],
         "matches": ["https://music.youtube.com/*"]
       }
     ]
