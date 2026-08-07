@@ -25,21 +25,29 @@ interface ChunkAssembler {
   addChunk(index: number, total: number, data: string): void;
   isComplete(): boolean;
   assemble(): string;
+  reset(): void;
 }
 
 function createChunkAssembler(): ChunkAssembler {
   const parts = new Map<number, string>();
   let expectedTotal: number | null = null;
 
+  // A differing total means a NEW transfer, not a corrupt one. Re-engaging the
+  // same track, or a retry after a failure, produces a second transfer whose
+  // chunk count rarely matches the first. Treating that as corruption left the
+  // assembler permanently poisoned by the abandoned transfer's chunks.
   function addChunk(index: number, total: number, data: string): void {
-    if (expectedTotal !== null && total !== expectedTotal) {
-      throw new Error(`chunk-transfer: inconsistent total, expected ${expectedTotal}, got ${total}`);
-    }
     if (index < 0 || index >= total) {
       throw new Error(`chunk-transfer: chunk index ${index} out of range for total ${total}`);
     }
+    if (expectedTotal !== null && total !== expectedTotal) parts.clear();
     expectedTotal = total;
     parts.set(index, data);
+  }
+
+  function reset(): void {
+    parts.clear();
+    expectedTotal = null;
   }
 
   function isComplete(): boolean {
@@ -55,7 +63,7 @@ function createChunkAssembler(): ChunkAssembler {
     return result;
   }
 
-  return { addChunk, isComplete, assemble };
+  return { addChunk, isComplete, assemble, reset };
 }
 
 export { DEFAULT_CHUNK_CHARS, splitIntoChunks, createChunkAssembler };

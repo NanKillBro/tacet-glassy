@@ -105,10 +105,30 @@ describe("createChunkAssembler", () => {
       expect(() => assembler.assemble()).toThrow(/incomplete|missing/i);
     });
 
-    it("throws when a later chunk reports a different total than an earlier one", () => {
+    // Behaviour changed deliberately: this used to throw. Observed in a real
+    // browser, re-engaging the same track produced a second transfer with a
+    // different chunk count, and treating that as corruption left the assembler
+    // permanently poisoned by the abandoned transfer's chunks. A differing
+    // total now starts a fresh assembly instead.
+    it("starts a new assembly when a chunk reports a different total", () => {
       const assembler = createChunkAssembler();
-      assembler.addChunk(0, 3, "a");
-      expect(() => assembler.addChunk(1, 4, "b")).toThrow(/total/i);
+      assembler.addChunk(0, 3, "stale-a");
+      assembler.addChunk(1, 3, "stale-b");
+
+      assembler.addChunk(0, 2, "fresh-a");
+      expect(assembler.isComplete()).toBe(false);
+      assembler.addChunk(1, 2, "fresh-b");
+
+      expect(assembler.isComplete()).toBe(true);
+      expect(assembler.assemble()).toBe("fresh-afresh-b");
+    });
+
+    it("discards everything on reset", () => {
+      const assembler = createChunkAssembler();
+      assembler.addChunk(0, 2, "a");
+      assembler.reset();
+      expect(assembler.isComplete()).toBe(false);
+      expect(() => assembler.assemble()).toThrow(/incomplete|missing/i);
     });
 
     it("throws when a chunk's index is out of range for its total", () => {
