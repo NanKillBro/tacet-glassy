@@ -1,0 +1,12 @@
+// Vendored from composer src/audio/separation/validate-channels.ts @ 30f0e2e
+
+function hasOnlyFiniteSamples(channels: Float32Array[]): boolean {
+  for (const channel of channels) {
+    for (let i = 0; i < channel.length; i++) {
+      if (!Number.isFinite(channel[i])) return false;
+    }
+  }
+  return true;
+}
+
+export { hasOnlyFiniteSamples };
