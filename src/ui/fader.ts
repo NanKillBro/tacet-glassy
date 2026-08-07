@@ -7,6 +7,7 @@
 // This module emits a mix level (0 to 2, 1 is the original mix untouched)
 // through onChange and nothing else. It never touches audio.
 
+import { isFaderInteractive, shouldCloseForDisabled } from "@/ui/fader-disabled-gate";
 import {
   HOLD_MS,
   LABEL_EXIT_FALLBACK_MS,
@@ -342,8 +343,10 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
   }
 
   button.addEventListener("pointerdown", () => {
+    if (!isFaderInteractive(button.disabled)) return;
     holdHandled = false;
     holdTimer = setTimeout(() => {
+      if (!isFaderInteractive(button.disabled)) return;
       holdHandled = true;
       setOpen(true);
     }, HOLD_MS);
@@ -352,12 +355,17 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
   button.addEventListener("pointerleave", clearHold);
   button.addEventListener("click", () => {
     if (holdHandled) return;
+    if (!isFaderInteractive(button.disabled)) return;
     v = v === 0 ? -1 : 0;
     commit("settle");
   });
-  button.addEventListener("dblclick", () => setOpen(true));
+  button.addEventListener("dblclick", () => {
+    if (!isFaderInteractive(button.disabled)) return;
+    setOpen(true);
+  });
   button.addEventListener("keydown", event => {
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      if (!isFaderInteractive(button.disabled)) return;
       event.preventDefault();
       setOpen(true);
     }
@@ -368,6 +376,13 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
     if (target && !menu.contains(target) && !button.contains(target)) setOpen(false);
   }
   document.addEventListener("pointerdown", onDocumentPointerDown);
+
+  // -- Disabled gate --------------------------------------------------------
+
+  const disabledObserver = new MutationObserver(() => {
+    if (shouldCloseForDisabled(open, button.disabled)) setOpen(false);
+  });
+  disabledObserver.observe(button, { attributes: true, attributeFilter: ["disabled"] });
 
   function onMenuKeydown(event: KeyboardEvent): void {
     if (event.key === "Escape") {
@@ -440,6 +455,7 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
     window.removeEventListener("resize", onResize);
     window.removeEventListener("scroll", onScroll);
     document.removeEventListener("pointerdown", onDocumentPointerDown);
+    disabledObserver.disconnect();
     clearHold();
     if (hideTimer !== null) clearTimeout(hideTimer);
     menu.remove();
