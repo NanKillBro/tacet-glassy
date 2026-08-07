@@ -1,0 +1,314 @@
+/* Ported verbatim from docs/mocks/2026-08-07-singalong-mounts.html
+   (better-lyrics repo). Every value here was measured or deliberately
+   chosen; see docs/plans/2026-08-07-singalong-karaoke.md section 6 before
+   changing anything.
+
+   This stylesheet only carries the control's own rules. --dock-accent,
+   --dock-pill-accent, --ease, --dock-ease, --blyrics-ui-text-color and
+   --blyrics-shimmer-gradient are owned by the host page (Better Lyrics'
+   existing variables.css and dock stylesheet) and are consumed here, not
+   redefined, so there is exactly one source of truth for them. The dev
+   preview harness supplies its own copies to stand in for that host page. */
+
+/* Registered so it can be transitioned. Gecko drops @property from a
+   stylesheet cross-origin to the document, so this must live in the same
+   sheet as the rule that uses it, never injected from elsewhere. */
+@property --glyph-o {
+  syntax: "<number>";
+  inherits: true;
+  initial-value: 0;
+}
+
+/* -- The control's own button. Styled to the dock when hosted there, to the
+      player bar when not, but it is one element either way. ---------------- */
+.blyrics-sing {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: hsla(0, 0%, 100%, 0.6);
+  cursor: pointer;
+  transition-property: background-color, color, scale;
+  transition-duration: 160ms;
+  transition-timing-function: var(--ease);
+}
+.blyrics-sing:hover {
+  background-color: hsla(0, 0%, 100%, 0.16);
+  color: hsla(0, 0%, 100%, 0.95);
+}
+.blyrics-sing:active {
+  scale: 0.96;
+}
+.blyrics-sing:focus-visible {
+  outline: 2px solid var(--dock-pill-accent);
+  outline-offset: 2px;
+}
+.blyrics-sing--active {
+  color: color-mix(in srgb, var(--dock-pill-accent) 80%, #fff);
+  background-color: color-mix(in srgb, var(--dock-pill-accent) 16%, transparent);
+  box-shadow: inset color-mix(in srgb, var(--dock-pill-accent) 16%, transparent) 0 1px 0 0;
+}
+/* In the player bar YTM's own buttons are bigger, borderless and unpilled,
+   so the control matches that instead of carrying dock styling into a bar. */
+.blyrics-sing--bar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  color: hsla(0, 0%, 100%, 0.72);
+}
+.blyrics-sing--bar.blyrics-sing--active {
+  background-color: transparent;
+  box-shadow: none;
+}
+
+.blyrics-sing__glyph {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  --glyph-o: 0;
+  filter: blur(4px);
+  transform: scale(0.25);
+  transition-property: --glyph-o, filter, transform;
+  transition-duration: 130ms;
+  transition-delay: 0ms;
+  transition-timing-function: var(--ease);
+  pointer-events: none;
+}
+.blyrics-sing__glyph--on {
+  --glyph-o: 1;
+  filter: blur(0);
+  transform: scale(1);
+  transition-duration: 200ms;
+  transition-delay: 110ms;
+}
+.blyrics-sing__glyph--busy > span {
+  display: block;
+  width: 16px;
+  height: 16px;
+  opacity: var(--glyph-o);
+  background: var(--blyrics-shimmer-gradient) 0 0 / 200% 100%;
+  animation: blyrics-shimmer 3s linear infinite;
+  will-change: background-position;
+  -webkit-mask: var(--glyph) center / contain no-repeat;
+  mask: var(--glyph) center / contain no-repeat;
+}
+@keyframes blyrics-shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* -- Fader card -------------------------------------------------------------
+   Lives in <body> at position: fixed, exactly like the shipped source and
+   offset menus. The dock pill has backdrop-filter, which makes it a
+   backdrop root, so a card nested inside it could only blur against the
+   dock. Positioned from the trigger's screen rect, it samples the page. */
+.blyrics-mix {
+  position: fixed;
+  z-index: 2147483000;
+  width: 68px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  border-radius: 20px;
+  background-color: hsla(0, 0%, 100%, 0.07);
+  box-shadow:
+    rgba(0, 0, 0, 0.28) 0 10px 28px -10px,
+    inset rgba(255, 255, 255, 0.1) 0 1px 0 0;
+  backdrop-filter: blur(26px);
+  /* Same enter and exit as the shipped .blyrics-dock__menu: a 6px rise and
+     a fade over 160ms. No scale, no blur. */
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(6px);
+  transition-property: opacity, transform, visibility;
+  transition-duration: 160ms;
+  transition-timing-function: var(--dock-ease);
+}
+.blyrics-mix--open {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.blyrics-mix-pole {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 11px;
+  background: transparent;
+  color: hsla(0, 0%, 100%, 0.4);
+  cursor: pointer;
+  transition-property: color, scale;
+  transition-duration: 160ms;
+  transition-timing-function: var(--ease);
+}
+.blyrics-mix-pole:hover {
+  color: hsla(0, 0%, 100%, 0.9);
+}
+.blyrics-mix-pole:active {
+  scale: 0.96;
+}
+.blyrics-mix-pole--reached {
+  color: color-mix(in srgb, var(--dock-pill-accent) 85%, #fff);
+}
+
+.blyrics-mix-track {
+  position: relative;
+  width: 30px;
+  height: 146px;
+  margin: 5px 0;
+  padding: 3px;
+  border-radius: 14px;
+  background-color: hsla(0, 0%, 100%, 0.06);
+  box-shadow:
+    inset rgba(0, 0, 0, 0.3) 0 1px 3px 0,
+    inset rgba(255, 255, 255, 0.07) 0 1px 0 0;
+  cursor: grab;
+  touch-action: none;
+}
+.blyrics-mix-track:active {
+  cursor: grabbing;
+}
+.blyrics-mix-track:focus-visible {
+  outline: 2px solid var(--dock-pill-accent);
+  outline-offset: 3px;
+}
+
+/* Three concentric steps, so the clearance around the moving parts is the
+   same on all four sides instead of only on the inline axis.
+     card  20 - 6 padding -> track 14
+     track 14 - 3 padding -> well  11  (the inline gap that was already right)
+     well  11 - 2 padding -> fill and handle 9
+   A taller handle is what lets the radius climb: at 18px it takes the full
+   9px, which is exactly half its height, so it is a true capsule and still
+   nests into the clip's 9px corner rather than being flush. */
+.blyrics-mix-well {
+  position: absolute;
+  inset: 3px;
+  border-radius: 11px;
+  padding: 2px;
+}
+.blyrics-mix-clip {
+  position: absolute;
+  inset: 2px;
+  border-radius: 9px;
+  overflow: hidden;
+}
+.blyrics-mix-fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  background: linear-gradient(
+    var(--fill-dir, to top),
+    color-mix(in srgb, var(--dock-pill-accent) 50%, transparent),
+    color-mix(in srgb, var(--dock-pill-accent) 65%, transparent)
+  );
+}
+.blyrics-mix-thumb {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 18px;
+  /* Fully opaque. At 94% the fill underneath tinted it gold as it passed. */
+  border-radius: 9px;
+  background-color: hsl(0, 0%, 96%);
+  /* Thrown away from whichever end the handle is nearest, because that is
+     the side with track left to catch it. Driven from the springed
+     position, so it swings as the handle travels. */
+  box-shadow: rgba(0, 0, 0, 0.45) 0 var(--shadow-y, 0px) 6px -1px;
+  transform: translateY(-50%);
+  transition-property: background-color;
+  transition-duration: 160ms;
+  transition-timing-function: var(--ease);
+}
+.blyrics-mix-track[data-rest="true"] .blyrics-mix-thumb {
+  background-color: hsla(0, 0%, 100%, 0.55);
+}
+
+/* No label at rest. It appears on the far side from the dock only while the
+   value is moving, then leaves. Out of flow, so it never resizes the card. */
+.blyrics-mix-readout {
+  position: absolute;
+  left: 50%;
+  height: 14px;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translateX(-50%);
+  opacity: 0;
+  transition-property: opacity;
+  transition-duration: 220ms;
+  transition-timing-function: var(--ease);
+}
+.blyrics-mix--down .blyrics-mix-readout {
+  top: calc(100% + 7px);
+}
+.blyrics-mix--up .blyrics-mix-readout {
+  bottom: calc(100% + 7px);
+}
+.blyrics-mix-readout--visible {
+  opacity: 1;
+}
+.blyrics-mix-word {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  font-size: 11px;
+  font-weight: 500;
+  color: color-mix(in srgb, var(--dock-pill-accent) 78%, #fff);
+  opacity: 1;
+  filter: blur(0);
+  transform: translate(-50%, 0);
+  transition-property: opacity, transform, filter;
+  transition-duration: 200ms;
+  transition-timing-function: var(--ease);
+}
+.blyrics-mix-word--enter {
+  opacity: 0;
+  filter: blur(4px);
+  transform: translate(-50%, 5px);
+}
+.blyrics-mix-word--exit {
+  opacity: 0;
+  filter: blur(4px);
+  transform: translate(-50%, -5px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .blyrics-sing,
+  .blyrics-mix-pole {
+    transition-property: none;
+  }
+  .blyrics-sing__glyph {
+    transition-property: --glyph-o;
+    transition-delay: 0ms;
+  }
+  .blyrics-sing__glyph,
+  .blyrics-mix {
+    filter: none;
+    transform: none;
+  }
+  .blyrics-mix,
+  .blyrics-mix-word {
+    transition-property: opacity;
+  }
+  .blyrics-sing__glyph--busy > span {
+    animation: none;
+  }
+}
