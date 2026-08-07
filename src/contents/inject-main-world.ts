@@ -49,6 +49,19 @@ function audibleElement(): HTMLMediaElement | null {
   return candidates.find(candidate => candidate.isConnected && decodedBytes(candidate) > 0) ?? null;
 }
 
+declare global {
+  interface Window {
+    blkKaraokeProbe: () => unknown;
+  }
+}
+
+window.blkKaraokeProbe = () => ({
+  hasGraph: cachedGraph !== null,
+  audibleElementDecodedBytes: cachedElement ? decodedBytes(cachedElement) : 0,
+  boundToAudibleElement: cachedElement !== null && cachedElement === audibleElement(),
+  graph: cachedGraph?.describe() ?? null,
+});
+
 function buildGraph(): Promise<PlaybackGraph | null> {
   return acquireAudioBus().then(bus => {
     if (!bus) {

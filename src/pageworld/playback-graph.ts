@@ -15,11 +15,25 @@ interface PlaybackGraphDeps {
   source: MediaElementAudioSourceNode;
 }
 
+interface GraphState {
+  engaged: boolean;
+  vocalsGain: number;
+  instrumentalGain: number;
+  stemsLoaded: boolean;
+  stemFrames: number;
+  stemSampleRate: number;
+  instrumentalRms: number;
+}
+
 interface PlaybackGraph {
   loadStems(vocals: Float32Array<ArrayBuffer>[], instrumental: Float32Array<ArrayBuffer>[], sampleRate: number): void;
   setMixLevel(mixLevel: number): void;
   stopStems(): void;
   isEngaged(): boolean;
+  // Reports what actually reached Web Audio rather than what the pipeline
+  // believes it sent. A bypassed graph and a graph fed silence both present as
+  // "karaoke is on" everywhere else; only these numbers tell them apart.
+  describe(): GraphState;
 }
 
 function createStemBufferSource(
@@ -104,13 +118,34 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     bypass.enterBypass();
   }
 
+  function describe(): GraphState {
+    const buffer = instrumentalSource?.buffer ?? null;
+    let instrumentalRms = 0;
+    if (buffer) {
+      const samples = buffer.getChannelData(0);
+      let sum = 0;
+      for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i];
+      instrumentalRms = Math.sqrt(sum / samples.length);
+    }
+    return {
+      engaged: !bypass.isBypassed(),
+      vocalsGain: vocalsGainNode.gain.value,
+      instrumentalGain: instrumentalGainNode.gain.value,
+      stemsLoaded: buffer !== null,
+      stemFrames: buffer?.length ?? 0,
+      stemSampleRate: buffer?.sampleRate ?? 0,
+      instrumentalRms,
+    };
+  }
+
   return {
     loadStems,
     setMixLevel,
     stopStems,
     isEngaged: () => !bypass.isBypassed(),
+    describe,
   };
 }
 
 export { createPlaybackGraph, createStemBufferSource };
-export type { PlaybackGraph, PlaybackGraphDeps };
+export type { GraphState, PlaybackGraph, PlaybackGraphDeps };
