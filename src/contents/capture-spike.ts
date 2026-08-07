@@ -18,10 +18,11 @@ import {
   isRequestPrefetchMessage,
 } from "@/capture/bridge-protocol";
 import { computeBufferedFraction } from "@/capture/buffered-fraction";
+import type { DownloadSource } from "@/orchestrator/download-tooltip";
 import { concatenateChunks, countInitSegments, planFirstPlusMedia } from "@/capture/decode-plan";
 import { runCaptureDecodeExperiment } from "@/capture/decode-experiment";
 import { log, logError } from "@/capture/log";
-import { type CapturedSlice, captureTrackInSlices } from "@/capture/frame-pool";
+import { FRAME_ID_PREFIX, type CapturedSlice, captureTrackInSlices } from "@/capture/frame-pool";
 import { installForcedSilence, silenceMediaIn } from "@/capture/silence-frame";
 import { runSliceCapture } from "@/capture/slice-runner";
 import { DEFAULT_WORKER_COUNT, planSlices } from "@/capture/slice-plan";
@@ -172,6 +173,11 @@ function announceIfCaptureComplete(element: HTMLVideoElement): void {
   const stats = accumulator.getStats();
   if (!stats.videoId || stats.retainedChunkCount === 0) return;
   if (stoodDownVideoIds.has(stats.videoId)) return;
+  // A hidden player is acquiring this track in full. Announcing here would race
+  // it with whatever the listener happens to have played, which is partial, and
+  // a partial capture that fails to decode puts the fader into a failed state
+  // before the complete one has even arrived.
+  if (prefetchStateByVideoId.get(stats.videoId) === "running") return;
   if (isAdPlaying()) return;
   if (!Number.isFinite(element.duration)) return;
 
@@ -198,8 +204,12 @@ function bufferedEndSeconds(element: HTMLVideoElement): number {
 function announceDownloadProgress(element: HTMLVideoElement): void {
   const videoId = getVideoIdFromSearch(window.location.search);
   if (!videoId || stoodDownVideoIds.has(videoId) || isAdPlaying()) return;
-  const fraction = computeBufferedFraction(bufferedEndSeconds(element), element.duration);
-  const message: DownloadProgressMessage = { type: "blk-download-progress", videoId, fraction };
+  const prefetching = prefetchStateByVideoId.get(videoId) === "running";
+  const source: DownloadSource = prefetching ? "hidden-player" : "listener-playback";
+  const fraction = prefetching
+    ? hiddenPlayerProgress()
+    : computeBufferedFraction(bufferedEndSeconds(element), element.duration);
+  const message: DownloadProgressMessage = { type: "blk-download-progress", videoId, fraction, source };
   window.postMessage(message, window.location.origin);
 }
 
@@ -253,7 +263,29 @@ interface PrefetchedTrack {
 }
 
 const prefetchedByVideoId = new Map<string, PrefetchedTrack>();
-const prefetchStartedFor = new Set<string>();
+
+// running: a hidden player owns this track's acquisition and the listener's own
+// buffering must not announce over it. unavailable: the hidden player produced
+// nothing, so the listener's playback is the only source left and is allowed to
+// announce again.
+type PrefetchState = "running" | "done" | "unavailable";
+const prefetchStateByVideoId = new Map<string, PrefetchState>();
+
+// How far the hidden player has played, which is how much it has necessarily
+// fetched. Reported instead of the listener's buffered fraction while a
+// prefetch owns the track, because that number describes work nobody is
+// waiting on.
+function hiddenPlayerProgress(): number {
+  try {
+    const frame = document.querySelector<HTMLIFrameElement>(`iframe[id^="${FRAME_ID_PREFIX}"]`);
+    const video = frame?.contentDocument?.querySelector("video");
+    if (!video || !Number.isFinite(video.duration) || video.duration <= 0) return Number.NaN;
+    return computeBufferedFraction(video.currentTime, video.duration);
+  } catch (error) {
+    logError("could not read the hidden player's progress", error);
+    return Number.NaN;
+  }
+}
 
 function prefetchTrackInSlices(workerCount = DEFAULT_WORKER_COUNT): Promise<CapturedSlice[]> {
   if (slicedPrefetch) return slicedPrefetch;
@@ -288,17 +320,21 @@ function prefetchTrackInSlices(workerCount = DEFAULT_WORKER_COUNT): Promise<Capt
 // theirs, and they can skip around freely while it runs.
 
 function startPrefetchFor(videoId: string): void {
-  if (prefetchStartedFor.has(videoId) || stoodDownVideoIds.has(videoId)) return;
-  prefetchStartedFor.add(videoId);
+  if (prefetchStateByVideoId.has(videoId) || stoodDownVideoIds.has(videoId)) return;
+  prefetchStateByVideoId.set(videoId, "running");
 
   window.setTimeout(() => {
     // The cache probe answers in this window. A track whose stems are already
     // cached has stood capture down by now and needs no player at all.
     if (stoodDownVideoIds.has(videoId)) {
       log(`prefetch skipped for videoId=${videoId}, its stems are already cached`);
+      prefetchStateByVideoId.set(videoId, "done");
       return;
     }
-    if (getVideoIdFromSearch(window.location.search) !== videoId) return;
+    if (getVideoIdFromSearch(window.location.search) !== videoId) {
+      prefetchStateByVideoId.set(videoId, "unavailable");
+      return;
+    }
 
     log(`prefetching videoId=${videoId} in a hidden player`);
     void prefetchTrackInSlices(PRODUCTION_WORKER_COUNT)
@@ -306,17 +342,22 @@ function startPrefetchFor(videoId: string): void {
         const captured = slices[0];
         if (!captured || captured.bytes.byteLength === 0) {
           log(`prefetch for videoId=${videoId} captured nothing, falling back to the listener's own playback`);
+          prefetchStateByVideoId.set(videoId, "unavailable");
           return;
         }
         prefetchedByVideoId.set(videoId, {
           mimeType: captured.mimeType,
           bytes: new Uint8Array(captured.bytes),
         });
+        prefetchStateByVideoId.set(videoId, "done");
         log(`prefetch complete for videoId=${videoId}, ${captured.bytes.byteLength} bytes`);
         if (stoodDownVideoIds.has(videoId)) return;
         announceCaptureReady(videoId);
       })
-      .catch(error => logError(`prefetch failed for videoId=${videoId}`, error));
+      .catch(error => {
+        prefetchStateByVideoId.set(videoId, "unavailable");
+        logError(`prefetch failed for videoId=${videoId}`, error);
+      });
   }, PREFETCH_DELAY_MS);
 }
 

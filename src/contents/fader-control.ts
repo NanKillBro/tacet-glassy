@@ -88,7 +88,7 @@ function renderKaraokeState(control: FaderControl, state: KaraokeState): void {
   control.setBusy(state.status === "waiting-for-capture" || state.status === "processing");
   switch (state.status) {
     case "waiting-for-capture":
-      markUnavailable(button, formatDownloadTooltip(state.downloadFraction));
+      markUnavailable(button, formatDownloadTooltip(state.downloadFraction, state.downloadSource));
       break;
     case "ready-to-engage":
     case "engaged":

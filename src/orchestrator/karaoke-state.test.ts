@@ -12,6 +12,7 @@ describe("initialKaraokeState", () => {
       total: 0,
       reason: null,
       downloadFraction: Number.NaN,
+      downloadSource: "listener-playback",
     });
   });
 });
@@ -26,6 +27,7 @@ describe("track-changed", () => {
       total: 10,
       reason: null,
       downloadFraction: 0,
+      downloadSource: "listener-playback",
     };
     expect(reduceKaraokeState(engaged, { type: "track-changed", videoId: "video-2" })).toEqual(
       initialKaraokeState("video-2")
@@ -41,6 +43,7 @@ describe("track-changed", () => {
       total: 0,
       reason: "boom",
       downloadFraction: 0,
+      downloadSource: "listener-playback",
     };
     expect(reduceKaraokeState(failed, { type: "track-changed", videoId: "video-2" })).toEqual(
       initialKaraokeState("video-2")
@@ -176,7 +179,12 @@ describe("stage and progress", () => {
 describe("download-progress", () => {
   it("records the buffered fraction while waiting for capture", () => {
     const state = initialKaraokeState("video-1");
-    const next = reduceKaraokeState(state, { type: "download-progress", videoId: "video-1", fraction: 0.42 });
+    const next = reduceKaraokeState(state, {
+      type: "download-progress",
+      source: "listener-playback",
+      videoId: "video-1",
+      fraction: 0.42,
+    });
     expect(next.downloadFraction).toBe(0.42);
     expect(next.status).toBe("waiting-for-capture");
   });
@@ -186,13 +194,23 @@ describe("download-progress", () => {
       type: "capture-ready",
       videoId: "video-1",
     });
-    const next = reduceKaraokeState(ready, { type: "download-progress", videoId: "video-1", fraction: 0.9 });
+    const next = reduceKaraokeState(ready, {
+      type: "download-progress",
+      source: "listener-playback",
+      videoId: "video-1",
+      fraction: 0.9,
+    });
     expect(next).toBe(ready);
   });
 
   it("is ignored for a stale videoId from a previous track", () => {
     const state = initialKaraokeState("video-1");
-    const next = reduceKaraokeState(state, { type: "download-progress", videoId: "video-0", fraction: 0.5 });
+    const next = reduceKaraokeState(state, {
+      type: "download-progress",
+      source: "listener-playback",
+      videoId: "video-0",
+      fraction: 0.5,
+    });
     expect(next).toBe(state);
   });
 });
@@ -237,14 +255,21 @@ describe("failed", () => {
   });
 
   describe("regressions", () => {
-    it("a failed state is terminal: engage and capture-ready no longer apply until the track changes", () => {
+    // capture-ready used to be refused here too, back when a failure meant
+    // nothing better was ever coming. The hidden player changed that: it
+    // finishes after the listener's own partial capture has been tried and
+    // rejected, so its announcement has to be able to clear the failure.
+    it("a failed state ignores engage, but a fresh acquisition clears it", () => {
       const failed = reduceKaraokeState(initialKaraokeState("video-1"), {
         type: "failed",
         videoId: "video-1",
         reason: "boom",
       });
-      expect(reduceKaraokeState(failed, { type: "capture-ready", videoId: "video-1" })).toBe(failed);
       expect(reduceKaraokeState(failed, { type: "engage", videoId: "video-1" })).toBe(failed);
+
+      const recovered = reduceKaraokeState(failed, { type: "capture-ready", videoId: "video-1" });
+      expect(recovered.status).toBe("ready-to-engage");
+      expect(recovered.reason).toBeNull();
     });
   });
 });
@@ -259,6 +284,7 @@ describe("invariants", () => {
       total: 7,
       reason: null,
       downloadFraction: 0,
+      downloadSource: "listener-playback",
     };
     const next = reduceKaraokeState(engaged, { type: "track-changed", videoId: "video-2" });
     expect(next.processed).toBe(0);

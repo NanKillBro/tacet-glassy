@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatDownloadTooltip } from "@/orchestrator/download-tooltip";
+import { HIDDEN_PLAYER_REASON, LISTENER_PLAYBACK_REASON, formatDownloadTooltip } from "@/orchestrator/download-tooltip";
 
 describe("formatDownloadTooltip", () => {
   it("shows a rounded percentage mid-download", () => {
@@ -50,5 +50,32 @@ describe("formatDownloadTooltip", () => {
     it("always mentions the honest reason, not just a bare percentage", () => {
       expect(formatDownloadTooltip(0.5)).toContain("paced by YouTube's own buffering");
     });
+  });
+});
+
+describe("acquisition source", () => {
+  // The two paths are paced by different things, and the tooltip claiming the
+  // listener's own buffering is responsible while a hidden player does the work
+  // is how the mechanism came to look broken.
+  it("says the work is happening in the background for a hidden player", () => {
+    const tooltip = formatDownloadTooltip(0.5, "hidden-player");
+    expect(tooltip).toContain("50%");
+    expect(tooltip).toContain(HIDDEN_PLAYER_REASON);
+    expect(tooltip).not.toContain(LISTENER_PLAYBACK_REASON);
+  });
+
+  it("blames YouTube's buffering only when riding the listener's playback", () => {
+    expect(formatDownloadTooltip(0.5, "listener-playback")).toContain(LISTENER_PLAYBACK_REASON);
+  });
+
+  it("defaults to the listener's playback when no source is given", () => {
+    expect(formatDownloadTooltip(0.5)).toContain(LISTENER_PLAYBACK_REASON);
+  });
+
+  it("omits a percentage it does not have, for either source", () => {
+    expect(formatDownloadTooltip(Number.NaN, "hidden-player")).toBe(`Downloading the track… ${HIDDEN_PLAYER_REASON}`);
+    expect(formatDownloadTooltip(Number.NaN, "listener-playback")).toBe(
+      `Downloading the track… ${LISTENER_PLAYBACK_REASON}`
+    );
   });
 });

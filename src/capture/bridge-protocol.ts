@@ -6,6 +6,8 @@
 // bytes cross as a transferable, unlike the chrome.runtime leg further
 // down the pipeline (see src/relay/chunk-transfer.ts), which is JSON-only.
 
+import type { DownloadSource } from "@/orchestrator/download-tooltip";
+
 export interface RequestCapturedAudioMessage {
   type: "blk-request-captured-audio";
   videoId: string;
@@ -51,6 +53,10 @@ export interface DownloadProgressMessage {
   type: "blk-download-progress";
   videoId: string;
   fraction: number;
+  // Which acquisition is being reported. The two are paced by different things
+  // and the tooltip must not claim the listener's playback is responsible when
+  // a hidden player is doing the work.
+  source: DownloadSource;
 }
 
 // Sent from a hidden worker frame up to its opener. startSeconds is where the
@@ -142,6 +148,8 @@ export function isDownloadProgressMessage(data: unknown): data is DownloadProgre
     data !== null &&
     (data as { type?: unknown }).type === "blk-download-progress" &&
     typeof (data as { videoId?: unknown }).videoId === "string" &&
-    typeof (data as { fraction?: unknown }).fraction === "number"
+    typeof (data as { fraction?: unknown }).fraction === "number" &&
+    ((data as { source?: unknown }).source === "hidden-player" ||
+      (data as { source?: unknown }).source === "listener-playback")
   );
 }

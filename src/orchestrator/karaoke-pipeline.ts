@@ -194,7 +194,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     }
 
     if (isDownloadProgressMessage(data)) {
-      dispatch({ type: "download-progress", videoId: data.videoId, fraction: data.fraction });
+      dispatch({ type: "download-progress", videoId: data.videoId, fraction: data.fraction, source: data.source });
       return;
     }
 
