@@ -64,11 +64,26 @@ function buildGraph(): Promise<PlaybackGraph | null> {
     const graph = createPlaybackGraph({ context: bus.context, source: bus.source });
     cachedElement = bus.element;
 
-    // Watchdog: any context state other than "running" is treated as a
-    // failure and forces the hard bypass, whether that is the tab being
-    // backgrounded, the context erroring out, or anything else.
+    // Watchdog. A context can leave "running" for entirely recoverable
+    // reasons: a backgrounded tab, or the main thread being blocked long
+    // enough for the audio thread to be interrupted. Treating every one of
+    // those as terminal reconnected the original and left no way back, which
+    // read as karaoke switching itself off mid-song. Try to resume first, and
+    // only fall back to the hard bypass if the context genuinely will not
+    // come back.
     bus.context.addEventListener("statechange", () => {
-      if (bus.context.state !== "running") graph.stopStems();
+      if (bus.context.state === "running") return;
+      bus.context
+        .resume()
+        .catch(error => console.warn("[BLK-PAGE] context resume failed", error))
+        .finally(() => {
+          if (bus.context.state === "running") {
+            console.log("[BLK-PAGE] context recovered, stems still engaged");
+            return;
+          }
+          console.warn(`[BLK-PAGE] context stuck in "${bus.context.state}", bypassing to the original`);
+          graph.stopStems();
+        });
     });
 
     cachedGraph = graph;
