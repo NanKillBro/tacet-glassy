@@ -35,6 +35,32 @@ export interface DownloadProgressMessage {
   fraction: number;
 }
 
+// Sent from a hidden worker frame up to its opener. startSeconds is where the
+// slice's audio really begins, which is a segment boundary at or before the
+// point the worker was asked to start from, so slices overlap and have to be
+// placed by offset rather than concatenated.
+export interface SliceCapturedMessage {
+  type: "blk-slice-captured";
+  videoId: string;
+  index: number;
+  startSeconds: number;
+  mimeType: string;
+  bytes: ArrayBuffer;
+}
+
+export function isSliceCapturedMessage(data: unknown): data is SliceCapturedMessage {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: unknown }).type === "blk-slice-captured" &&
+    typeof (data as { videoId?: unknown }).videoId === "string" &&
+    Number.isInteger((data as { index?: unknown }).index) &&
+    typeof (data as { startSeconds?: unknown }).startSeconds === "number" &&
+    typeof (data as { mimeType?: unknown }).mimeType === "string" &&
+    (data as { bytes?: unknown }).bytes instanceof ArrayBuffer
+  );
+}
+
 export function isRequestCapturedAudioMessage(data: unknown): data is RequestCapturedAudioMessage {
   return (
     typeof data === "object" &&

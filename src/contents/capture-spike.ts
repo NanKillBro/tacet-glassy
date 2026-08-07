@@ -12,8 +12,12 @@ import { computeBufferedFraction } from "@/capture/buffered-fraction";
 import { concatenateChunks, planNaiveConcat } from "@/capture/decode-plan";
 import { runCaptureDecodeExperiment } from "@/capture/decode-experiment";
 import { log, logError } from "@/capture/log";
+import { type CapturedSlice, captureTrackInSlices } from "@/capture/frame-pool";
+import { runSliceCapture } from "@/capture/slice-runner";
+import { DEFAULT_WORKER_COUNT, planSlices } from "@/capture/slice-plan";
 import { installSourceBufferCapture } from "@/capture/sourcebuffer-patch";
 import { getVideoIdFromSearch } from "@/capture/video-id";
+import { readWorkerAssignment } from "@/capture/worker-frame";
 import { selectPlaybackElement } from "@/pageworld/select-media-element";
 
 // -- Phase 6 capture spike -----------------------------------------------
@@ -30,10 +34,14 @@ import { selectPlaybackElement } from "@/pageworld/select-media-element";
 // that script builds the stem playback graph, an unrelated concern, and a
 // throwaway spike has no business sharing its lifecycle.
 
+// all_frames, so this also runs inside the hidden worker frames spawned by
+// src/capture/frame-pool.ts. Installing the SourceBuffer patch from the parent
+// instead would be a poll against the child player's boot; a content script at
+// document_start is the only race-free option.
 export const config: PlasmoCSConfig = {
   matches: ["https://music.youtube.com/*"],
   run_at: "document_start",
-  all_frames: false,
+  all_frames: true,
   world: "MAIN",
 };
 
@@ -61,6 +69,33 @@ function onAudioChunk(mimeType: string, bytes: Uint8Array): void {
 }
 
 const capture = installSourceBufferCapture({ isAdPlaying, onAudioChunk });
+
+// -- Worker frame mode ----------------------------------------------------
+//
+// A frame carrying a slice marker is one of our own hidden players. It runs
+// the capture patch above (installed at document_start, before its player
+// boots), drives its own slice, hands the bytes to the opener, and runs none
+// of the top-frame orchestration below.
+
+const workerAssignment = readWorkerAssignment(window.location.search);
+
+if (workerAssignment) {
+  const workerVideoId = getVideoIdFromSearch(window.location.search);
+  log(
+    `worker frame for slice ${workerAssignment.index} [${workerAssignment.fromSeconds.toFixed(1)}s, ${workerAssignment.toSeconds.toFixed(1)}s)`
+  );
+  if (workerVideoId) {
+    void runSliceCapture(accumulator, workerAssignment, workerVideoId).catch(error => {
+      logError(`worker slice ${workerAssignment.index} crashed`, error);
+    });
+  }
+}
+
+// Everything below is top-frame orchestration. all_frames also puts this script
+// in YouTube's own iframes (ads, embeds), which must not announce captures or
+// spawn workers of their own.
+const isTopFrame = window.top === window;
+const runsOrchestration = isTopFrame && !workerAssignment;
 
 // -- Triggers: track end, or a human calling the window function ---------
 
@@ -145,7 +180,41 @@ function pollCaptureCompletion(): void {
   if (isFullyBuffered(element)) announceIfCaptureComplete(element);
 }
 
-setInterval(pollCaptureCompletion, ENDED_LISTENER_POLL_MS);
+if (runsOrchestration) setInterval(pollCaptureCompletion, ENDED_LISTENER_POLL_MS);
+
+// -- Sliced prefetch ------------------------------------------------------
+//
+// Acquires the whole track through hidden worker players instead of waiting on
+// the user's own playback. Measured 4.91x realtime with 4 workers on a 240.7 s
+// track, against 0.94x for a single paused player and 2.7x for one played at
+// 16x, because YouTube paces segment delivery per session rather than by
+// bandwidth.
+
+let slicedPrefetch: Promise<CapturedSlice[]> | null = null;
+
+function prefetchTrackInSlices(workerCount = DEFAULT_WORKER_COUNT): Promise<CapturedSlice[]> {
+  if (slicedPrefetch) return slicedPrefetch;
+
+  const videoId = getVideoIdFromSearch(window.location.search);
+  const element = currentVideoElement();
+  const duration = element && Number.isFinite(element.duration) ? element.duration : 0;
+  if (!videoId || duration <= 0) {
+    log("sliced prefetch skipped: no videoId or duration yet");
+    return Promise.resolve([]);
+  }
+
+  const slices = planSlices(duration, workerCount);
+  log(`sliced prefetch: ${slices.length} workers over ${duration.toFixed(1)}s for videoId=${videoId}`);
+
+  slicedPrefetch = captureTrackInSlices({
+    videoId,
+    slices,
+    onSliceDone: (done, total) => log(`sliced prefetch progress ${done}/${total}`),
+  }).finally(() => {
+    slicedPrefetch = null;
+  });
+  return slicedPrefetch;
+}
 
 // -- Production handoff: captured bytes on request ------------------------
 //
@@ -188,8 +257,24 @@ declare global {
   interface Window {
     blkRunCaptureDecodeExperiment: () => Promise<unknown>;
     blkDisableCapture: () => void;
+    blkPrefetchTrackInSlices: (workerCount?: number) => Promise<unknown>;
   }
 }
+
+window.blkPrefetchTrackInSlices = async (workerCount?: number) => {
+  const started = performance.now();
+  const slices = await prefetchTrackInSlices(workerCount);
+  return {
+    slices: slices.map(slice => ({
+      index: slice.index,
+      startSeconds: +slice.startSeconds.toFixed(2),
+      bytes: slice.bytes.byteLength,
+      mimeType: slice.mimeType,
+    })),
+    totalBytes: slices.reduce((sum, slice) => sum + slice.bytes.byteLength, 0),
+    elapsedMs: Math.round(performance.now() - started),
+  };
+};
 
 window.blkRunCaptureDecodeExperiment = runDecodeExperiment;
 window.blkDisableCapture = () => {
