@@ -25,7 +25,7 @@ import { log, logError } from "@/capture/log";
 import { FRAME_ID_PREFIX, type CapturedSlice, captureTrackInSlices } from "@/capture/frame-pool";
 import { installForcedSilence, silenceMediaIn } from "@/capture/silence-frame";
 import { runSliceCapture } from "@/capture/slice-runner";
-import { DEFAULT_WORKER_COUNT, planSlices } from "@/capture/slice-plan";
+import { DEFAULT_WORKER_COUNT, planSlices, planWholeTrack } from "@/capture/slice-plan";
 import { installSourceBufferCapture } from "@/capture/sourcebuffer-patch";
 import { getVideoIdFromSearch } from "@/capture/video-id";
 import { readWorkerAssignment } from "@/capture/worker-frame";
@@ -291,15 +291,22 @@ function prefetchTrackInSlices(workerCount = DEFAULT_WORKER_COUNT): Promise<Capt
   if (slicedPrefetch) return slicedPrefetch;
 
   const videoId = getVideoIdFromSearch(window.location.search);
-  const element = currentVideoElement();
-  const duration = element && Number.isFinite(element.duration) ? element.duration : 0;
-  if (!videoId || duration <= 0) {
-    log("sliced prefetch skipped: no videoId or duration yet");
+  if (!videoId) {
+    log("sliced prefetch skipped: no videoId yet");
     return Promise.resolve([]);
   }
 
-  const slices = planSlices(duration, workerCount);
-  log(`sliced prefetch: ${slices.length} workers over ${duration.toFixed(1)}s for videoId=${videoId}`);
+  // One worker needs no duration at all, which is what makes it immune to a
+  // preroll: the opener cannot tell an ad's duration from the track's, and
+  // planning against the ad produced a 20 s capture that reported complete.
+  const element = currentVideoElement();
+  const duration = element && Number.isFinite(element.duration) ? element.duration : 0;
+  const slices = workerCount <= 1 ? planWholeTrack() : planSlices(duration, workerCount);
+  if (slices.length === 0) {
+    log("sliced prefetch skipped: no duration yet for a multi-worker plan");
+    return Promise.resolve([]);
+  }
+  log(`sliced prefetch: ${slices.length} worker(s) for videoId=${videoId}`);
 
   slicedPrefetch = captureTrackInSlices({
     videoId,

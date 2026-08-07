@@ -1,11 +1,11 @@
 // Splits a track into contiguous slices, one per hidden worker player.
 //
-// Measured on a 240.7 s track: one paused player edge-hopping the whole track
-// runs at 0.94x realtime and one played at 16x runs at 2.7x, because YouTube
-// paces segment delivery per session rather than by bandwidth. Four independent
-// player sessions, each owning a quarter, reached 4.91x. The slice count is
-// therefore the speed dial, bounded by how many YouTube players the machine can
-// afford to run at once.
+// The slice count is not the speed dial it was once thought to be. A single
+// player set to playbackRate 16 on the ELEMENT buffered a whole 245.9 s track
+// in 18 s, which is 13.7x realtime, so one worker is plenty and the parallel
+// path only adds the mid-track seeks that make workers stall. See
+// slice-runner.ts for why the rate has to be set on the element and never
+// through YouTube's player API.
 
 interface SlicePlan {
   index: number;
@@ -39,5 +39,17 @@ function planSlices(durationSeconds: number, maxWorkers: number = DEFAULT_WORKER
   }));
 }
 
-export { planSlices, workerCountFor, DEFAULT_WORKER_COUNT, MIN_SLICE_SECONDS };
+// A single worker covering everything, with no duration needed up front. The
+// duration the opener can see belongs to whatever is on screen right now, which
+// during a preroll is the ad: planning against it produced a 20 s "track" that
+// reported complete. The worker clamps this to the duration it measures for
+// itself once the real track is up, so an over-long end is safe and an
+// under-long one is not.
+const OPEN_ENDED_SECONDS = 86_400;
+
+function planWholeTrack(): SlicePlan[] {
+  return [{ index: 0, fromSeconds: 0, toSeconds: OPEN_ENDED_SECONDS }];
+}
+
+export { planSlices, planWholeTrack, workerCountFor, DEFAULT_WORKER_COUNT, MIN_SLICE_SECONDS, OPEN_ENDED_SECONDS };
 export type { SlicePlan };

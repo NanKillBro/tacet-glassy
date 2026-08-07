@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_WORKER_COUNT, MIN_SLICE_SECONDS, planSlices, workerCountFor } from "@/capture/slice-plan";
+import {
+  DEFAULT_WORKER_COUNT,
+  MIN_SLICE_SECONDS,
+  OPEN_ENDED_SECONDS,
+  planSlices,
+  planWholeTrack,
+  workerCountFor,
+} from "@/capture/slice-plan";
 
 describe("planSlices", () => {
   it("splits a normal track across the default worker count", () => {
@@ -74,5 +81,28 @@ describe("workerCountFor", () => {
   it("is zero only for an unusable duration", () => {
     expect(workerCountFor(0, 4)).toBe(0);
     expect(workerCountFor(240, 4)).toBeGreaterThan(0);
+  });
+});
+
+describe("planWholeTrack", () => {
+  it("is a single slice from zero", () => {
+    const [slice, ...rest] = planWholeTrack();
+    expect(rest).toHaveLength(0);
+    expect(slice.index).toBe(0);
+    expect(slice.fromSeconds).toBe(0);
+  });
+
+  // The opener cannot tell a preroll ad's duration from the track's, and
+  // planning against the ad produced a 20 s capture that reported complete.
+  // Ending long is safe because the worker clamps to the duration it measures
+  // for itself; ending short silently truncates the track.
+  it("ends far beyond any real track, so the worker's own duration wins", () => {
+    expect(planWholeTrack()[0].toSeconds).toBe(OPEN_ENDED_SECONDS);
+    expect(OPEN_ENDED_SECONDS).toBeGreaterThan(60 * 60);
+  });
+
+  it("needs no duration at all", () => {
+    expect(() => planWholeTrack()).not.toThrow();
+    expect(planWholeTrack()).toHaveLength(1);
   });
 });

@@ -116,11 +116,21 @@ async function runSliceCapture(
       // The player can reject a seek while re-initialising; the next poll retries.
     }
   };
+  // The rate goes on the ELEMENT and never through the player. YouTube Music's
+  // API clamps to its UI range: measured, video.playbackRate = 16 takes, and a
+  // following player.setPlaybackRate(16) writes 2 straight back onto the same
+  // element, because getAvailablePlaybackRates() tops out at 2. That single
+  // call was costing about 14x, turning an 18 s acquisition into 262 s.
+  const enforceRate = (): void => {
+    if (video.playbackRate !== SLICE_PLAYBACK_RATE) video.playbackRate = SLICE_PLAYBACK_RATE;
+  };
   const startPlayback = (): void => {
-    video.playbackRate = SLICE_PLAYBACK_RATE;
+    enforceRate();
+    // playVideo stays: driving play() on the element directly had YouTube Music
+    // interrupting it with a pause the worker never requested.
     if (player && typeof player.playVideo === "function") {
-      callSafely("setPlaybackRate", () => player.setPlaybackRate?.(SLICE_PLAYBACK_RATE));
       callSafely("playVideo", () => player.playVideo?.());
+      enforceRate();
       return;
     }
     void video.play().catch(() => {
@@ -168,6 +178,8 @@ async function runSliceCapture(
 
   while (true) {
     await sleep(POLL_MS);
+    // The player resets the rate whenever it issues a command of its own.
+    enforceRate();
 
     // If the frame navigated, the autoplay queue took it and this player is on
     // a different track. Stop immediately and report whatever was captured
