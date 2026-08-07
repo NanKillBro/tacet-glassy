@@ -22,6 +22,10 @@ const OPEN_DELAY_MS = 120;
 // The safety window: leaving and returning inside it never closes the card.
 const CLOSE_DELAY_MS = 160;
 const ROLL_MS = 320;
+// Further off the control than the fader card sits, so the card the pointer is
+// travelling to is not crowding the control it left. Applied to whichever edge
+// the dock opens from, so it reads the same flipped.
+const TOOLTIP_GAP_PX = 14;
 
 interface TooltipContent {
   label: string;
@@ -93,7 +97,8 @@ function createTooltip(trigger: HTMLElement): Tooltip {
       { top: triggerRect.top, bottom: triggerRect.bottom },
       { width: card.offsetWidth, height: card.offsetHeight },
       { width: window.innerWidth, height: window.innerHeight },
-      dock?.dataset.position ?? null
+      dock?.dataset.position ?? null,
+      TOOLTIP_GAP_PX
     );
     card.style.left = `${position.left}px`;
     card.style.top = position.top;

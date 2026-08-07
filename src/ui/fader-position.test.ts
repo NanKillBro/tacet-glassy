@@ -1,3 +1,4 @@
+import { CARD_GAP_PX } from "@/ui/fader-geometry";
 import { computeCardPosition, opensDownFor } from "@/ui/fader-position";
 import { describe, expect, it } from "vitest";
 
@@ -99,5 +100,35 @@ describe("computeCardPosition", () => {
         expect(position.top !== "" || position.bottom !== "").toBe(true);
       }
     });
+  });
+});
+
+describe("gap", () => {
+  const triggerRect = { left: 500, width: 28 };
+  const anchorRect = { top: 300, bottom: 340 };
+  const menuSize = { width: 68, height: 120 };
+  const viewport = { width: 1440, height: 900 };
+
+  it("defaults to the fader card's own clearance", () => {
+    const position = computeCardPosition(triggerRect, anchorRect, menuSize, viewport, null);
+    expect(position.bottom).toBe(`${900 - 300 + CARD_GAP_PX}px`);
+  });
+
+  // The hover card sits further off than the fader card, and must keep that
+  // same offset when the dock flips it to the other side.
+  it("applies a caller's gap to whichever edge the card opens from", () => {
+    const up = computeCardPosition(triggerRect, anchorRect, menuSize, viewport, null, 14);
+    expect(up.opensDown).toBe(false);
+    expect(up.bottom).toBe(`${900 - 300 + 14}px`);
+
+    const down = computeCardPosition(triggerRect, anchorRect, menuSize, viewport, "top-right", 14);
+    expect(down.opensDown).toBe(true);
+    expect(down.top).toBe(`${340 + 14}px`);
+  });
+
+  it("leaves the horizontal placement untouched", () => {
+    const tight = computeCardPosition(triggerRect, anchorRect, menuSize, viewport, null);
+    const loose = computeCardPosition(triggerRect, anchorRect, menuSize, viewport, null, 14);
+    expect(loose.left).toBe(tight.left);
   });
 });

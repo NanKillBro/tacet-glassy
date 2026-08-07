@@ -47,12 +47,16 @@ function opensDownFor(dataPosition: string | null): boolean {
   return (dataPosition ?? "").startsWith("top");
 }
 
+// gap is the clearance from the trigger, applied to whichever edge the card
+// opens from, so a caller that wants to sit further off keeps the same offset
+// when the dock flips it to the other side.
 function computeCardPosition(
   triggerRect: TriggerRect,
   anchorRect: AnchorRect,
   menuSize: MenuSize,
   viewport: Viewport,
-  dataPosition: string | null
+  dataPosition: string | null,
+  gap: number = CARD_GAP_PX
 ): CardPosition {
   const opensDown = opensDownFor(dataPosition);
   const centred = triggerRect.left + triggerRect.width / 2 - menuSize.width / 2;
@@ -61,8 +65,8 @@ function computeCardPosition(
 
   return {
     left,
-    top: opensDown ? `${anchorRect.bottom + CARD_GAP_PX}px` : "",
-    bottom: opensDown ? "" : `${viewport.height - anchorRect.top + CARD_GAP_PX}px`,
+    top: opensDown ? `${anchorRect.bottom + gap}px` : "",
+    bottom: opensDown ? "" : `${viewport.height - anchorRect.top + gap}px`,
     opensDown,
   };
 }
