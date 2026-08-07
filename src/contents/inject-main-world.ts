@@ -105,8 +105,8 @@ function discardGraph(): void {
   cachedElement = null;
 }
 
-function buildGraph(): Promise<PlaybackGraph | null> {
-  return acquireAudioBus().then(bus => {
+function buildGraph(element: HTMLMediaElement): Promise<PlaybackGraph | null> {
+  return acquireAudioBus(element).then(bus => {
     if (!bus) {
       console.warn("[BLK-PAGE] could not acquire the audio bus, playback is unchanged");
       return null;
@@ -176,7 +176,10 @@ function reconcile(): void {
     return;
   }
 
-  acquiring = buildGraph().finally(() => {
+  const target = elementForStems(stems);
+  if (!target) return;
+
+  acquiring = buildGraph(target).finally(() => {
     acquiring = null;
   });
 
