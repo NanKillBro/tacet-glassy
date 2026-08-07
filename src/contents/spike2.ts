@@ -1,5 +1,5 @@
 import type { PlasmoCSConfig } from "plasmo";
-import { isLogMessage, isStepMessage, type StartPathBMessage } from "../workers/protocol2";
+import { isLogMessage, isStepMessage, type StartPathBMessage } from "../../workers/protocol2";
 
 export const config: PlasmoCSConfig = {
   matches: ["https://music.youtube.com/*"],

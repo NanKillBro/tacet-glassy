@@ -1,4 +1,4 @@
-import { isLogMessage, isStartPathBMessage, isStepMessage, type RunPathBCommand } from "./workers/protocol2";
+import { isLogMessage, isStartPathBMessage, isStepMessage, type RunPathBCommand } from "../workers/protocol2";
 
 // -- Path B offscreen document lifecycle and message relay ------------------
 //
