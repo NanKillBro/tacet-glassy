@@ -52,6 +52,17 @@ async function resumeOnGesture(context: AudioContext): Promise<boolean> {
 // Never create a source node on a suspended context: routing audio into a
 // dead context silences playback entirely. Resume first, verify running,
 // only then take the source.
+// YouTube Music swaps its media element, and the source-node binding is
+// permanent, so a bus taken before playback started ends up holding a dead
+// element. The real element then plays through its own path untouched, which
+// sounds exactly like the feature doing nothing. A bus whose element is no
+// longer the live one is stale and must be rebuilt against the current
+// element, which is itself unbound and therefore claimable.
+function isLiveElement(element: HTMLMediaElement): boolean {
+  const decoded = (element as HTMLMediaElement & { webkitAudioDecodedByteCount?: number }).webkitAudioDecodedByteCount;
+  return element.isConnected && (decoded ?? 0) > 0;
+}
+
 async function acquireAudioBus(): Promise<BlyricsAudioBus | null> {
   const existing = readWindowBus();
   const claim = decideAudioBusClaim(existing, AUDIO_BUS_VERSION, isBlyricsAudioBus);
@@ -60,10 +71,17 @@ async function acquireAudioBus(): Promise<BlyricsAudioBus | null> {
 
   if (claim === "reuse") {
     const bus = existing as BlyricsAudioBus;
-    return (await resumeOnGesture(bus.context)) ? bus : null;
+    if (isLiveElement(bus.element)) {
+      return (await resumeOnGesture(bus.context)) ? bus : null;
+    }
+    console.warn("[BLK-AUDIO-BUS] bus element is stale, rebuilding against the current element");
   }
 
-  const element = selectPlaybackElement(Array.from(document.querySelectorAll("video")));
+  const candidates = Array.from(document.querySelectorAll("video"));
+  // Refuse to bind before the element is actually decoding audio. Binding
+  // early is what produced the stale bus above, and the binding cannot be
+  // undone.
+  const element = selectPlaybackElement(candidates.filter(isLiveElement)) ?? null;
   if (!element) return null;
 
   const context = new AudioContext();
