@@ -238,6 +238,32 @@ async function loadSeparationOrt(ortBaseUrl: string): Promise<SeparationOrt> {
   return runtime;
 }
 
+// Runs the freshly built session over all-zero inputs. Zeros are finite and
+// in range, so NaN coming back from them indicts the weights or the graph
+// rather than anything the audio path computed.
+async function probeWithZeros(runtime: SeparationOrt, session: SeparationOrtSession): Promise<void> {
+  const magspecLength = MAGSPEC_DIMS.reduce((a, b) => a * b, 1);
+  // Graded amplitudes. Zeros are the control; if NaN only appears above some
+  // amplitude the fault is scaling, and if even a whisper produces it the
+  // fault is the layout we hand the model.
+  for (const amplitude of [0, 1e-3, 1e-1, 1]) {
+    try {
+      const waveformData = new Float32Array(2 * SEGMENT_SAMPLES);
+      const magspecData = new Float32Array(magspecLength);
+      for (let i = 0; i < waveformData.length; i++) waveformData[i] = amplitude * Math.sin(i * 0.01);
+      for (let i = 0; i < magspecData.length; i++) magspecData[i] = amplitude * Math.sin(i * 0.017);
+
+      const result = await session.run({
+        [WAVEFORM_INPUT_NAME]: new runtime.Tensor("float32", waveformData, [1, 2, SEGMENT_SAMPLES]),
+        [MAGSPEC_INPUT_NAME]: new runtime.Tensor("float32", magspecData, MAGSPEC_DIMS),
+      });
+      console.log(`[BLK-PROBE] amp=${amplitude}`, probe(TIME_OUTPUT_NAME, result[TIME_OUTPUT_NAME].data));
+    } catch (error) {
+      console.log(`[BLK-PROBE] amp=${amplitude} run failed`, toErrorMessage(error));
+    }
+  }
+}
+
 async function handleSeparateInit(
   ortBaseUrl: string,
   modelBytes: ArrayBuffer,
@@ -252,6 +278,13 @@ async function handleSeparateInit(
       graphOptimizationLevel: "all",
     });
     separationOrt = runtime;
+    console.log(`[BLK-PROBE] model bytes=${modelBytes.byteLength}`);
+    console.log(
+      `[BLK-PROBE] session inputs=${JSON.stringify(separationSession.inputNames)} outputs=${JSON.stringify(
+        separationSession.outputNames
+      )}`
+    );
+    await probeWithZeros(runtime, separationSession);
     postSeparate({ type: "separate-init-done" });
   } catch (error) {
     postSeparate({ type: "separate-error", code: "ort-failed", message: toErrorMessage(error) });
@@ -271,6 +304,31 @@ function emitRegion(
     ...instrumental.map(channel => channel.buffer),
   ];
   postSeparate({ type: "separate-region", vocals, instrumental, regionStart, totalFrames }, transfers);
+}
+
+// -- First-chunk NaN probe --------------------------------------------------
+//
+// A NaN anywhere in this path survives every shape check, propagates through
+// the stitcher and the accumulator, and only becomes visible after the Opus
+// encoder turns it into silence. Reporting the count per stage on the first
+// chunk names the stage that introduces it.
+function probe(label: string, data: Float32Array): string {
+  let nans = 0;
+  let sum = 0;
+  let peak = 0;
+  for (let i = 0; i < data.length; i++) {
+    const value = data[i];
+    if (Number.isNaN(value)) {
+      nans++;
+      continue;
+    }
+    sum += value * value;
+    const magnitude = Math.abs(value);
+    if (magnitude > peak) peak = magnitude;
+  }
+  const finite = data.length - nans;
+  const rms = finite > 0 ? Math.sqrt(sum / finite) : 0;
+  return `${label}: len=${data.length}, nan=${nans}, rms=${rms.toExponential(3)}, peak=${peak.toExponential(3)}`;
 }
 
 async function handleSeparateProcess(channels: Float32Array[], totalFrames: number): Promise<void> {
@@ -334,6 +392,15 @@ async function handleSeparateProcess(channels: Float32Array[], totalFrames: numb
     }
 
     const vocalsChunk: Chunk = { start: chunk.start, end: chunk.end, data: extractVocalsStem(timeTensor, freqTensor) };
+
+    if (chunkIndex === 0) {
+      console.log("[BLK-PROBE]", probe("normalized input L", chunk.data[0]));
+      console.log("[BLK-PROBE]", probe("waveform tensor", waveformTensor.data));
+      console.log("[BLK-PROBE]", probe("magspec tensor", magspecTensor.data));
+      console.log("[BLK-PROBE]", probe("model time output", timeTensor.data));
+      console.log("[BLK-PROBE]", probe("model freq output", freqTensor.data));
+      console.log("[BLK-PROBE]", probe("extracted vocals L", vocalsChunk.data[0]));
+    }
 
     chunkIndex++;
     postSeparate({ type: "separate-progress", processed: chunkIndex, total: totalChunks });
