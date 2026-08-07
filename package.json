@@ -38,6 +38,7 @@
         "resources": [
           "assets/ort/*",
           "assets/separator.js",
+          "assets/protocol.js",
           "assets/protocol2.js",
           "assets/offscreen.html",
           "assets/offscreen.js"
