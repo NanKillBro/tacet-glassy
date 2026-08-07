@@ -98,7 +98,14 @@
   width: 16px;
   height: 16px;
   opacity: var(--glyph-o);
-  background: var(--blyrics-shimmer-gradient) 0 0 / 200% 100%;
+  /* Fallback for the standalone case: Better Lyrics owns
+     --blyrics-shimmer-gradient, and without it the shimmer is invisible.
+     Neutral, never the accent, because accent reads as engaged not working. */
+  background: var(
+      --blyrics-shimmer-gradient,
+      linear-gradient(110deg, hsla(0, 0%, 100%, 0.35) 0%, hsla(0, 0%, 100%, 0.95) 50%, hsla(0, 0%, 100%, 0.35) 100%)
+    )
+    0 0 / 200% 100%;
   animation: blyrics-shimmer 3s linear infinite;
   will-change: background-position;
   -webkit-mask: var(--glyph) center / contain no-repeat;

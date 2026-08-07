@@ -51,6 +51,7 @@ interface FaderControl {
   menu: HTMLDivElement;
   getHost(): FaderHost;
   setHost(next: FaderHost): void;
+  setBusy(busy: boolean): void;
   destroy(): void;
 }
 
@@ -225,6 +226,24 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
 
   // -- Paint --------------------------------------------------------------------
 
+  // -- Busy state -----------------------------------------------------------
+  //
+  // While a companion is working, the glyph is painted with the project's
+  // shimmer instead of the accent, because accent reads as engaged rather than
+  // working. The busy layer suppresses value painting so a spring frame does
+  // not overwrite it mid-shimmer.
+
+  let busy = false;
+  let lastGlyphKind: GlyphKind = "mic";
+  let lastGlyphFraction = 0;
+
+  function setBusy(nextBusy: boolean): void {
+    if (busy === nextBusy) return;
+    busy = nextBusy;
+    if (busy) stack.show("busy", 1, lastGlyphKind);
+    else stack.show(lastGlyphKind, lastGlyphFraction);
+  }
+
   const paint: Spring = createSpring(
     x => {
       const frame = computePaintFrame(x);
@@ -234,7 +253,9 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
       fill.style.height = `${frame.fillHeightPercent}%`;
       fill.style.borderRadius = frame.fillBorderRadius;
       thumb.style.setProperty("--shadow-y", `${frame.shadowYPx.toFixed(2)}px`);
-      stack.show(frame.glyphKind, frame.glyphFraction);
+      lastGlyphKind = frame.glyphKind;
+      lastGlyphFraction = frame.glyphFraction;
+      if (!busy) stack.show(frame.glyphKind, frame.glyphFraction);
     },
     { requestAnimationFrame: requestFrame, prefersReducedMotion }
   );
@@ -424,7 +445,7 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
     menu.remove();
   }
 
-  return { button, menu, getHost: () => host, setHost, destroy };
+  return { button, menu, getHost: () => host, setHost, setBusy, destroy };
 }
 
 export { createFaderControl };

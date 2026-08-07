@@ -1,7 +1,9 @@
+import faderCss from "data-text:../ui/fader.css";
 import type { PlasmoCSConfig } from "plasmo";
 import { createKaraokePipeline } from "@/orchestrator/karaoke-pipeline";
 import type { KaraokeState } from "@/orchestrator/karaoke-state";
 import { createFaderControl } from "@/ui/fader";
+import type { FaderControl } from "@/ui/fader";
 import { attachFaderMount, hasBetterLyrics } from "@/ui/mount";
 
 // -- Fader UI wiring -----------------------------------------------------------
@@ -22,12 +24,33 @@ export const config: PlasmoCSConfig = {
   all_frames: false,
 };
 
-function markUnavailable(button: HTMLButtonElement, reason: string): void {
+// -- Stylesheet ----------------------------------------------------------
+//
+// Injected as a same-origin <style> rather than left to Plasmo's manifest
+// css array, which was empty and left the control completely unstyled on the
+// real page. Same-origin also matters for the @property registration the
+// glyph morph depends on: Gecko drops @property from a stylesheet that is
+// cross-origin to the document, which a chrome-extension:// link would be.
+const STYLE_ELEMENT_ID = "blyrics-karaoke-style";
+
+function injectStylesheet(): void {
+  if (document.getElementById(STYLE_ELEMENT_ID)) return;
+  const style = document.createElement("style");
+  style.id = STYLE_ELEMENT_ID;
+  style.textContent = faderCss;
+  (document.head ?? document.documentElement).appendChild(style);
+}
+
+injectStylesheet();
+
+// dim is for genuine failure only. While working, the shimmer is the
+// indication, and greying it out at the same time smothers it.
+function markUnavailable(button: HTMLButtonElement, reason: string, dim = false): void {
   button.disabled = true;
   button.setAttribute("aria-disabled", "true");
   button.title = reason;
-  button.style.opacity = "0.45";
-  button.style.filter = "grayscale(70%)";
+  button.style.opacity = dim ? "0.45" : "";
+  button.style.filter = dim ? "grayscale(70%)" : "";
   button.style.cursor = "not-allowed";
 }
 
@@ -59,7 +82,10 @@ function describeStage(state: KaraokeState): string {
   }
 }
 
-function renderKaraokeState(button: HTMLButtonElement, state: KaraokeState): void {
+function renderKaraokeState(control: FaderControl, state: KaraokeState): void {
+  const button = control.button;
+  // The shimmer, not a grey-out, is the working state. Grey reads as broken.
+  control.setBusy(state.status === "waiting-for-capture" || state.status === "processing");
   switch (state.status) {
     case "waiting-for-capture":
       markUnavailable(button, "Sing-along will be ready once this track has finished downloading.");
@@ -72,7 +98,7 @@ function renderKaraokeState(button: HTMLButtonElement, state: KaraokeState): voi
       markUnavailable(button, describeStage(state));
       break;
     case "failed":
-      markUnavailable(button, `Sing-along unavailable: ${state.reason ?? "unknown error"}`);
+      markUnavailable(button, `Sing-along unavailable: ${state.reason ?? "unknown error"}`, true);
       break;
   }
 }
@@ -87,7 +113,7 @@ const control = createFaderControl({
 });
 
 pipeline = createKaraokePipeline({
-  onStateChange: state => renderKaraokeState(control.button, state),
+  onStateChange: state => renderKaraokeState(control, state),
 });
 
 markUnavailable(control.button, "Sing-along will be ready once this track has finished downloading.");
