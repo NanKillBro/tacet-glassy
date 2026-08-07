@@ -1,13 +1,9 @@
-// Two AudioBufferSourceNodes (vocals, instrumental) into two GainNodes into the
-// shared bus's destination, plus a third gain carrying the original.
+// -- Playback graph ----------------------------------------------------------
 //
 // The original is silenced with a gain of ZERO, never by disconnecting it. Web
 // Audio only pulls through nodes reaching the destination, so a disconnected
 // MediaElementAudioSourceNode stalls the element behind it: currentTime freezes
 // and YouTube Music discards the element and builds another, repeatedly.
-//
-// Real Web Audio calls only: the gain law and the bypass state machine are pure
-// and tested separately.
 
 import { createBypassController } from "@/pageworld/bypass";
 import { gainsForMixLevel } from "@/pageworld/gain-law";

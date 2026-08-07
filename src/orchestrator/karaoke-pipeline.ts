@@ -114,12 +114,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     window.postMessage(message, window.location.origin, transfer);
   }
 
-  // -- Track change polling ----------------------------------------------
-  //
-  // ISOLATED-world content scripts share the page's real window.location,
-  // so no message from MAIN world is needed to notice a track change; see
-  // src/capture/video-id.ts for why polling location.search is how this
-  // codebase already detects it.
+  // -- Track change polling -----------------------------------------------
 
   function checkTrackChange(): void {
     const videoId = currentVideoId();

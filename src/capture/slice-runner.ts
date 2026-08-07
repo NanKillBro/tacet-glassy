@@ -1,8 +1,6 @@
 // Runs inside a hidden worker frame: drives that frame's own player across one
 // slice of the track, then hands the captured bytes up to the opener.
 //
-// Drives one hidden player across one slice, then hands the bytes to the opener.
-//
 // The player stays PAUSED and the scrubber hops to the buffered edge on every
 // poll, which makes it fetch the next window at once. Measured on a 246 s
 // track: 6 s hopping against 18 s playing at 16x, because a playhead both
@@ -149,7 +147,6 @@ async function runSliceCapture(
 
   while (true) {
     await sleep(POLL_MS);
-    // Never let it play; see the header.
     if (!video.paused) stopPlayback();
 
     // If the frame navigated, the autoplay queue took it and this player is on
@@ -194,8 +191,6 @@ async function runSliceCapture(
     }
 
     if (decision.action === "seek") {
-      // The hop itself: jumping to the buffered edge is what pulls the next
-      // window immediately.
       cursor = decision.cursor;
       stalls = 0;
       seekTo(Math.min(decision.to, duration - END_OF_TRACK_GUARD_S));

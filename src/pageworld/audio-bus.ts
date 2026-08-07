@@ -1,10 +1,8 @@
-// The shared bus, published as window.__blyricsAudio. First writer owns it;
+// -- Shared audio bus --------------------------------------------------------
+//
+// Published as window.__blyricsAudio. First writer owns it;
 // a sibling extension (better-lyrics-shaders) can attach to the same
 // context and source without either side knowing about the other's graph.
-//
-// Real DOM and Web Audio calls only: the claim decision and element
-// selection are pure and live in audio-bus-claim.ts and
-// select-media-element.ts. Not unit-testable, no AudioContext in Node.
 
 import { decideAudioBusClaim } from "@/pageworld/audio-bus-claim";
 

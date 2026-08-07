@@ -13,11 +13,6 @@ import { isLoadStemsMessage, isSetMixLevelMessage, isStopStemsMessage } from "@/
 // MediaElementAudioSourceNode off YouTube's <video> and share it with a sibling
 // extension over window.__blyricsAudio. src/contents/fader-control.ts talks to
 // this over window.postMessage; see src/pageworld/protocol.ts for the shapes.
-//
-// Only reconcile() builds the graph, because it owns the one decision that
-// matters: which element these stems belong to. blk-set-mix-level applies to an
-// existing graph or waits as pendingMixLevel, which is what keeps "default off"
-// true while the fader is dragged before any track is ready.
 
 export const config: PlasmoCSConfig = {
   matches: ["https://music.youtube.com/*"],
@@ -141,9 +136,6 @@ function buildGraph(element: HTMLMediaElement): Promise<PlaybackGraph | null> {
   });
 }
 
-// The one owner of "are these stems engaged, and against what". On a timer
-// because the element often does not exist yet when the stems land, and because
-// YouTube Music swaps it out from under a running graph.
 function targetPosition(stems: LoadedStems): TargetPosition {
   const target = elementForStems(stems);
   if (!target) return "none";

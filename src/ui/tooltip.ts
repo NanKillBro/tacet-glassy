@@ -7,10 +7,6 @@ import { computeCardPosition } from "@/ui/fader-position";
 // the disabled attribute fires no pointer events at all. The control now marks
 // itself aria-disabled instead, so it still reports as unavailable and can still
 // be hovered.
-//
-// Content changes while the pointer is on it, so a step change rolls the line
-// out and the next one in, while a percentage that moves several times a second
-// swaps only its digits.
 
 const TOOLTIP_CLASS = "blyrics-mix-tip";
 const LINE_CLASS = "blyrics-mix-tip__line";

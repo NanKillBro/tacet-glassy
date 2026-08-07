@@ -326,9 +326,6 @@ function startPrefetchFor(videoId: string): void {
 }
 
 // -- Handing the bytes over --------------------------------------------------
-//
-// src/orchestrator/karaoke-pipeline.ts asks for the current track's bytes once
-// it has seen a blk-capture-ready broadcast.
 
 function respondToCapturedAudioRequest(videoId: string): void {
   // The hidden worker's bytes win: they cover the whole track, where the
