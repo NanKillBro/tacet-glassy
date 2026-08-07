@@ -8,16 +8,7 @@
     "lineEnding": "lf",
     "lineWidth": 120,
     "attributePosition": "auto",
-    "ignore": [
-      "build",
-      "node_modules",
-      ".plasmo",
-      "assets/ort",
-      "assets/separator.js",
-      "assets/protocol.js",
-      "assets/protocol2.js",
-      "assets/offscreen.js"
-    ]
+    "ignore": ["build", "node_modules", ".plasmo", "assets/ort", "assets/workers", "assets/src"]
   },
   "organizeImports": { "enabled": true },
   "linter": {
@@ -26,16 +17,7 @@
       "recommended": false,
       "correctness": { "noUnusedVariables": "error" }
     },
-    "ignore": [
-      "build",
-      "node_modules",
-      ".plasmo",
-      "assets/ort",
-      "assets/separator.js",
-      "assets/protocol.js",
-      "assets/protocol2.js",
-      "assets/offscreen.js"
-    ]
+    "ignore": ["build", "node_modules", ".plasmo", "assets/ort", "assets/workers", "assets/src"]
   },
   "javascript": {
     "formatter": {

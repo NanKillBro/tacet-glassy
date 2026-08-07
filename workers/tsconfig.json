@@ -3,7 +3,24 @@
   "compilerOptions": {
     "noEmit": false,
     "outDir": "../assets",
-    "rootDir": "."
+    "rootDir": "..",
+    "baseUrl": ".."
   },
-  "include": ["./*.ts"]
+  "include": [
+    "./*.ts",
+    "../src/separation/types.ts",
+    "../src/separation/chunker.ts",
+    "../src/separation/stft.ts",
+    "../src/separation/demucs-spec.ts",
+    "../src/separation/demucs-postprocess.ts",
+    "../src/separation/derived-stems.ts",
+    "../src/separation/audio-codec.ts",
+    "../src/separation/lame-priming.ts",
+    "../src/separation/streaming-stitcher.ts",
+    "../src/separation/waveform-tensor.ts",
+    "../src/separation/region-stems.ts",
+    "../src/separation/resume.ts",
+    "../src/cache/idb.ts",
+    "../src/cache/model-cache.ts"
+  ]
 }

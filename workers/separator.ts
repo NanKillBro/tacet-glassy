@@ -1,4 +1,18 @@
-import { isLoadCommand, type WorkerResultMessage } from "./protocol.js";
+/// <reference lib="webworker" />
+import { type Chunk, SEGMENT_SAMPLES, chunkCount, iterateChunks } from "../src/separation/chunker.js";
+import { extractVocalsStem, normalizeForDemucs } from "../src/separation/demucs-postprocess.js";
+import { MAGSPEC_DIMS, computeMagspec } from "../src/separation/demucs-spec.js";
+import { deriveRegionStems } from "../src/separation/region-stems.js";
+import { StreamingStitcher } from "../src/separation/streaming-stitcher.js";
+import { buildWaveformTensorData } from "../src/separation/waveform-tensor.js";
+import {
+  type SeparateOutboundMessage,
+  type WorkerResultMessage,
+  isLoadCommand,
+  isSeparateCancelCommand,
+  isSeparateInitCommand,
+  isSeparateProcessCommand,
+} from "./protocol.js";
 
 // -- ORT surface used here ---------------------------------------
 
@@ -151,20 +165,233 @@ async function runChecks(ortBaseUrl: string): Promise<WorkerResultMessage> {
   };
 }
 
+// -- Real separation: htdemucs over the webgpu execution provider -----------
+//
+// Ported from composer's src/audio/separation/worker.ts. Two departures from
+// composer, both forced by running inside an extension worker rather than a
+// bundled web app:
+//   1. wasmPaths is set to the absolute ortBaseUrl passed in on
+//      "separate-init" (resolved by the offscreen document via
+//      chrome.runtime.getURL, since a Worker has no chrome.* bindings of its
+//      own), never a CDN. MV3 forbids remotely hosted code.
+//   2. The model bytes arrive already fetched, on "separate-init". The
+//      offscreen document owns fetching and IndexedDB caching, since a
+//      Worker cannot reach chrome.runtime and host_permissions-based CORS
+//      bypass applies to the offscreen document itself.
+// A third departure is the point of this file: composer accumulates every
+// chunk and calls the batch stitchChunks once at the end. This uses
+// StreamingStitcher instead and posts each finalised region, plus the
+// instrumental derived from it, as soon as it is available.
+
+// HTDemucs ONNX I/O contract (matches sevagh/demucs.onnx export):
+//   inputs:
+//     "input": [1, 2, 343980]      stereo waveform @ 44.1 kHz, 7.8 s
+//     "x":     [1, 4, 2048, 336]   pre-computed magspec (L_re, L_im, R_re, R_im)
+//   outputs:
+//     "output": [1, 4, 4, 2048, 336]  separated spectrogram branch
+//     "add_67": [1, 4, 2, 343980]     separated time branch
+//                                     stem order: drums, bass, other, vocals
+const FREQ_OUTPUT_NAME = "output";
+const TIME_OUTPUT_NAME = "add_67";
+const WAVEFORM_INPUT_NAME = "input";
+const MAGSPEC_INPUT_NAME = "x";
+
+interface SeparationOrt {
+  InferenceSession: {
+    create(
+      bytes: ArrayBuffer | Uint8Array,
+      opts: { executionProviders: string[]; graphOptimizationLevel?: string }
+    ): Promise<SeparationOrtSession>;
+  };
+  Tensor: new (dtype: "float32", data: Float32Array, dims: readonly number[]) => SeparationOrtTensor;
+  env: { wasm: { wasmPaths?: string; numThreads?: number } };
+}
+
+interface SeparationOrtTensor {
+  data: Float32Array;
+  dims: number[];
+}
+
+interface SeparationOrtSession {
+  inputNames: string[];
+  outputNames: string[];
+  run(feeds: Record<string, SeparationOrtTensor>): Promise<Record<string, SeparationOrtTensor>>;
+  release?(): Promise<void>;
+}
+
+let separationOrt: SeparationOrt | null = null;
+let separationSession: SeparationOrtSession | null = null;
+let separateCancelled = false;
+
+function postSeparate(message: SeparateOutboundMessage, transfer?: Transferable[]): void {
+  self.postMessage(message, transfer ?? []);
+}
+
+// Always the same bundle the spike proved works end to end (ort.webgpu.bundle.min.mjs
+// carries both the webgpu and wasm execution providers); forceWasm only changes which
+// provider list is requested below, not which module is loaded.
+async function loadSeparationOrt(ortBaseUrl: string): Promise<SeparationOrt> {
+  const bundleUrl = `${ortBaseUrl}ort.webgpu.bundle.min.mjs`;
+  const runtime = (await import(bundleUrl)) as SeparationOrt;
+  runtime.env.wasm.numThreads = 1;
+  runtime.env.wasm.wasmPaths = ortBaseUrl;
+  return runtime;
+}
+
+async function handleSeparateInit(
+  ortBaseUrl: string,
+  modelBytes: ArrayBuffer,
+  forceWasm: boolean | undefined
+): Promise<void> {
+  separateCancelled = false;
+  try {
+    const runtime = await loadSeparationOrt(ortBaseUrl);
+    const providers = forceWasm ? ["wasm"] : ["webgpu", "wasm"];
+    separationSession = await runtime.InferenceSession.create(modelBytes, {
+      executionProviders: providers,
+      graphOptimizationLevel: "all",
+    });
+    separationOrt = runtime;
+    postSeparate({ type: "separate-init-done" });
+  } catch (error) {
+    postSeparate({ type: "separate-error", code: "ort-failed", message: toErrorMessage(error) });
+  }
+}
+
+function emitRegion(
+  regionStart: number,
+  vocalsRegionRaw: Float32Array[],
+  originalChannels: Float32Array[],
+  normalization: { mean: number; std: number },
+  totalFrames: number
+): void {
+  const { vocals, instrumental } = deriveRegionStems(originalChannels, regionStart, vocalsRegionRaw, normalization);
+  const transfers: Transferable[] = [
+    ...vocals.map(channel => channel.buffer),
+    ...instrumental.map(channel => channel.buffer),
+  ];
+  postSeparate({ type: "separate-region", vocals, instrumental, regionStart, totalFrames }, transfers);
+}
+
+async function handleSeparateProcess(channels: Float32Array[], totalFrames: number): Promise<void> {
+  if (!separationSession || !separationOrt) {
+    postSeparate({ type: "separate-error", code: "ort-failed", message: "Session not initialized." });
+    return;
+  }
+  if (channels.length !== 2) {
+    postSeparate({
+      type: "separate-error",
+      code: "ort-failed",
+      message: `HTDemucs requires stereo input (got ${channels.length} channels).`,
+    });
+    return;
+  }
+
+  separateCancelled = false;
+  const totalChunks = chunkCount(totalFrames);
+  const normalized = normalizeForDemucs(channels, totalFrames);
+  const stitcher = new StreamingStitcher(totalFrames, channels.length);
+
+  let chunkIndex = 0;
+  for (const chunk of iterateChunks(normalized.channels)) {
+    if (separateCancelled) {
+      postSeparate({ type: "separate-cancelled" });
+      return;
+    }
+
+    let waveformTensor: SeparationOrtTensor;
+    let magspecTensor: SeparationOrtTensor;
+    try {
+      const waveformFlat = buildWaveformTensorData(chunk.data);
+      waveformTensor = new separationOrt.Tensor("float32", waveformFlat, [1, 2, SEGMENT_SAMPLES]);
+      const magspecFlat = computeMagspec(chunk.data);
+      magspecTensor = new separationOrt.Tensor("float32", magspecFlat, MAGSPEC_DIMS);
+    } catch (error) {
+      postSeparate({ type: "separate-error", code: "ort-failed", message: toErrorMessage(error) });
+      return;
+    }
+
+    let result: Record<string, SeparationOrtTensor>;
+    try {
+      result = await separationSession.run({
+        [WAVEFORM_INPUT_NAME]: waveformTensor,
+        [MAGSPEC_INPUT_NAME]: magspecTensor,
+      });
+    } catch (error) {
+      postSeparate({ type: "separate-error", code: "ort-failed", message: toErrorMessage(error) });
+      return;
+    }
+
+    const timeTensor = result[TIME_OUTPUT_NAME];
+    const freqTensor = result[FREQ_OUTPUT_NAME];
+    if (!timeTensor || !freqTensor) {
+      postSeparate({
+        type: "separate-error",
+        code: "ort-failed",
+        message: `Missing output tensor ${!timeTensor ? TIME_OUTPUT_NAME : FREQ_OUTPUT_NAME}. Available: ${Object.keys(result).join(", ")}`,
+      });
+      return;
+    }
+
+    const vocalsChunk: Chunk = { start: chunk.start, end: chunk.end, data: extractVocalsStem(timeTensor, freqTensor) };
+
+    chunkIndex++;
+    postSeparate({ type: "separate-progress", processed: chunkIndex, total: totalChunks });
+
+    const regionStart = stitcher.finalisedFrames;
+    const region = stitcher.push(vocalsChunk);
+    if (region) emitRegion(regionStart, region, channels, normalized, totalFrames);
+  }
+
+  const tailStart = stitcher.finalisedFrames;
+  const tail = stitcher.flush();
+  if (tail) emitRegion(tailStart, tail, channels, normalized, totalFrames);
+
+  // Drop GPU/CPU resources tied to the model session before reporting done.
+  // The host terminates the worker right after, but releasing explicitly
+  // also covers a future keep-worker-alive case and helps the WebGPU EP
+  // flush its buffer pool promptly rather than waiting on GC.
+  try {
+    await separationSession.release?.();
+  } catch (error) {
+    console.warn("[BLK-SEPARATOR] failed to release ORT session", error);
+  }
+  separationSession = null;
+
+  postSeparate({ type: "separate-done", totalFrames });
+}
+
 self.addEventListener("message", event => {
   const data: unknown = event.data;
-  if (!isLoadCommand(data)) return;
-  runChecks(data.ortBaseUrl)
-    .then(result => self.postMessage(result))
-    .catch(error => {
-      const result: WorkerResultMessage = {
-        type: "result",
-        ortLoaded: false,
-        webgpuSession: false,
-        hasNavigatorGpu: typeof navigator !== "undefined" && "gpu" in navigator,
-        ortError: toErrorMessage(error),
-        webgpuError: null,
-      };
-      self.postMessage(result);
-    });
+
+  if (isLoadCommand(data)) {
+    runChecks(data.ortBaseUrl)
+      .then(result => self.postMessage(result))
+      .catch(error => {
+        const result: WorkerResultMessage = {
+          type: "result",
+          ortLoaded: false,
+          webgpuSession: false,
+          hasNavigatorGpu: typeof navigator !== "undefined" && "gpu" in navigator,
+          ortError: toErrorMessage(error),
+          webgpuError: null,
+        };
+        self.postMessage(result);
+      });
+    return;
+  }
+
+  if (isSeparateInitCommand(data)) {
+    handleSeparateInit(data.ortBaseUrl, data.modelBytes, data.forceWasm);
+    return;
+  }
+
+  if (isSeparateProcessCommand(data)) {
+    handleSeparateProcess(data.channels, data.totalFrames);
+    return;
+  }
+
+  if (isSeparateCancelCommand(data)) {
+    separateCancelled = true;
+  }
 });

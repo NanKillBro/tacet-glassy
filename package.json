@@ -5,7 +5,7 @@
   "description": "Separate vocals from YouTube Music playback and fade between them",
   "author": "Boidu",
   "scripts": {
-    "build:worker": "tsc -p workers/tsconfig.json",
+    "build:worker": "tsc -p workers/tsconfig.json && tsc-alias -p workers/tsconfig.json -f",
     "dev": "npm run build:worker && plasmo dev --verbose",
     "build": "npm run build:worker && plasmo build",
     "typecheck": "tsc --noEmit",
@@ -24,25 +24,19 @@
     "@types/trusted-types": "^2.0.7",
     "fake-indexeddb": "^6.2.5",
     "onnxruntime-web": "1.26.0",
+    "tsc-alias": "^1.9.1",
     "typescript": "^5.9.3",
     "vitest": "^4.1.10"
   },
   "manifest": {
-    "host_permissions": ["https://music.youtube.com/*"],
+    "host_permissions": ["https://music.youtube.com/*", "$PLASMO_PUBLIC_MODEL_BASE_URL/*"],
     "permissions": ["storage", "offscreen"],
     "content_security_policy": {
       "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
     },
     "web_accessible_resources": [
       {
-        "resources": [
-          "assets/ort/*",
-          "assets/separator.js",
-          "assets/protocol.js",
-          "assets/protocol2.js",
-          "assets/offscreen.html",
-          "assets/offscreen.js"
-        ],
+        "resources": ["assets/ort/*", "assets/workers/*", "assets/offscreen.html"],
         "matches": ["https://music.youtube.com/*"]
       }
     ]

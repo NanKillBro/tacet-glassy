@@ -46,11 +46,5 @@ Thumbs.db
 assets/ort/*.wasm
 
 # Built by build:worker, not Parcel
-assets/separator.js
-assets/separator.js.map
-assets/protocol.js
-assets/protocol.js.map
-assets/protocol2.js
-assets/protocol2.js.map
-assets/offscreen.js
-assets/offscreen.js.map
+assets/workers/
+assets/src/
