@@ -8,7 +8,7 @@
     "lineEnding": "lf",
     "lineWidth": 120,
     "attributePosition": "auto",
-    "ignore": ["build", "node_modules", ".plasmo", "assets/ort", "assets/workers", "assets/src"]
+    "ignore": ["build", "node_modules", ".plasmo", "assets/ort", "assets/workers", "assets/src", "dev/dist"]
   },
   "organizeImports": { "enabled": true },
   "linter": {
@@ -17,7 +17,7 @@
       "recommended": false,
       "correctness": { "noUnusedVariables": "error" }
     },
-    "ignore": ["build", "node_modules", ".plasmo", "assets/ort", "assets/workers", "assets/src"]
+    "ignore": ["build", "node_modules", ".plasmo", "assets/ort", "assets/workers", "assets/src", "dev/dist"]
   },
   "javascript": {
     "formatter": {
