@@ -1,24 +1,32 @@
-/* Ported verbatim from docs/mocks/2026-08-07-singalong-mounts.html
-   (better-lyrics repo). Every value here was measured or deliberately
-   chosen; see docs/plans/2026-08-07-singalong-karaoke.md section 6 before
-   changing anything.
+/* Ported verbatim from docs/mocks/2026-08-07-singalong-fader-v3.html and
+   docs/mocks/2026-08-07-singalong-mounts.html (better-lyrics repo). Every
+   value here was measured or deliberately chosen; see
+   docs/plans/2026-08-07-singalong-karaoke.md section 6 before changing
+   anything.
 
-   Two mount contexts, two different CSS strategies for the button and card
-   chrome (background, hover, active and enter/exit):
+   The button and card carry Better Lyrics' own dock classes too
+   (blyrics-dock__control / --active, blyrics-dock__menu / --open), so a
+   user's theme layered on top of Better Lyrics can still restyle them. That
+   is the only reason those classes are attached at all: every rule below is
+   otherwise self-contained and does not require Better Lyrics, or any other
+   extension, to be installed.
 
-   - In the dock, the button and card carry Better Lyrics' own dock classes
-     (blyrics-dock__control / --active, blyrics-dock__menu / --open). Better
-     Lyrics' stylesheet, and any user theme layered on top of it, is the
-     only definition of that chrome; nothing here duplicates it.
-   - In the player bar, Better Lyrics may not be installed at all, so that
-     path carries a self-contained copy of the same chrome under the --bar
-     modifier classes below, scoped so it never leaks into the dock path.
+   Two consequences of that:
+   - Where Better Lyrics' own class carries conflicting geometry (its
+     .blyrics-dock__menu is sized for a scrollable text dropdown), a
+     compound selector such as .blyrics-mix.blyrics-dock__menu reasserts
+     ours at higher specificity, so it wins deterministically instead of
+     depending on which stylesheet the browser happens to cascade last.
+   - Every read of a Better Lyrics theme variable (--dock-pill-accent,
+     --ease, --dock-ease) carries a fallback equal to the mock's own
+     default value, computed from --dock-accent: hsl(45, 100%, 56%), so nothing
+     here breaks if Better Lyrics is missing entirely, as in the player bar.
 
-   What stays unconditional and ours either way: the glyph stack, the
-   track, well, clip, handle, fill, pole buttons and the transient label.
-   Those consume --dock-pill-accent / --ease, owned by the host page's
-   variables.css, same as before. The dev preview harness supplies its own
-   copies to stand in for that host page. */
+   --bar modifier classes below carry only what genuinely differs by host:
+   the button's size and shape (28px pill vs. 40px circle) and the removal
+   of the tinted pill fill when engaged, matching YouTube Music's own
+   borderless, unpilled buttons. The fader card is identical in both hosts
+   and carries no --bar variant. */
 
 /* Registered so it can be transitioned. Gecko drops @property from a
    stylesheet cross-origin to the document, so this must live in the same
@@ -29,47 +37,121 @@
   initial-value: 0;
 }
 
-/* -- The control's own button --------------------------------------------
-   position: relative is the only thing every host needs: it is what lets
-   the glyph layer below sit at inset: 0 relative to the button itself. */
+/* -- The control's own button. Styled to the dock when hosted there, to the
+      player bar when not, but it is one element either way. ---------------- */
 .blyrics-sing {
   position: relative;
-}
-
-/* -- Player bar fallback: self-contained chrome, matching Better Lyrics'
-      dock control values but never reading a Better Lyrics variable or
-      class, since Better Lyrics may not be installed. Scoped entirely
-      under --bar so none of it leaks into the dock path. ------------------ */
-.blyrics-sing--bar {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: 28px;
+  height: 28px;
   flex: 0 0 auto;
   padding: 0;
   border: none;
-  border-radius: 50%;
+  border-radius: 9px;
   background: transparent;
-  color: hsla(0, 0%, 100%, 0.72);
+  color: hsla(0, 0%, 100%, 0.6);
   cursor: pointer;
   transition-property: background-color, color, scale;
   transition-duration: 160ms;
-  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-timing-function: var(--ease, cubic-bezier(0.2, 0, 0, 1));
 }
-.blyrics-sing--bar:hover {
+.blyrics-sing:hover {
   background-color: hsla(0, 0%, 100%, 0.16);
   color: hsla(0, 0%, 100%, 0.95);
 }
-.blyrics-sing--bar:active {
+.blyrics-sing:active {
   scale: 0.96;
 }
-.blyrics-sing--bar:focus-visible {
-  outline: 2px solid hsl(45, 100%, 56%);
+.blyrics-sing:focus-visible {
+  outline: 2px solid var(--dock-pill-accent, oklch(from hsl(45, 100%, 56%) l calc(c * 1.85) h));
   outline-offset: 2px;
 }
+.blyrics-sing--active {
+  color: color-mix(in srgb, var(--dock-pill-accent, oklch(from hsl(45, 100%, 56%) l calc(c * 1.85) h)) 80%, #fff);
+  background-color: color-mix(
+    in srgb,
+    var(--dock-pill-accent, oklch(from hsl(45, 100%, 56%) l calc(c * 1.85) h)) 16%,
+    transparent
+  );
+  box-shadow: inset
+    color-mix(in srgb, var(--dock-pill-accent, oklch(from hsl(45, 100%, 56%) l calc(c * 1.85) h)) 16%, transparent) 0
+    1px 0 0;
+}
+
+/* Better Lyrics' own .blyrics-dock__control carries the same box model, but
+   this compound selector has higher specificity than its single-class rule,
+   so ours wins deterministically regardless of which stylesheet the browser
+   happens to cascade last, or whether a future Better Lyrics release
+   changes its own control's dimensions or interaction colors. Single-class
+   .blyrics-dock__control and .blyrics-dock__control--active have the same
+   specificity as our own single-class rules above, so which one wins a
+   conflicting property is otherwise a coin flip decided by load order; the
+   compound selectors below remove that coin flip for every state a real
+   Better Lyrics stylesheet defines. */
+.blyrics-sing.blyrics-dock__control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+}
+.blyrics-sing.blyrics-dock__control:hover {
+  background-color: hsla(0, 0%, 100%, 0.16);
+  color: hsla(0, 0%, 100%, 0.95);
+}
+.blyrics-sing.blyrics-dock__control:focus-visible {
+  outline: 2px solid var(--dock-pill-accent, oklch(from hsl(45, 100%, 56%) l calc(c * 1.85) h));
+  outline-offset: 2px;
+}
+/* Three classes, not two: blyrics-dock__control--active is toggled
+   unconditionally regardless of host (see fader.ts), so a two-class
+   .blyrics-sing.blyrics-dock__control--active would also match the player
+   bar button whenever it is engaged. Requiring blyrics-dock__control too
+   keeps this scoped to the dock. */
+.blyrics-sing.blyrics-dock__control.blyrics-dock__control--active {
+  color: color-mix(in srgb, var(--dock-pill-accent, oklch(from hsl(45, 100%, 56%) l calc(c * 1.85) h)) 80%, #fff);
+  background-color: color-mix(
+    in srgb,
+    var(--dock-pill-accent, oklch(from hsl(45, 100%, 56%) l calc(c * 1.85) h)) 16%,
+    transparent
+  );
+  box-shadow: inset
+    color-mix(in srgb, var(--dock-pill-accent, oklch(from hsl(45, 100%, 56%) l calc(c * 1.85) h)) 16%, transparent) 0
+    1px 0 0;
+}
+
+/* -- Player bar fallback: only what differs from the dock pill. YouTube
+      Music's own buttons in that bar are bigger, borderless and unpilled,
+      so the control matches that instead of carrying dock styling into a
+      bar. Everything else (background, hover, focus-visible, transition)
+      is inherited from .blyrics-sing above, which already falls back to a
+      literal value when Better Lyrics is absent.
+
+      Compounded with .blyrics-sing rather than bare .blyrics-sing--bar: the
+      commit() step in fader.ts toggles blyrics-dock__control--active
+      unconditionally regardless of host (see the comment there), so in the
+      player bar this button carries that class too even though it never
+      carries blyrics-dock__control itself. A real Better Lyrics stylesheet
+      styling that bare class at the same specificity as a bare
+      .blyrics-sing--bar would then win the player bar's color by load
+      order alone; the compound closes that gap the same way the dock
+      compounds above do. ---------------------------------------------- */
+.blyrics-sing.blyrics-sing--bar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  color: hsla(0, 0%, 100%, 0.72);
+}
 .blyrics-sing--bar.blyrics-sing--active {
-  color: color-mix(in srgb, hsl(45, 100%, 56%) 80%, #fff);
+  background-color: transparent;
+  box-shadow: none;
 }
 
 .blyrics-sing__glyph {
@@ -83,7 +165,7 @@
   transition-property: --glyph-o, filter, transform;
   transition-duration: 130ms;
   transition-delay: 0ms;
-  transition-timing-function: var(--ease);
+  transition-timing-function: var(--ease, cubic-bezier(0.2, 0, 0, 1));
   pointer-events: none;
 }
 .blyrics-sing__glyph--on {
@@ -125,11 +207,10 @@
    offset menus. The dock pill has backdrop-filter, which makes it a
    backdrop root, so a card nested inside it could only blur against the
    dock. Positioned from the trigger's screen rect, it samples the page.
-
-   Geometry (width, padding, border-radius) is ours regardless of host: a
-   68px vertical fader is a different shape than Better Lyrics' own
-   general-purpose dropdown, so those stay unconditional and are reasserted
-   against blyrics-dock__menu below rather than inherited from it. */
+   Identical in both hosts: a 68px vertical fader is a different shape than
+   Better Lyrics' own general-purpose dropdown regardless of where it is
+   mounted, so this carries its own complete chrome rather than reusing or
+   duplicating .blyrics-dock__menu's. */
 .blyrics-mix {
   position: fixed;
   z-index: 2147483000;
@@ -139,25 +220,6 @@
   flex-direction: column;
   align-items: center;
   border-radius: 20px;
-}
-
-/* blyrics-dock__menu is sized and padded for a scrollable text dropdown
-   (min-width 160px, max-height 240px). This compound selector has higher
-   specificity than its single-class rule, so it wins deterministically
-   regardless of which stylesheet the browser happens to cascade last. */
-.blyrics-mix.blyrics-dock__menu {
-  min-width: 0;
-  max-height: none;
-  overflow: visible;
-  gap: 0;
-  padding: 6px;
-  border-radius: 20px;
-}
-
-/* -- Player bar fallback: same self-contained approach as the button above,
-      matching Better Lyrics' dock menu chrome without reading any of its
-      variables or classes. -------------------------------------------------- */
-.blyrics-mix--bar {
   background-color: hsla(0, 0%, 100%, 0.07);
   box-shadow:
     rgba(0, 0, 0, 0.28) 0 10px 28px -10px,
@@ -170,12 +232,32 @@
   transform: translateY(6px);
   transition-property: opacity, transform, visibility;
   transition-duration: 160ms;
-  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-timing-function: var(--dock-ease, cubic-bezier(0.4, 0, 0.2, 1));
 }
-.blyrics-mix--bar.blyrics-mix--open {
+/* Compounded with .blyrics-mix for the same reason .blyrics-sing.blyrics-sing--bar
+   is above: setOpen() in fader.ts toggles blyrics-dock__menu--open
+   unconditionally regardless of host, so the player bar's card carries that
+   class too. A bare .blyrics-mix--open would tie in specificity with a real
+   Better Lyrics rule styling that bare class and could lose it on load
+   order. */
+.blyrics-mix.blyrics-mix--open {
   opacity: 1;
   visibility: visible;
   transform: translateY(0);
+}
+
+/* Better Lyrics' own .blyrics-dock__menu is sized and padded for a
+   scrollable text dropdown (min-width 160px, max-height 240px). This
+   compound selector has higher specificity than its single-class rule, so
+   our geometry wins deterministically regardless of which stylesheet the
+   browser happens to cascade last. */
+.blyrics-mix.blyrics-dock__menu {
+  min-width: 0;
+  max-height: none;
+  overflow: visible;
+  gap: 0;
+  padding: 6px;
+  border-radius: 20px;
 }
 
 .blyrics-mix-pole {
@@ -192,7 +274,7 @@
   cursor: pointer;
   transition-property: color, scale;
   transition-duration: 160ms;
-  transition-timing-function: var(--ease);
+  transition-timing-function: var(--ease, cubic-bezier(0.2, 0, 0, 1));
 }
 .blyrics-mix-pole:hover {
   color: hsla(0, 0%, 100%, 0.9);
@@ -201,7 +283,7 @@
   scale: 0.96;
 }
 .blyrics-mix-pole--reached {
-  color: color-mix(in srgb, var(--dock-pill-accent) 85%, #fff);
+  color: color-mix(in srgb, var(--dock-pill-accent, oklch(from hsl(45, 100%, 56%) l calc(c * 1.85) h)) 85%, #fff);
 }
 
 .blyrics-mix-track {
@@ -222,7 +304,7 @@
   cursor: grabbing;
 }
 .blyrics-mix-track:focus-visible {
-  outline: 2px solid var(--dock-pill-accent);
+  outline: 2px solid var(--dock-pill-accent, oklch(from hsl(45, 100%, 56%) l calc(c * 1.85) h));
   outline-offset: 3px;
 }
 
@@ -252,8 +334,8 @@
   right: 0;
   background: linear-gradient(
     var(--fill-dir, to top),
-    color-mix(in srgb, var(--dock-pill-accent) 50%, transparent),
-    color-mix(in srgb, var(--dock-pill-accent) 65%, transparent)
+    color-mix(in srgb, var(--dock-pill-accent, oklch(from hsl(45, 100%, 56%) l calc(c * 1.85) h)) 50%, transparent),
+    color-mix(in srgb, var(--dock-pill-accent, oklch(from hsl(45, 100%, 56%) l calc(c * 1.85) h)) 65%, transparent)
   );
 }
 .blyrics-mix-thumb {
@@ -271,7 +353,7 @@
   transform: translateY(-50%);
   transition-property: background-color;
   transition-duration: 160ms;
-  transition-timing-function: var(--ease);
+  transition-timing-function: var(--ease, cubic-bezier(0.2, 0, 0, 1));
 }
 .blyrics-mix-track[data-rest="true"] .blyrics-mix-thumb {
   background-color: hsla(0, 0%, 100%, 0.55);
@@ -289,7 +371,7 @@
   opacity: 0;
   transition-property: opacity;
   transition-duration: 220ms;
-  transition-timing-function: var(--ease);
+  transition-timing-function: var(--ease, cubic-bezier(0.2, 0, 0, 1));
 }
 .blyrics-mix--down .blyrics-mix-readout {
   top: calc(100% + 7px);
@@ -306,13 +388,13 @@
   top: 0;
   font-size: 11px;
   font-weight: 500;
-  color: color-mix(in srgb, var(--dock-pill-accent) 78%, #fff);
+  color: color-mix(in srgb, var(--dock-pill-accent, oklch(from hsl(45, 100%, 56%) l calc(c * 1.85) h)) 78%, #fff);
   opacity: 1;
   filter: blur(0);
   transform: translate(-50%, 0);
   transition-property: opacity, transform, filter;
   transition-duration: 200ms;
-  transition-timing-function: var(--ease);
+  transition-timing-function: var(--ease, cubic-bezier(0.2, 0, 0, 1));
 }
 .blyrics-mix-word--enter {
   opacity: 0;
@@ -326,7 +408,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .blyrics-sing--bar,
+  .blyrics-sing,
   .blyrics-mix-pole {
     transition-property: none;
   }
@@ -335,11 +417,11 @@
     transition-delay: 0ms;
   }
   .blyrics-sing__glyph,
-  .blyrics-mix--bar {
+  .blyrics-mix {
     filter: none;
     transform: none;
   }
-  .blyrics-mix--bar,
+  .blyrics-mix,
   .blyrics-mix-word {
     transition-property: opacity;
   }
