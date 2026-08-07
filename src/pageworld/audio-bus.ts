@@ -37,15 +37,23 @@ function writeWindowBus(bus: BlyricsAudioBus): void {
   (window as unknown as Record<string, unknown>)[AUDIO_BUS_KEY] = bus;
 }
 
+// Chrome leaves resume() PENDING rather than rejecting while autoplay policy
+// blocks a context. Awaited bare, that hangs acquireAudioBus, which hangs the
+// caller's engagement loop permanently with nothing logged anywhere.
+const RESUME_TIMEOUT_MS = 3000;
+
 async function resumeOnGesture(context: AudioContext): Promise<boolean> {
   if (context.state !== "running") {
     try {
-      await context.resume();
+      await Promise.race([context.resume(), new Promise(resolve => setTimeout(resolve, RESUME_TIMEOUT_MS))]);
     } catch (error) {
       console.error("[BLK-AUDIO-BUS] context.resume() failed", error);
     }
   }
-  return context.state === "running";
+
+  if (context.state === "running") return true;
+  console.warn(`[BLK-AUDIO-BUS] context stuck in "${context.state}" after ${RESUME_TIMEOUT_MS}ms, not engaging yet`);
+  return false;
 }
 
 // createMediaElementSource may be called once per element, ever. A second
@@ -90,8 +98,13 @@ async function acquireAudioBus(element: HTMLMediaElement): Promise<BlyricsAudioB
     return null;
   }
 
+  // Closed on the way out, not abandoned: Chrome allows only a handful of
+  // AudioContexts per page, and a caller that retries would exhaust them.
   const context = new AudioContext();
-  if (!(await resumeOnGesture(context))) return null;
+  if (!(await resumeOnGesture(context))) {
+    await context.close();
+    return null;
+  }
 
   // The binding is permanent and unrepeatable. If something already claimed
   // this element (an earlier context of ours, another extension, a debug

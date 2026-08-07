@@ -1,7 +1,7 @@
 import type { PlasmoCSConfig } from "plasmo";
 import { acquireAudioBus } from "@/pageworld/audio-bus";
 import { decideEngagement } from "@/pageworld/engagement";
-import type { TargetPosition } from "@/pageworld/engagement";
+import type { EngagementAction, TargetPosition } from "@/pageworld/engagement";
 import { createPlaybackGraph } from "@/pageworld/playback-graph";
 import type { PlaybackGraph } from "@/pageworld/playback-graph";
 import { currentPlayerSnapshot, playerVideoElement } from "@/pageworld/player-state";
@@ -41,6 +41,9 @@ let cachedElement: HTMLMediaElement | null = null;
 let acquiring: Promise<PlaybackGraph | null> | null = null;
 let pendingMixLevel = 1;
 let pendingStems: LoadedStems | null = null;
+// Reported by the probe. Both silent outcomes of a failed claim look identical
+// from outside, and "holding" versus "trying and failing" is the whole diagnosis.
+let lastAction: EngagementAction = "idle";
 
 console.log("[BLK-PAGE] karaoke page world ready, build 0.0.3");
 
@@ -68,6 +71,9 @@ window.blkKaraokeProbe = () => {
   const element = playerVideoElement(document);
   return {
     hasGraph: cachedGraph !== null,
+    lastAction,
+    acquiring: acquiring !== null,
+    targetPosition: pendingStems ? targetPosition(pendingStems) : null,
     stemsPending: pendingStems !== null,
     stemsVideoId: pendingStems?.videoId ?? null,
     stemDurationSeconds: pendingStems ? +pendingStems.durationSeconds.toFixed(2) : null,
@@ -144,6 +150,7 @@ function reconcile(): void {
     target: targetPosition(stems),
     acquiring: acquiring !== null,
   });
+  lastAction = action;
 
   if (action === "idle" || action === "hold") return;
 
