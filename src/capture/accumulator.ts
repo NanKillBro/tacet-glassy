@@ -34,13 +34,11 @@ interface CaptureAccumulator {
   addChunk(mimeType: string, bytes: Uint8Array): AddChunkResult;
   getChunks(): CaptureChunk[];
   getStats(): CaptureStats;
-  // Drops what is retained and stops retaining anything further for the track
-  // now active, for when its stems have already been served from the cache.
-  // Counters keep running, so the stream is still observable; only the memory
-  // goes. A track change re-arms retention by itself.
+  // Drop what is retained and retain nothing further for this track, for when
+  // its stems are already cached. Counters keep running; a track change re-arms.
   standDown(): void;
-  // Throws away what is retained and keeps going. For when the bytes so far
-  // turn out to belong to something other than the track being captured.
+  // Drop what is retained and keep going, for when those bytes turn out to
+  // belong to something other than the track being captured.
   discardRetained(): void;
 }
 

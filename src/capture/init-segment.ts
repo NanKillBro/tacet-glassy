@@ -1,18 +1,8 @@
-// Tells "here is a fresh initialization" from "here is another chunk of the
-// same track", for both containers YouTube serves, without pulling in a
-// demuxer.
-//
-// An ISOBMFF (fragmented MP4) init segment leads with a top-level ftyp box: a
-// 4-byte big-endian size, then the 4-byte ASCII box type. Media segments lead
-// with moof/styp instead.
-//
-// WebM is the one that actually matters here, and it was missing: YouTube Music
-// serves audio/webm with codecs="opus", so the ftyp test never fired, every
-// chunk was tagged as media, and planFirstPlusMedia quietly degenerated into
-// plain concatenation. A WebM init segment leads with the EBML header id
-// 1A45DFA3; a media segment leads with a Cluster id 1F43B675. Getting this
-// wrong is not visible until a mid-stream quality switch splices a second
-// header into the bytes and the whole track stops decoding.
+// Tells a fresh initialization from another chunk of the same stream, for both
+// containers YouTube serves. WebM (1A45DFA3 header, 1F43B675 clusters) is the
+// one YouTube Music actually uses; fragmented MP4 leads with an ftyp box.
+// Missing the WebM case is invisible until a mid-stream quality switch splices
+// a second header in and the whole capture stops decoding.
 
 const BOX_TYPE_OFFSET = 4;
 const BOX_TYPE_LENGTH = 4;

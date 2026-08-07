@@ -1,19 +1,13 @@
-// Two AudioBufferSourceNodes (vocals, instrumental) into two GainNodes into
-// the shared bus's destination, plus a third gain that carries the original
-// and is turned down to silence it. The bypass controller is the one path
-// back to safety, used by both an explicit stop and the watchdog.
+// Two AudioBufferSourceNodes (vocals, instrumental) into two GainNodes into the
+// shared bus's destination, plus a third gain carrying the original.
 //
-// The original is silenced with a gain of zero and never by disconnecting it
-// from the destination. Web Audio only pulls samples through nodes that reach
-// the destination, so a disconnected MediaElementAudioSourceNode stops being
-// read and the media element stalls behind it: measured on YouTube Music as
-// currentTime frozen and webkitAudioDecodedByteCount stuck, followed by the
-// player discarding the element and building another one, over and over. A
-// zero gain keeps the graph pulling and the element playing while
-// contributing nothing audible.
+// The original is silenced with a gain of ZERO, never by disconnecting it. Web
+// Audio only pulls through nodes reaching the destination, so a disconnected
+// MediaElementAudioSourceNode stalls the element behind it: currentTime freezes
+// and YouTube Music discards the element and builds another, repeatedly.
 //
-// Real Web Audio calls only, kept thin: the gain law and the bypass state
-// machine are pure and tested separately.
+// Real Web Audio calls only: the gain law and the bypass state machine are pure
+// and tested separately.
 
 import { createBypassController } from "@/pageworld/bypass";
 import { gainsForMixLevel } from "@/pageworld/gain-law";
@@ -41,13 +35,10 @@ interface PlaybackGraph {
   setMixLevel(mixLevel: number): void;
   stopStems(): void;
   isEngaged(): boolean;
-  // Detaches the transport listeners and drops the retained stems. A graph that
-  // is discarded without this keeps its listeners on the media element, and each
-  // one restarts the stem sources: audible karaoke with no graph to control it.
+  // A graph discarded without this keeps its listeners on the element, and each
+  // one restarts the stem sources: audible karaoke nothing can control.
   dispose(): void;
-  // Reports what actually reached Web Audio rather than what the pipeline
-  // believes it sent. A bypassed graph and a graph fed silence both present as
-  // "karaoke is on" everywhere else; only these numbers tell them apart.
+  // What actually reached Web Audio, not what the pipeline believes it sent.
   describe(): GraphState;
 }
 
@@ -74,10 +65,8 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   vocalsGainNode.connect(context.destination);
   instrumentalGainNode.connect(context.destination);
 
-  // Re-route the original through a gain of our own. Only the source's own
-  // destination edge is replaced, so any other edge a sibling extension put
-  // there (its own analyser, for instance) survives untouched. Unity gain
-  // until something asks for the stems, so building the graph is inaudible.
+  // Only the source's own destination edge is replaced, so a sibling
+  // extension's analyser survives. Unity gain, so building this is inaudible.
   const originalGainNode = context.createGain();
   originalGainNode.gain.value = 1;
   source.disconnect(context.destination);
@@ -95,8 +84,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     durationSeconds: number;
   } | null = null;
 
-  // The element behind the bus, so the graph can follow the player's transport
-  // rather than being told about it.
+  // Followed directly, rather than being told about the transport.
   const element = source.mediaElement;
 
   function stopActiveSources(): void {
@@ -125,9 +113,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   }
 
   // An AudioBufferSourceNode cannot be paused or repositioned once started, so
-  // following the player means tearing the pair down and starting a new one at
-  // the right offset. Without this the stems always began at 0:00 no matter
-  // where the track was, and any pause or seek desynchronised them for good.
+  // following the player means rebuilding the pair at the right offset.
   function startSourcesAt(offsetSeconds: number): void {
     if (!loadedStems) return;
     stopActiveSources();
@@ -190,10 +176,8 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     stopActiveSources();
     loadedStems = null;
 
-    // Hand the source back exactly as the bus handed it over. A discarded
-    // graph that leaves its own gain in place is a second path to the
-    // destination, so the next graph built on the same bus plays the original
-    // twice over, once through each.
+    // Hand the source back as the bus gave it: a leftover gain is a second path
+    // to the destination, so the next graph plays the original twice.
     originalGainNode.gain.value = 1;
     source.disconnect(originalGainNode);
     originalGainNode.disconnect();
@@ -211,8 +195,8 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   }
 
   function describe(): GraphState {
-    // Report the retained stems, not the live source: sources are torn down and
-    // rebuilt on every pause and seek, so a paused graph still has stems loaded.
+    // The retained stems, not the live source: sources are rebuilt on every
+    // pause and seek, so a paused graph still has stems loaded.
     const samples = loadedStems?.instrumental[0] ?? null;
     let instrumentalRms = 0;
     if (samples) {

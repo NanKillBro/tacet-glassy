@@ -48,23 +48,17 @@ async function resumeOnGesture(context: AudioContext): Promise<boolean> {
   return context.state === "running";
 }
 
-// createMediaElementSource can be called at most once per element, ever, and a
-// second attempt throws InvalidStateError and leaves that element permanently
-// unroutable: "HTMLMediaElement already connected previously to a different
-// MediaElementSourceNode", after which the listener hears the original for the
-// rest of the page's life. So every element we have ever claimed is remembered,
-// and a claim is never attempted twice.
-//
-// The old staleness test asked whether the bus's element had decoded any bytes
-// yet, which is transiently false for an element that is merely quiet, or that
-// has just been re-claimed. That sent us down the rebuild path against an
-// element we already owned, which is exactly the fatal second claim.
+// createMediaElementSource may be called once per element, ever. A second
+// attempt throws InvalidStateError and leaves that element permanently
+// unroutable, so the listener hears the original for the rest of the page's
+// life. Every claim is remembered and never repeated. Staleness is judged by
+// isConnected, not by a decode counter that reads zero whenever an element is
+// merely quiet, which is what used to trigger that fatal second claim.
 const claimedElements = new WeakSet<HTMLMediaElement>();
 const sourceByElement = new WeakMap<HTMLMediaElement, MediaElementAudioSourceNode>();
 
-// The caller names the element. It knows which one the audio belongs to (see
-// elementForStems in src/contents/inject-main-world.ts); a second, independent
-// guess here could disagree with it, and binding the wrong element is permanent.
+// The caller names the element: a second guess here could disagree with it, and
+// binding the wrong element is permanent.
 async function acquireAudioBus(element: HTMLMediaElement): Promise<BlyricsAudioBus | null> {
   const existing = readWindowBus();
   const claim = decideAudioBusClaim(existing, AUDIO_BUS_VERSION, isBlyricsAudioBus);
@@ -79,8 +73,7 @@ async function acquireAudioBus(element: HTMLMediaElement): Promise<BlyricsAudioB
     console.warn("[BLK-AUDIO-BUS] the bus holds a different element, building one for this one");
   }
 
-  // Already ours from an earlier graph: reuse that source rather than making a
-  // fatal second claim. This is the path the rebuild used to take blindly.
+  // Already ours from an earlier graph: reuse rather than re-claim.
   const claimedSource = sourceByElement.get(element);
   if (claimedSource) {
     const context = claimedSource.context as AudioContext;
@@ -108,9 +101,8 @@ async function acquireAudioBus(element: HTMLMediaElement): Promise<BlyricsAudioB
   try {
     source = context.createMediaElementSource(element);
   } catch (error) {
-    // Someone else got there first, and the element is now permanently
-    // unroutable. Remember it so no later attempt wastes another AudioContext
-    // on it: Chrome allows only a handful per page.
+    // Permanently unroutable now. Remember it so no later attempt wastes
+    // another AudioContext, of which Chrome allows only a handful per page.
     claimedElements.add(element);
     console.error(
       "[BLK-AUDIO-BUS] cannot capture the audible element, its audio will keep playing untouched. Reload the page.",

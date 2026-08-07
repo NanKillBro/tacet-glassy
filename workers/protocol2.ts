@@ -342,11 +342,8 @@ export function isSettingsChangedMessage(data: unknown): data is SettingsChanged
 
 // -- Cache probe --------------------------------------------------------------
 //
-// Asks the offscreen document whether this videoId already has separated stems,
-// and to deliver them if so. Without this the cache was effectively write-only:
-// the lookup lived inside the capture-completion path, so a track had to be
-// fully re-captured before the extension would even look, and cached stems were
-// never used.
+// Does this videoId already have stems, and if so deliver them. Without it the
+// cache was write-only: the lookup lived inside the capture-completion path.
 
 export interface ProbeCacheCommand {
   type: "blk-probe-cache";
@@ -362,11 +359,8 @@ export function isProbeCacheCommand(data: unknown): data is ProbeCacheCommand {
   );
 }
 
-// The probe's answer, sent before the stems it found. The tab is sitting in
-// "waiting for capture" at that point, and stem chunks alone do not move it:
-// this is what tells it to take delivery from the cache instead, and to stand
-// the capture down so a track that is already separated is never captured,
-// uploaded or separated a second time.
+// The probe's answer, sent before the stems it found. The tab is waiting for a
+// capture, and stem chunks alone do not move it off that.
 export interface CacheHitMessage {
   type: "blk-cache-hit";
   videoId: string;

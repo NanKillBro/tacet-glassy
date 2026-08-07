@@ -6,22 +6,17 @@ import { createPlaybackGraph } from "@/pageworld/playback-graph";
 import type { PlaybackGraph } from "@/pageworld/playback-graph";
 import { isLoadStemsMessage, isSetMixLevelMessage, isStopStemsMessage } from "@/pageworld/protocol";
 
-// -- Page-world audio graph ---------------------------------------------------
+// -- Page-world audio graph --------------------------------------------------
 //
-// Runs in the MAIN world, because only the page world can take a
-// MediaElementAudioSourceNode off YouTube's own <video> element and share it
-// with a sibling extension over window.__blyricsAudio. The ISOLATED-world
-// fader control (src/contents/fader-control.ts) talks to this over
-// window.postMessage; see src/pageworld/protocol.ts for the message shapes.
+// MAIN world, because only the page world can take a
+// MediaElementAudioSourceNode off YouTube's <video> and share it with a sibling
+// extension over window.__blyricsAudio. src/contents/fader-control.ts talks to
+// this over window.postMessage; see src/pageworld/protocol.ts for the shapes.
 //
-// blk-load-stems never builds the graph directly. It hands the stems to
-// reconcile() below, which owns the one decision that matters here: which
-// element these stems belong to. blk-set-mix-level never builds anything
-// either: it either applies straight to an already-built graph or is
-// remembered as pendingMixLevel to apply once one exists. This is what keeps
-// "default off" true even while the user is dragging the fader before any
-// track has been processed. blk-stop-stems drops the stems entirely, so
-// nothing re-engages them afterwards.
+// Only reconcile() builds the graph, because it owns the one decision that
+// matters: which element these stems belong to. blk-set-mix-level applies to an
+// existing graph or waits as pendingMixLevel, which is what keeps "default off"
+// true while the fader is dragged before any track is ready.
 
 export const config: PlasmoCSConfig = {
   matches: ["https://music.youtube.com/*"],
@@ -30,8 +25,8 @@ export const config: PlasmoCSConfig = {
   world: "MAIN",
 };
 
-// How often the bound element is re-checked against the loaded stems, and how
-// far its duration may sit from theirs and still be the same recording.
+// How often the binding is re-checked, and how far a duration may sit from the
+// stems' and still be the same recording.
 const RECONCILE_INTERVAL_MS = 1000;
 const DURATION_TOLERANCE_S = 2;
 
@@ -48,11 +43,8 @@ let acquiring: Promise<PlaybackGraph | null> | null = null;
 let pendingMixLevel = 1;
 let pendingStems: LoadedStems | null = null;
 
-// YouTube Music runs more than one <video>, and only one of them decodes
-// audio. A graph built against the silent one routes nothing, so the real
-// element keeps playing through its own path and the feature appears to do
-// nothing at all while every log still reports success. The cached graph is
-// therefore only reusable while its element is still the audible one.
+// YouTube Music runs more than one <video> and only one decodes audio. A graph
+// on the silent one routes nothing while every log still reports success.
 console.log("[BLK-PAGE] karaoke page world ready, build 0.0.3");
 
 function decodedBytes(element: HTMLMediaElement): number {
@@ -64,12 +56,8 @@ function audibleElement(): HTMLMediaElement | null {
   return candidates.find(candidate => candidate.isConnected && decodedBytes(candidate) > 0) ?? null;
 }
 
-// Duration is what tells the track apart from everything else the same player
-// puts through the same element. A preroll ad is audible, connected and
-// decoding, so every other test calls it the real thing: stems then engage
-// against the ad, play over it on their own clock, and stay bound to that
-// element after it is discarded, which is audible karaoke that nothing can
-// stop. The stems' own length is the only signal that excludes it.
+// A preroll is audible, connected and decoding, so every other test calls it
+// the real thing. The stems' own length is what excludes it.
 function elementForStems(stems: LoadedStems): HTMLMediaElement | null {
   const audible = audibleElement();
   if (!audible || !Number.isFinite(audible.duration)) return null;
@@ -98,8 +86,7 @@ window.blkKaraokeProbe = () => {
 function discardGraph(): void {
   if (!cachedGraph) return;
   cachedGraph.stopStems();
-  // dispose, not just stop: a discarded graph's transport listeners keep
-  // restarting its stem sources, which plays karaoke that nothing can control.
+  // dispose, not just stop: the listeners would keep restarting the sources.
   cachedGraph.dispose();
   cachedGraph = null;
   cachedElement = null;
@@ -118,13 +105,9 @@ function buildGraph(element: HTMLMediaElement): Promise<PlaybackGraph | null> {
     const graph = createPlaybackGraph({ context: bus.context, source: bus.source });
     cachedElement = bus.element;
 
-    // Watchdog. A context can leave "running" for entirely recoverable
-    // reasons: a backgrounded tab, or the main thread being blocked long
-    // enough for the audio thread to be interrupted. Treating every one of
-    // those as terminal reconnected the original and left no way back, which
-    // read as karaoke switching itself off mid-song. Try to resume first, and
-    // only fall back to the hard bypass if the context genuinely will not
-    // come back.
+    // A context leaves "running" for recoverable reasons (a backgrounded tab, a
+    // blocked main thread), and treating those as terminal read as karaoke
+    // switching itself off mid-song. Resume first, bypass only if it will not.
     bus.context.addEventListener("statechange", () => {
       if (bus.context.state === "running") return;
       bus.context
@@ -145,11 +128,9 @@ function buildGraph(element: HTMLMediaElement): Promise<PlaybackGraph | null> {
   });
 }
 
-// The one owner of "are these stems engaged, and against what". Runs on a
-// timer rather than only on message arrival because the element the stems
-// belong to often does not exist yet when they land (a preroll ad holds the
-// player), and because YouTube Music swaps the element out from under a graph
-// that is already running.
+// The one owner of "are these stems engaged, and against what". On a timer
+// because the element often does not exist yet when the stems land, and because
+// YouTube Music swaps it out from under a running graph.
 function targetPosition(stems: LoadedStems): TargetPosition {
   const target = elementForStems(stems);
   if (!target) return "none";
@@ -185,11 +166,8 @@ function reconcile(): void {
 
   void acquiring.then(graph => {
     if (!graph || pendingStems !== stems) return;
-    // The bus picks its own element, and it can disagree with the target while
-    // an ad is still decoding alongside the track. Engaging anyway binds the
-    // graph to the wrong element, and the binding is permanent. Only a
-    // positively identified other element counts: "none" here is the same
-    // just-claimed blind spot the hold rule exists for.
+    // Binding the wrong element is permanent, so only a positively identified
+    // other element counts: "none" is the just-claimed blind spot again.
     if (targetPosition(stems) === "other") {
       console.warn("[BLK-PAGE] the audio bus bound a different element than the stems match, leaving it disengaged");
       discardGraph();

@@ -1,11 +1,10 @@
-// Two acquisition paths reach this tooltip and they are paced by different
-// things, so they must not claim the same thing. The hidden player runs
-// whatever the listener does, at about the length of the song; the fallback
-// rides the listener's own playback and only finishes if they sit through it.
+// Two acquisition paths reach this tooltip, paced by different things: the
+// hidden player runs whatever the listener does, the fallback only finishes if
+// they sit through the track.
 
 type DownloadSource = "hidden-player" | "listener-playback";
 
-const HIDDEN_PLAYER_REASON = "Downloading in the background. YouTube paces this, so it takes about the song's length.";
+const HIDDEN_PLAYER_REASON = "Downloading in the background. This runs on its own, so you can keep listening.";
 const LISTENER_PLAYBACK_REASON = "This is paced by YouTube's own buffering, so it can be slow.";
 
 function reasonFor(source: DownloadSource): string {

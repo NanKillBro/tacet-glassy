@@ -1,11 +1,9 @@
 // Splits a track into contiguous slices, one per hidden worker player.
 //
-// The slice count is not the speed dial it was once thought to be. A single
-// player set to playbackRate 16 on the ELEMENT buffered a whole 245.9 s track
-// in 18 s, which is 13.7x realtime, so one worker is plenty and the parallel
-// path only adds the mid-track seeks that make workers stall. See
-// slice-runner.ts for why the rate has to be set on the element and never
-// through YouTube's player API.
+// The slice count is not a speed dial: one hopping worker acquires a whole
+// track in seconds, and extra workers only add the mid-track seeks that make
+// them stall. planWholeTrack is the production path; planSlices survives for
+// re-measuring the parallel one.
 
 interface SlicePlan {
   index: number;
@@ -15,8 +13,7 @@ interface SlicePlan {
 
 const DEFAULT_WORKER_COUNT = 4;
 
-// Below this, a slice costs more in player startup (measured ~2.6 s to first
-// usable duration) than it saves in transfer, so short tracks use fewer workers.
+// Below this a slice costs more in player startup than it saves in transfer.
 const MIN_SLICE_SECONDS = 30;
 
 function workerCountFor(durationSeconds: number, maxWorkers: number): number {
@@ -39,12 +36,10 @@ function planSlices(durationSeconds: number, maxWorkers: number = DEFAULT_WORKER
   }));
 }
 
-// A single worker covering everything, with no duration needed up front. The
-// duration the opener can see belongs to whatever is on screen right now, which
-// during a preroll is the ad: planning against it produced a 20 s "track" that
-// reported complete. The worker clamps this to the duration it measures for
-// itself once the real track is up, so an over-long end is safe and an
-// under-long one is not.
+// One worker covering everything, needing no duration up front. The duration
+// the opener can see is the ad's during a preroll, and planning against it
+// produced a 20 s "track". The worker clamps this to its own measured
+// duration, so ending long is safe and ending short truncates.
 const OPEN_ENDED_SECONDS = 86_400;
 
 function planWholeTrack(): SlicePlan[] {

@@ -75,10 +75,8 @@ function currentVideoId(): string | null {
 }
 
 function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline {
-  // Deliberately empty rather than the current videoId. checkTrackChange below
-  // is what sends the cache probe, and it only fires on a change, so starting
-  // at the real videoId made a page load look like no change at all: a reload
-  // of an already-separated track never asked the cache and captured it again.
+  // Empty, not the current videoId: checkTrackChange only fires on a change, so
+  // starting at the real one made a page load look like no change at all.
   let state: KaraokeState = initialKaraokeState("");
   let pendingMixLevel = NEUTRAL_MIX_LEVEL;
   let vocalsAssembler: ChunkAssembler | null = null;
@@ -140,17 +138,13 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     resetStemAssembly();
     dispatch({ type: "track-changed", videoId });
     probeCacheFor(videoId);
-    // Sent from here rather than left to the capture script to decide, because
-    // this module only exists when the master switch is on. The capture script
-    // runs for every track either way and must not spawn a hidden player
-    // unless the feature is actually enabled.
+    // From here, not the capture script: this module only exists when the
+    // master switch is on, and that script runs for every track regardless.
     postToPageWorld({ type: "blk-request-prefetch", videoId });
   }
 
-  // Asks straight away whether this track has already been separated. The cache
-  // lookup used to live only inside the capture-completion path, so a track had
-  // to be fully re-captured before the extension would even look, and cached
-  // stems were therefore never used at all.
+  // The cache lookup used to live only in the capture-completion path, so a
+  // track had to be fully re-captured before anything would even look.
   function probeCacheFor(videoId: string): void {
     const probe: ProbeCacheCommand = { type: "blk-probe-cache", videoId };
     chrome.runtime.sendMessage(probe).catch(error => logError("failed to send cache probe", error));
@@ -277,9 +271,8 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       log(`cached stems found for ${message.videoId}, capture is not needed`);
       dispatch({ type: "cache-hit", videoId: message.videoId });
       postToPageWorld({ type: "blk-capture-stand-down", videoId: message.videoId });
-      // The relay from the offscreen document runs through background and does
-      // not guarantee ordering, so the stems can already be complete by the time
-      // the hit itself lands. Without this they would sit assembled and unused.
+      // The relay through background does not guarantee ordering, so the stems
+      // may already be complete and would otherwise sit assembled and unused.
       finishStemsIfReady(message.videoId);
       return;
     }

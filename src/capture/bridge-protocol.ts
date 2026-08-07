@@ -31,19 +31,15 @@ export interface CaptureReadyMessage {
   videoId: string;
 }
 
-// Asks for the track to be acquired in a hidden player rather than waiting on
-// the listener to sit through it. Sent from the isolated world because only it
-// can read the master switch: the capture script runs in the page world for
-// every track regardless, and must never spawn a player off its own bat.
+// Acquire the track in a hidden player. From the isolated world because only it
+// can read the master switch.
 export interface RequestPrefetchMessage {
   type: "blk-request-prefetch";
   videoId: string;
 }
 
-// Sent when this track's stems came out of the cache. Capture cannot stop the
-// player fetching audio, but it can stop retaining it: without this a separated
-// track still fills the accumulator on every replay and still announces itself
-// as ready, which re-uploads and re-separates what is already cached.
+// This track's stems came from the cache. Capture cannot stop the player
+// fetching, but it can stop retaining and announcing.
 export interface CaptureStandDownMessage {
   type: "blk-capture-stand-down";
   videoId: string;
@@ -53,16 +49,12 @@ export interface DownloadProgressMessage {
   type: "blk-download-progress";
   videoId: string;
   fraction: number;
-  // Which acquisition is being reported. The two are paced by different things
-  // and the tooltip must not claim the listener's playback is responsible when
-  // a hidden player is doing the work.
+  // The two are paced by different things and the tooltip must say which.
   source: DownloadSource;
 }
 
-// Sent from a hidden worker frame up to its opener. startSeconds is where the
-// slice's audio really begins, which is a segment boundary at or before the
-// point the worker was asked to start from, so slices overlap and have to be
-// placed by offset rather than concatenated.
+// From a worker frame to its opener. startSeconds is the segment boundary at or
+// before the requested start, so slices overlap and are placed by offset.
 export interface SliceCapturedMessage {
   type: "blk-slice-captured";
   videoId: string;

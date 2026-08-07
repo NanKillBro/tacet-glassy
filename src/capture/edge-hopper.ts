@@ -1,12 +1,6 @@
-// The capture loop's decision logic, kept pure so it can be tested without a
-// media element.
-//
-// The player stays PAUSED throughout. Buffering runs anyway, and pausing is
-// what stops the player reaching the end of the track and auto-advancing into
-// the next one, which silently produced two concatenated songs when this was
-// first tried with playbackRate instead. Each poll hops the scrubber to the
-// contiguous buffered edge, which pulls the next window; when the edge stops
-// moving, a small nudge re-triggers the fetch.
+// The capture loop's decision logic, pure so it tests without a media element.
+// Each poll hops the scrubber to the contiguous buffered edge, which pulls the
+// next window; when the edge stops moving, a nudge re-triggers the fetch.
 
 interface HopState {
   bufferedEnd: number;
@@ -23,9 +17,7 @@ type HopDecision =
   | { action: "wait" }
   | { action: "give-up" };
 
-// The buffered edge lands on segment boundaries, so it overshoots or undershoots
-// the requested end by a fraction of a segment. Treating "within 0.6 s" as
-// complete avoids a spin waiting for an edge that will never land exactly.
+// The edge lands on segment boundaries, so it never matches the request exactly.
 const COMPLETE_EPSILON_S = 0.6;
 const ADVANCE_EPSILON_S = 0.3;
 const NUDGE_S = 0.1;
@@ -52,10 +44,8 @@ function decideHop(state: HopState): HopDecision {
   return { action: "wait" };
 }
 
-// The player can only begin at a segment boundary at or before the requested
-// point, so a slice's real audio starts earlier than it was asked to. Callers
-// need that true offset to place decoded PCM correctly; concatenating slices
-// blindly misaligns them (measured: 350.6 s captured for a 240.7 s track).
+// A slice's real audio starts at the segment boundary at or before its request,
+// so slices overlap and must be placed by offset rather than concatenated.
 function bufferedRangeStart(ranges: TimeRanges, at: number): number {
   for (let i = 0; i < ranges.length; i++) {
     if (ranges.start(i) <= at + 0.5 && ranges.end(i) >= at) return ranges.start(i);

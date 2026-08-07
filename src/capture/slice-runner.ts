@@ -1,16 +1,15 @@
 // Runs inside a hidden worker frame: drives that frame's own player across one
 // slice of the track, then hands the captured bytes up to the opener.
 //
-// The player stays PAUSED and the scrubber is hopped to the buffered edge on
-// every poll, which makes it fetch the next window at once. Measured cold on
-// the same 246 s track: hopping buffered 235.8 s in 6 s, which is 39x realtime,
-// against 18 s for playing through at 16x. Playing is strictly worse, because
-// the playhead both consumes the buffer and caps the fetch rate at whatever it
-// can traverse, and YouTube Music's own API refuses any rate above 2 anyway.
+// Drives one hidden player across one slice, then hands the bytes to the opener.
 //
-// The player must also never reach the end of the track: that fires "ended" and
-// hands the frame to the autoplay queue, which loses the slice. See
-// src/capture/edge-hopper.ts for the stall and completion logic.
+// The player stays PAUSED and the scrubber hops to the buffered edge on every
+// poll, which makes it fetch the next window at once. Measured on a 246 s
+// track: 6 s hopping against 18 s playing at 16x, because a playhead both
+// consumes the buffer and caps the fetch rate at what it can traverse.
+//
+// It must never reach the end of the track: that fires "ended" and hands the
+// frame to the autoplay queue. See edge-hopper.ts for stalls and completion.
 
 import type { CaptureAccumulator } from "@/capture/accumulator";
 import { isAdPlayingElement, isPlayingSomethingElse, MOVIE_PLAYER_ELEMENT_ID } from "@/capture/ad-guard";
@@ -26,14 +25,10 @@ const POLL_MS = 300;
 const PLAYER_READY_TIMEOUT_MS = 60_000;
 const PLAYER_POLL_MS = 500;
 
-// Never seek into the final seconds: reaching the end fires "ended" and hands
-// control to the autoplay queue, which navigates the frame to the next track
-// and loses the slice entirely (observed live: a worker reset onto a different
-// videoId and never reported).
+// Never seek into the final seconds; see the header for why.
 const END_OF_TRACK_GUARD_S = 15;
 
-// A change this large means the element is playing different media, not that
-// the player refined its estimate.
+// Larger than any estimate refinement, so it means different media entirely.
 const DURATION_CHANGE_S = 2;
 
 // How long the last slice waits, paused at that guard, for the tail it is not
@@ -56,8 +51,7 @@ function isAdPlaying(doc: Document): boolean {
   return isAdPlayingElement(doc.getElementById(MOVIE_PLAYER_ELEMENT_ID));
 }
 
-// The element that decodes audio, not merely the first <video>: YouTube Music
-// runs a second, silent one when Better Lyrics Shaders' animated art is on.
+// YouTube Music runs a second, silent <video> when Shaders' animated art is on.
 function audibleVideo(doc: Document): HTMLVideoElement | null {
   const candidates = Array.from(doc.querySelectorAll("video"));
   return (
@@ -96,17 +90,13 @@ async function runSliceCapture(
   video.muted = true;
   video.loop = true;
 
-  // Everything below goes through YTM's own player where possible. Driving the
-  // element directly lost both ways: mid-track workers had their play()
-  // interrupted by a pause the player issued, and frames were navigated onto
-  // the next queue item regardless of video.loop.
+  // Through YTM's own player where possible: driving the element directly had
+  // play() interrupted by the player, and frames navigated onto the next track.
   const player = getYtPlayer(document);
   if (player) suppressAutoAdvance(player);
 
-  // Not const: a preroll's element reports the ad's length, and the track that
-  // replaces it is a different length entirely. A worker that keeps the first
-  // number it saw captures the ad and reports it as a complete track, which is
-  // how a 20 s "track" of 335,510 bytes came back for a 245.9 s song.
+  // Not const: a preroll reports the ad's length, and keeping that first number
+  // captured the ad and reported it as a complete track.
   let duration = video.duration;
   let sliceEnd = Math.min(assignment.toSeconds, duration);
   const seekTo = (seconds: number): void => {
@@ -133,8 +123,7 @@ async function runSliceCapture(
     }
   };
 
-  // Establish the stream, then stop playing. Everything after this is seeking:
-  // see the header for why hopping beats playing through.
+  // Establish the stream, then stop playing. Everything after this is seeking.
   void video.play().catch(() => {
     // Autoplay can refuse transiently; the loop below does not depend on it.
   });
@@ -144,9 +133,8 @@ async function runSliceCapture(
 
   if (assignment.fromSeconds > 0) {
     seekTo(assignment.fromSeconds);
-    // Confirm the seek landed. An ignored seek leaves the worker capturing the
-    // opening of the track instead of its own slice, which looks like success
-    // right up until the slices are assembled.
+    // An ignored seek captures the opening instead of this slice, and looks
+    // like success until the slices are assembled.
     for (let attempt = 0; attempt < SEEK_CONFIRM_ATTEMPTS; attempt++) {
       await sleep(300);
       if (Math.abs(video.currentTime - assignment.fromSeconds) < SEEK_TOLERANCE_S) break;
@@ -161,8 +149,7 @@ async function runSliceCapture(
 
   while (true) {
     await sleep(POLL_MS);
-    // Never let it play. A playing player consumes the buffer it is trying to
-    // build, and caps the fetch rate at whatever the playhead can traverse.
+    // Never let it play; see the header.
     if (!video.paused) stopPlayback();
 
     // If the frame navigated, the autoplay queue took it and this player is on
@@ -173,9 +160,8 @@ async function runSliceCapture(
       break;
     }
 
-    // The media under us changed length, so everything captured so far belongs
-    // to something else, almost always a preroll. Throw it away and start over
-    // against the real track rather than reporting the ad as the song.
+    // Different length means different media, almost always a preroll: throw
+    // away what was captured and start over against the real track.
     if (Number.isFinite(video.duration) && Math.abs(video.duration - duration) > DURATION_CHANGE_S) {
       log(
         `worker slice ${assignment.index} saw the duration change ${duration.toFixed(1)}s to ${video.duration.toFixed(1)}s, restarting`
@@ -188,12 +174,9 @@ async function runSliceCapture(
       continue;
     }
 
-    // Progress is the contiguous buffered edge reached from where the playhead
-    // sits. This is honest here in a way it was not while playing: the playhead
-    // only ever moves into bytes this worker has already pulled, so the range
-    // containing it cannot advertise audio nobody fetched. Reading the whole of
-    // video.buffered instead is what declared slices done having captured
-    // 65 KB against a 1.17 MB sibling.
+    // The contiguous edge reached from the playhead, which only ever moves into
+    // bytes this worker pulled. Reading all of video.buffered instead declared
+    // slices done having captured 65 KB against a 1.17 MB sibling.
     const reach = Math.max(cursor, bufferedRangeEnd(video.buffered, video.currentTime));
     const decision = decideHop({
       bufferedEnd: reach,
@@ -211,9 +194,8 @@ async function runSliceCapture(
     }
 
     if (decision.action === "seek") {
-      // The hop itself: jump the scrubber to the edge of what is buffered,
-      // which is what makes the player fetch the next window immediately
-      // instead of waiting for a playhead to arrive there.
+      // The hop itself: jumping to the buffered edge is what pulls the next
+      // window immediately.
       cursor = decision.cursor;
       stalls = 0;
       seekTo(Math.min(decision.to, duration - END_OF_TRACK_GUARD_S));
@@ -225,27 +207,19 @@ async function runSliceCapture(
     }
   }
 
-  // The final slice cannot play through its own end: the ceiling above stops
-  // it short so "ended" never fires and the autoplay queue never takes the
-  // frame, which left every track missing its last seconds (measured: slice 3
-  // gave up short of 210.0s on a 210.4s track). A player paused near the end
-  // keeps filling ahead of its playhead, so waiting is enough to capture the
-  // tail. Only this slice needs it; the rest really do play through.
+  // The final slice must stop short of the end, so its tail arrives only by
+  // waiting: a player parked near the end keeps filling ahead of its playhead.
   if (sliceEnd >= duration - END_OF_TRACK_GUARD_S) {
     log(`worker slice ${assignment.index} waiting ${TAIL_SETTLE_MS}ms for the track's tail to buffer`);
     await sleep(TAIL_SETTLE_MS);
   }
 
-  // Always report, even empty. A silent worker leaves the pool waiting out its
-  // whole timeout, which both delays the caller and makes the elapsed time
-  // meaningless as a measurement.
+  // Always report, even empty: a silent worker holds the pool to its timeout.
   const chunks = accumulator.getChunks();
   if (chunks.length === 0) logError(`worker slice ${assignment.index} captured nothing`, new Error("no chunks"));
 
-  // Keep the first initialization and drop any later one. A worker plays at
-  // 16x with delivery constantly behind it, which is exactly when YouTube
-  // switches audio quality, and a second WebM header spliced into the middle of
-  // the bytes makes the whole capture undecodable.
+  // Keep the first initialization: a mid-stream quality switch splices a second
+  // header in and makes the whole capture undecodable.
   const initSegments = countInitSegments(chunks);
   if (initSegments > 1) {
     log(`worker slice ${assignment.index} saw ${initSegments} initializations, keeping the first`);
@@ -259,8 +233,7 @@ async function runSliceCapture(
     mimeType: accumulator.getStats().mimeTypes[0] ?? "audio/webm",
     bytes: bytes.buffer,
   };
-  // Read the size before posting: transferring the buffer detaches it, so
-  // logging afterwards reports 0 and makes a good capture look like a failure.
+  // Read the size before posting: the transfer detaches the buffer.
   const byteLength = bytes.byteLength;
   window.parent.postMessage(message, window.location.origin, [bytes.buffer]);
   log(`worker slice ${assignment.index} sent ${byteLength} bytes starting at ${startSeconds.toFixed(1)}s`);

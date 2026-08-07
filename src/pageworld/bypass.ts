@@ -1,9 +1,7 @@
-// The hard bypass. This is the one path that guarantees a listener never
-// loses their audio: the "stop stems" message and the context-state
-// watchdog both funnel through enterBypass, so there is exactly one place
-// that restores the original and stops the stems, not two that could drift
-// apart. Starts bypassed, since the original is audible until something
-// turns it down.
+// The hard bypass, and the one guarantee that a listener never loses their
+// audio: the stop message and the context watchdog both funnel through
+// enterBypass rather than each restoring the original their own way. Starts
+// bypassed, since the original is audible until something turns it down.
 
 interface BypassControllerDeps {
   restoreOriginal(): void;

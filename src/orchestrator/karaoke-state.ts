@@ -59,20 +59,15 @@ function reduceKaraokeState(state: KaraokeState, event: KaraokeEvent): KaraokeSt
   if (event.videoId !== state.videoId) return state;
 
   switch (event.type) {
-    // Also recovers from failed. A failure is terminal for the acquisition that
-    // produced it, and it used to be terminal outright because nothing better
-    // was ever coming. Now something is: the hidden player finishes after the
-    // listener's own partial capture has already been tried and rejected, and
-    // leaving the fader dead for the rest of the track would waste a complete,
-    // usable acquisition.
+    // Also recovers from failed: the hidden player finishes after the
+    // listener's partial capture has been tried and rejected, and a complete
+    // acquisition should not be wasted.
     case "capture-ready":
       return state.status === "waiting-for-capture" || state.status === "failed"
         ? { ...state, status: "ready-to-engage", reason: null }
         : state;
 
-    // Stems already exist, so this track skips capture and engagement entirely
-    // and goes straight to taking delivery. Only from waiting-for-capture: a hit
-    // that arrives after the user has already engaged changes nothing, since the
+    // Skips capture and engagement entirely. Only from waiting-for-capture: the
     // separation path checks the same cache and delivers the same stems.
     case "cache-hit":
       return state.status === "waiting-for-capture"
