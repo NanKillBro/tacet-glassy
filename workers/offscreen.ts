@@ -1,6 +1,13 @@
 import { type LoadCommand, isWorkerResultMessage } from "./protocol.js";
-import { type LogMessage, type StepMessage, isCancelSeparationCommand, isRunPathBCommand } from "./protocol2.js";
+import {
+  type LogMessage,
+  type StepMessage,
+  isCancelSeparationCommand,
+  isCaptureChunkMessage,
+  isRunPathBCommand,
+} from "./protocol2.js";
 import { SeparationHost } from "./separation-host.js";
+import { TrackPipeline } from "./track-pipeline.js";
 
 // -- Path B: offscreen document ----------------------------------------------
 //
@@ -176,13 +183,13 @@ async function runPathB(): Promise<void> {
 
 // -- Real separation host -----------------------------------------------
 //
-// Constructed once for this document's lifetime. Nothing in this phase feeds
-// it real audio channels yet, since that is audio acquisition (a later
-// phase): chrome.runtime messaging is JSON-only, so it cannot carry the
-// Float32Array channel data a "start" trigger would need. Cancellation has
-// no such payload problem, so it is wired end to end here.
+// One Worker for this document's lifetime, shared by the track pipeline
+// (workers/track-pipeline.ts) below. Cancellation always goes through the
+// pipeline, not straight to the host, so its own notion of "which track is
+// active" clears in step with the Worker actually stopping.
 
 const separationHost = new SeparationHost();
+const trackPipeline = new TrackPipeline(separationHost);
 
 chrome.runtime.onMessage.addListener(message => {
   if (isRunPathBCommand(message)) {
@@ -192,7 +199,12 @@ chrome.runtime.onMessage.addListener(message => {
     return;
   }
 
+  if (isCaptureChunkMessage(message)) {
+    trackPipeline.handleCaptureChunk(message);
+    return;
+  }
+
   if (isCancelSeparationCommand(message)) {
-    separationHost.cancel();
+    trackPipeline.cancelActive();
   }
 });

@@ -41,6 +41,8 @@
           "assets/workers/*",
           "assets/src/separation/*",
           "assets/src/cache/*",
+          "assets/src/orchestrator/*",
+          "assets/src/relay/*",
           "assets/offscreen.html"
         ],
         "matches": ["https://music.youtube.com/*"]

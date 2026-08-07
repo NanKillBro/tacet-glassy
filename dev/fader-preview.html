@@ -154,19 +154,25 @@
 </p>
 
 <h2>1 &middot; Better Lyrics dock</h2>
-<p class="note">28px, dock pill styling, opens downward.</p>
+<p class="note">
+  28px, dock pill styling. data-position="bottom-right" here, Better Lyrics' own default, so the
+  card opens upward into the free space above the dock, same as the shipped source and offset
+  menus at that position.
+</p>
 <div class="stage">
   <div class="cell">
-    <div class="blyrics-dock__inner">
-      <div class="blyrics-dock__source">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h3l3-8 4 16 3-8h5"/></svg>
-        <span class="blyrics-dock__source-label">Better Lyrics</span>
-      </div>
-      <span class="blyrics-dock__divider"></span>
-      <div class="blyrics-dock__controls-static" id="dock-controls-static">
-        <button class="preview-icon-btn" type="button" aria-label="Translate">
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6m-7 0 6-6 3-3M2 5h12M7 2h1m14 20-5-10-5 10m2-4h6"/></svg>
-        </button>
+    <div class="blyrics-dock" data-position="bottom-right">
+      <div class="blyrics-dock__inner">
+        <div class="blyrics-dock__source">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h3l3-8 4 16 3-8h5"/></svg>
+          <span class="blyrics-dock__source-label">Better Lyrics</span>
+        </div>
+        <span class="blyrics-dock__divider"></span>
+        <div class="blyrics-dock__controls-static" id="dock-controls-static">
+          <button class="preview-icon-btn" type="button" aria-label="Translate">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6m-7 0 6-6 3-3M2 5h12M7 2h1m14 20-5-10-5 10m2-4h6"/></svg>
+          </button>
+        </div>
       </div>
     </div>
   </div>

@@ -24,7 +24,7 @@ function countInitSegments(chunks: readonly CaptureChunk[]): number {
   return chunks.filter(chunk => chunk.isInitSegment).length;
 }
 
-function concatenateChunks(parts: readonly Uint8Array[]): Uint8Array {
+function concatenateChunks(parts: readonly Uint8Array[]): Uint8Array<ArrayBuffer> {
   const totalLength = parts.reduce((sum, part) => sum + part.byteLength, 0);
   const combined = new Uint8Array(totalLength);
   let offset = 0;

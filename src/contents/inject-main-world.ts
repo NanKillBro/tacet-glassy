@@ -12,9 +12,14 @@ import { isLoadStemsMessage, isSetMixLevelMessage, isStopStemsMessage } from "@/
 // fader control (src/contents/fader-control.ts) talks to this over
 // window.postMessage; see src/pageworld/protocol.ts for the message shapes.
 //
-// Nothing feeds blk-load-stems yet: audio acquisition and separation are a
-// later phase. This graph is built and wired regardless, so that phase only
-// has to post a message, not touch Web Audio.
+// blk-load-stems is the only message that builds the graph (acquireAudioBus
+// claims the media element's MediaElementAudioSourceNode, which can only
+// happen once per element, ever). blk-set-mix-level never does: it either
+// applies straight to an already-built graph or is remembered as
+// pendingMixLevel to apply once loadStems finally builds one. This is what
+// keeps "default off" true even while the user is dragging the fader before
+// any track has been processed. blk-stop-stems is a no-op with nothing
+// built, since there is nothing to bypass yet.
 
 export const config: PlasmoCSConfig = {
   matches: ["https://music.youtube.com/*"],
@@ -25,6 +30,7 @@ export const config: PlasmoCSConfig = {
 
 let cachedGraph: PlaybackGraph | null = null;
 let acquiring: Promise<PlaybackGraph | null> | null = null;
+let pendingMixLevel = 1;
 
 function buildGraph(): Promise<PlaybackGraph | null> {
   return acquireAudioBus().then(bus => {
@@ -59,16 +65,20 @@ window.addEventListener("message", event => {
   const data: unknown = event.data;
 
   if (isSetMixLevelMessage(data)) {
-    ensureGraph().then(graph => graph?.setMixLevel(data.mixLevel));
+    pendingMixLevel = data.mixLevel;
+    cachedGraph?.setMixLevel(data.mixLevel);
     return;
   }
 
   if (isLoadStemsMessage(data)) {
-    ensureGraph().then(graph => graph?.loadStems(data.vocals, data.instrumental, data.sampleRate));
+    ensureGraph().then(graph => {
+      graph?.loadStems(data.vocals, data.instrumental, data.sampleRate);
+      graph?.setMixLevel(pendingMixLevel);
+    });
     return;
   }
 
   if (isStopStemsMessage(data)) {
-    ensureGraph().then(graph => graph?.stopStems());
+    cachedGraph?.stopStems();
   }
 });

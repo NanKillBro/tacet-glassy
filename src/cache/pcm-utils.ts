@@ -33,7 +33,7 @@ function interleave(channels: Float32Array[]): Float32Array<ArrayBuffer> {
   return out;
 }
 
-function deinterleave(interleaved: Float32Array, numberOfChannels: number): Float32Array[] {
+function deinterleave(interleaved: Float32Array, numberOfChannels: number): Float32Array<ArrayBuffer>[] {
   if (numberOfChannels <= 0) {
     throw new Error(`pcm-utils: numberOfChannels must be positive, got ${numberOfChannels}`);
   }
@@ -44,7 +44,7 @@ function deinterleave(interleaved: Float32Array, numberOfChannels: number): Floa
   }
 
   const numberOfFrames = interleaved.length / numberOfChannels;
-  const out: Float32Array[] = [];
+  const out: Float32Array<ArrayBuffer>[] = [];
   for (let channel = 0; channel < numberOfChannels; channel++) {
     out.push(new Float32Array(numberOfFrames));
   }
@@ -72,7 +72,7 @@ function microsecondsToFrames(microseconds: number, sampleRate: number): number 
 
 // -- Prefix boundary arithmetic -----------------------------------------------------------------
 
-function alignToFrameCount(channels: Float32Array[], frameCount: number): Float32Array[] {
+function alignToFrameCount(channels: Float32Array[], frameCount: number): Float32Array<ArrayBuffer>[] {
   if (frameCount < 0) throw new Error(`pcm-utils: frameCount must be non-negative, got ${frameCount}`);
 
   return channels.map(channel => {
@@ -82,7 +82,7 @@ function alignToFrameCount(channels: Float32Array[], frameCount: number): Float3
   });
 }
 
-function concatFrames(chunks: Float32Array[][], numberOfChannels: number): Float32Array[] {
+function concatFrames(chunks: Float32Array[][], numberOfChannels: number): Float32Array<ArrayBuffer>[] {
   if (numberOfChannels <= 0) {
     throw new Error(`pcm-utils: numberOfChannels must be positive, got ${numberOfChannels}`);
   }
@@ -93,7 +93,7 @@ function concatFrames(chunks: Float32Array[][], numberOfChannels: number): Float
   }
 
   const totalFrames = chunks.reduce((sum, chunk) => sum + (chunk[0]?.length ?? 0), 0);
-  const out: Float32Array[] = [];
+  const out: Float32Array<ArrayBuffer>[] = [];
   for (let channel = 0; channel < numberOfChannels; channel++) {
     const merged = new Float32Array(totalFrames);
     let offset = 0;

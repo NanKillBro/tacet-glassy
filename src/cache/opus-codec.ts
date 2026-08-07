@@ -62,7 +62,12 @@ async function encodePcmToOpus(channels: Float32Array[], sampleRate: number): Pr
   return new Blob([encoded], { type: "application/octet-stream" });
 }
 
-async function decodeOpusToPcm(blob: Blob): Promise<Float32Array[]> {
+interface DecodedOpus {
+  channels: Float32Array<ArrayBuffer>[];
+  sampleRate: number;
+}
+
+async function decodeOpusToPcm(blob: Blob): Promise<DecodedOpus> {
   const buffer = await blob.arrayBuffer();
   const { sampleRate, numberOfChannels, totalFrames, packets } = decodePacketStream(buffer);
 
@@ -95,7 +100,8 @@ async function decodeOpusToPcm(blob: Blob): Promise<Float32Array[]> {
   decoder.close();
 
   const assembled = concatFrames(decodedChunks, numberOfChannels);
-  return alignToFrameCount(assembled, totalFrames);
+  return { channels: alignToFrameCount(assembled, totalFrames), sampleRate };
 }
 
 export { encodePcmToOpus, decodeOpusToPcm };
+export type { DecodedOpus };

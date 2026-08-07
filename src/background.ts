@@ -2,10 +2,17 @@ import { getModelUrl } from "@/cache/model-url";
 import {
   type ModelUrlMessage,
   type RunPathBCommand,
+  type TrackPipelineOutboundMessage,
+  isCaptureChunkMessage,
   isGetModelUrlCommand,
   isLogMessage,
   isStartPathBMessage,
+  isStemChunkMessage,
   isStepMessage,
+  isTrackDoneMessage,
+  isTrackErrorMessage,
+  isTrackProgressMessage,
+  isTrackStageMessage,
 } from "../workers/protocol2";
 
 // -- Path B offscreen document lifecycle and message relay ------------------
@@ -90,5 +97,61 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
 
   if (isStepMessage(message) || isLogMessage(message)) {
     relayToActiveTab(message);
+  }
+});
+
+// -- Track pipeline relay --------------------------------------------------
+//
+// Content script to background to offscreen for capture chunks (background
+// forwards after ensuring the offscreen document exists, mirroring
+// sendRunCommand above); offscreen to background to content script for
+// everything else, routed by videoId since offscreen cannot call
+// chrome.tabs itself. tabIdByVideoId is cleared once a job finishes, so it
+// never grows across a long browsing session.
+
+const tabIdByVideoId = new Map<string, number>();
+
+function isTrackPipelineOutboundMessage(message: unknown): message is TrackPipelineOutboundMessage {
+  return (
+    isTrackStageMessage(message) ||
+    isTrackProgressMessage(message) ||
+    isStemChunkMessage(message) ||
+    isTrackDoneMessage(message) ||
+    isTrackErrorMessage(message)
+  );
+}
+
+function relayToTabForVideo(videoId: string, message: unknown): void {
+  const tabId = tabIdByVideoId.get(videoId);
+  if (tabId === undefined) return;
+  chrome.tabs.sendMessage(tabId, message).catch(error => {
+    console.error("[BLK-TRACK-PIPELINE-BG] relay failed", error);
+  });
+}
+
+chrome.runtime.onMessage.addListener((message: unknown, sender) => {
+  if (isCaptureChunkMessage(message)) {
+    const tabId = sender.tab?.id;
+    if (tabId !== undefined) tabIdByVideoId.set(message.videoId, tabId);
+
+    ensureOffscreenDocument()
+      .then(() => chrome.runtime.sendMessage(message))
+      .catch(error => {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        relayToTabForVideo(message.videoId, {
+          type: "blk-track-error",
+          videoId: message.videoId,
+          code: "unknown",
+          message: `Failed to reach the offscreen document: ${errorMessage}`,
+        });
+      });
+    return;
+  }
+
+  if (isTrackPipelineOutboundMessage(message)) {
+    relayToTabForVideo(message.videoId, message);
+    if (message.type === "blk-track-done" || message.type === "blk-track-error") {
+      tabIdByVideoId.delete(message.videoId);
+    }
   }
 });
