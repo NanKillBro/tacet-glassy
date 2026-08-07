@@ -3,7 +3,13 @@
 // unlike workers/, which is compiled by plain tsc and never sees process.env.
 // Simplified from composer's model-registry.ts: a single model, no variants.
 
-const MODEL_FILENAME = "htdemucs_fp16.onnx";
+// fp32, not the smaller fp16 export. Half precision tops out at 65504 and
+// htdemucs overflows it: measured against fp16, zero input returned clean
+// zeros while any non-zero input returned NaN (19% of the time branch at
+// amplitude 1e-3, 100% at amplitude 1.0), identically on the WebGPU and the
+// WASM providers. NaN passes every shape check and only becomes visible once
+// the Opus encoder has turned it into silence.
+const MODEL_FILENAME = "htdemucs_fp32.onnx";
 
 // Must stay in sync with host_permissions in package.json. Plasmo does not strip
 // an unresolved "$VAR/*" host permission when the variable is unset, and Chrome

@@ -2,7 +2,7 @@ import { MODEL_STORE_NAME, openDB } from "@/cache/idb";
 
 // Ported from composer src/audio/separation/model-cache.ts. Composer keys the
 // cache on a ModelDescriptor and stores bytes via the Cache API; there is no
-// model-registry equivalent here (a single htdemucs_fp16.onnx, not a variant
+// model-registry equivalent here (a single htdemucs_fp32.onnx, not a variant
 // set), so this keys directly on the fetch url and stores in IndexedDB via
 // idb.ts, per the design doc's extension-origin cache decision.
 
@@ -44,6 +44,11 @@ async function readCachedModel(url: string): Promise<ArrayBuffer | null> {
   const record = await readModelRecord(url);
   if (record === null) return null;
   return record.bytes.arrayBuffer();
+}
+
+async function getCachedModelSize(url: string): Promise<number | null> {
+  const record = await readModelRecord(url);
+  return record === null ? null : record.bytes.size;
 }
 
 // -- Writes -----------------------------------------------------------------
@@ -115,4 +120,26 @@ async function fetchAndCacheModel(
   return merged.buffer;
 }
 
-export { hasCachedModel, readCachedModel, fetchAndCacheModel, APPROX_MODEL_BYTES };
+// -- Clearing (settings UI) -----------------------------------------------------
+
+async function clearCachedModel(url: string): Promise<void> {
+  const db = await openDB();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(MODEL_STORE_NAME, "readwrite");
+    tx.objectStore(MODEL_STORE_NAME).delete(url);
+    tx.onerror = () => reject(tx.error ?? new Error(`model-cache: clear failed for ${url}`));
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+  });
+}
+
+export {
+  hasCachedModel,
+  readCachedModel,
+  fetchAndCacheModel,
+  getCachedModelSize,
+  clearCachedModel,
+  APPROX_MODEL_BYTES,
+};
