@@ -72,6 +72,9 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   let instrumentalAssembler: ChunkAssembler | null = null;
   let doneReceived = false;
 
+  // Unlike every later transition, the initial state never reaches setState below, so it is announced here.
+  options.onStateChange(state);
+
   function setState(next: KaraokeState): void {
     if (next === state) return;
     state = next;

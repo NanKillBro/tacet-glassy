@@ -117,6 +117,4 @@ pipeline = createKaraokePipeline({
   onStateChange: state => renderKaraokeState(control, state),
 });
 
-markUnavailable(control.button, "Sing-along will be ready once this track has finished downloading.");
-
 attachFaderMount({ button: control.button, setHost: control.setHost });
