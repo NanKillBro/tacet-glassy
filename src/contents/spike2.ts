@@ -13,7 +13,7 @@ const PATH_B_TIMEOUT_MS = 25000;
 const PATH_B_STEPS = [
   "navigatorGpu",
   "ortWasmFetch",
-  "ortWasmInstantiate",
+  "ortWasmCompile",
   "indexedDbOpen",
   "storageEstimate",
   "workerConstructed",

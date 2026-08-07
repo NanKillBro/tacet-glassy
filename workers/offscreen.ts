@@ -49,15 +49,18 @@ async function checkOrtWasm(): Promise<void> {
   } catch (error) {
     const message = toErrorMessage(error);
     sendStep("ortWasmFetch", false, message);
-    sendStep("ortWasmInstantiate", false, message);
+    sendStep("ortWasmCompile", false, message);
     return;
   }
 
+  // compile, not instantiate. This step only needs to prove the extension CSP
+  // permits WebAssembly; instantiating ORT's module for real would require its
+  // full import object, and its absence was reported as a spurious failure.
   try {
-    await WebAssembly.instantiate(bytes);
-    sendStep("ortWasmInstantiate", true);
+    await WebAssembly.compile(bytes);
+    sendStep("ortWasmCompile", true);
   } catch (error) {
-    sendStep("ortWasmInstantiate", false, toErrorMessage(error));
+    sendStep("ortWasmCompile", false, toErrorMessage(error));
   }
 }
 

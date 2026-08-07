@@ -36,7 +36,13 @@
     },
     "web_accessible_resources": [
       {
-        "resources": ["assets/ort/*", "assets/workers/*", "assets/offscreen.html"],
+        "resources": [
+          "assets/ort/*",
+          "assets/workers/*",
+          "assets/src/separation/*",
+          "assets/src/cache/*",
+          "assets/offscreen.html"
+        ],
         "matches": ["https://music.youtube.com/*"]
       }
     ]
