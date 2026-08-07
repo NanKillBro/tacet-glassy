@@ -36,6 +36,7 @@ export const config: PlasmoCSConfig = {
 };
 
 const ENDED_LISTENER_POLL_MS = 2000;
+const FULLY_BUFFERED_EPSILON_S = 0.5;
 
 const accumulator = createCaptureAccumulator();
 
@@ -81,21 +82,55 @@ function announceCaptureReady(videoId: string): void {
 }
 
 let listenedElement: HTMLVideoElement | null = null;
+const announcedKeys = new Set<string>();
 
-function ensureEndedListener(): void {
-  const element = currentVideoElement();
-  if (!element || element === listenedElement) return;
-  listenedElement = element;
-  element.addEventListener("ended", () => {
-    log("track ended, running decode experiment");
-    void runDecodeExperiment();
-
-    const stats = accumulator.getStats();
-    if (stats.videoId && stats.retainedChunkCount > 0) announceCaptureReady(stats.videoId);
-  });
+// Keyed by videoId AND duration, not videoId alone. A preroll ad reuses the
+// page's videoId with its own much shorter duration, and it fully buffers
+// almost immediately. Keying on videoId alone let the ad consume the single
+// announcement and left the real track never announcing at all.
+function announceKey(videoId: string, durationSeconds: number): string {
+  return `${videoId}:${Math.round(durationSeconds)}`;
 }
 
-setInterval(ensureEndedListener, ENDED_LISTENER_POLL_MS);
+function announceIfCaptureComplete(element: HTMLVideoElement): void {
+  const stats = accumulator.getStats();
+  if (!stats.videoId || stats.retainedChunkCount === 0) return;
+  if (isAdPlaying()) return;
+  if (!Number.isFinite(element.duration)) return;
+
+  const key = announceKey(stats.videoId, element.duration);
+  if (announcedKeys.has(key)) return;
+  announcedKeys.add(key);
+  announceCaptureReady(stats.videoId);
+}
+
+// Waiting for "ended" would mean a track is only singable on a second listen.
+// YouTube buffers ahead of the playhead (measured around 2.2x realtime), so the
+// whole track is captured well before it finishes playing and the capture is
+// complete as soon as the buffered range covers the duration.
+function isFullyBuffered(element: HTMLVideoElement): boolean {
+  if (!Number.isFinite(element.duration) || element.duration <= 0) return false;
+  if (element.buffered.length === 0) return false;
+  return element.buffered.end(element.buffered.length - 1) >= element.duration - FULLY_BUFFERED_EPSILON_S;
+}
+
+function pollCaptureCompletion(): void {
+  const element = currentVideoElement();
+  if (!element) return;
+
+  if (element !== listenedElement) {
+    listenedElement = element;
+    element.addEventListener("ended", () => {
+      log("track ended, running decode experiment");
+      void runDecodeExperiment();
+      announceIfCaptureComplete(element);
+    });
+  }
+
+  if (isFullyBuffered(element)) announceIfCaptureComplete(element);
+}
+
+setInterval(pollCaptureCompletion, ENDED_LISTENER_POLL_MS);
 
 // -- Production handoff: captured bytes on request ------------------------
 //

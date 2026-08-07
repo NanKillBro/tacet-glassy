@@ -62,7 +62,7 @@ function describeStage(state: KaraokeState): string {
 function renderKaraokeState(button: HTMLButtonElement, state: KaraokeState): void {
   switch (state.status) {
     case "waiting-for-capture":
-      markUnavailable(button, "Sing-along will be ready once this track has played through once.");
+      markUnavailable(button, "Sing-along will be ready once this track has finished downloading.");
       break;
     case "ready-to-engage":
     case "engaged":
@@ -77,17 +77,19 @@ function renderKaraokeState(button: HTMLButtonElement, state: KaraokeState): voi
   }
 }
 
-let pipeline: ReturnType<typeof createKaraokePipeline>;
+// createFaderControl emits its initial value during construction, before the
+// pipeline below exists, so this cannot assume the pipeline is assigned yet.
+let pipeline: ReturnType<typeof createKaraokePipeline> | undefined;
 
 const control = createFaderControl({
   host: hasBetterLyrics() ? "dock" : "bar",
-  onChange: mixLevel => pipeline.engage(mixLevel),
+  onChange: mixLevel => pipeline?.engage(mixLevel),
 });
 
 pipeline = createKaraokePipeline({
   onStateChange: state => renderKaraokeState(control.button, state),
 });
 
-markUnavailable(control.button, "Sing-along will be ready once this track has played through once.");
+markUnavailable(control.button, "Sing-along will be ready once this track has finished downloading.");
 
 attachFaderMount({ button: control.button, setHost: control.setHost });
