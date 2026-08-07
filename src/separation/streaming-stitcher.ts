@@ -59,6 +59,14 @@ class StreamingStitcher {
 
     const chunkLength = chunk.end - chunk.start;
 
+    for (let c = 0; c < chunk.data.length; c++) {
+      if (chunk.data[c].length < chunkLength) {
+        throw new Error(
+          `StreamingStitcher: channel ${c} is shorter than the chunk (${chunk.data[c].length} < ${chunkLength})`
+        );
+      }
+    }
+
     if (this.pending === null) {
       this.pending = {
         data: chunk.data.map(channel => channel.slice(0, chunkLength)),

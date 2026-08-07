@@ -236,6 +236,28 @@ describe("StreamingStitcher", () => {
       expect(() => stitcher.push(chunks[0])).toThrow(/channel/i);
     });
 
+    it("throws when a chunk's channel is shorter than the chunk length, naming the channel index", () => {
+      const stitcher = new StreamingStitcher(1000, 2);
+      const shortChunk = { start: 0, end: 500, data: [new Float32Array(500), new Float32Array(400)] };
+
+      expect(() => stitcher.push(shortChunk)).toThrow(/channel 1/);
+    });
+
+    it("throws on a short channel in the merge branch instead of storing NaN", () => {
+      const totalFrames = SEGMENT_SAMPLES + STRIDE_SAMPLES * 2;
+      const channels = [makeRamp(totalFrames, 0)];
+      const chunks = Array.from(iterateChunks(channels));
+      expect(chunks.length).toBeGreaterThan(1);
+
+      const stitcher = new StreamingStitcher(totalFrames, 1);
+      stitcher.push(chunks[0]);
+
+      const chunkLength = chunks[1].end - chunks[1].start;
+      const shortChunk = { start: chunks[1].start, end: chunks[1].end, data: [new Float32Array(chunkLength - 1)] };
+
+      expect(() => stitcher.push(shortChunk)).toThrow(/channel 0/);
+    });
+
     it("throws when chunks are pushed out of order", () => {
       const totalFrames = SEGMENT_SAMPLES + STRIDE_SAMPLES * 2;
       const channels = [makeRamp(totalFrames, 0)];
