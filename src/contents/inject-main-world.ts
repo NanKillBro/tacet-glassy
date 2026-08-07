@@ -29,8 +29,23 @@ export const config: PlasmoCSConfig = {
 };
 
 let cachedGraph: PlaybackGraph | null = null;
+let cachedElement: HTMLMediaElement | null = null;
 let acquiring: Promise<PlaybackGraph | null> | null = null;
 let pendingMixLevel = 1;
+
+// YouTube Music runs more than one <video>, and only one of them decodes
+// audio. A graph built against the silent one routes nothing, so the real
+// element keeps playing through its own path and the feature appears to do
+// nothing at all while every log still reports success. The cached graph is
+// therefore only reusable while its element is still the audible one.
+function decodedBytes(element: HTMLMediaElement): number {
+  return (element as HTMLMediaElement & { webkitAudioDecodedByteCount?: number }).webkitAudioDecodedByteCount ?? 0;
+}
+
+function audibleElement(): HTMLMediaElement | null {
+  const candidates = Array.from(document.querySelectorAll("video"));
+  return candidates.find(candidate => candidate.isConnected && decodedBytes(candidate) > 0) ?? null;
+}
 
 function buildGraph(): Promise<PlaybackGraph | null> {
   return acquireAudioBus().then(bus => {
@@ -45,6 +60,7 @@ function buildGraph(): Promise<PlaybackGraph | null> {
     );
 
     const graph = createPlaybackGraph({ context: bus.context, source: bus.source });
+    cachedElement = bus.element;
 
     // Watchdog: any context state other than "running" is treated as a
     // failure and forces the hard bypass, whether that is the tab being
@@ -59,7 +75,20 @@ function buildGraph(): Promise<PlaybackGraph | null> {
 }
 
 function ensureGraph(): Promise<PlaybackGraph | null> {
-  if (cachedGraph) return Promise.resolve(cachedGraph);
+  const audible = audibleElement();
+
+  if (cachedGraph) {
+    if (cachedElement === audible) return Promise.resolve(cachedGraph);
+    console.warn(
+      `[BLK-PAGE] cached graph is bound to the wrong element (decoded bytes=${
+        cachedElement ? decodedBytes(cachedElement) : "none"
+      }), rebuilding against the audible one`
+    );
+    cachedGraph.stopStems();
+    cachedGraph = null;
+    cachedElement = null;
+  }
+
   if (!acquiring) {
     acquiring = buildGraph().finally(() => {
       acquiring = null;

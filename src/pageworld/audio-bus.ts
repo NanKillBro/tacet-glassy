@@ -87,7 +87,21 @@ async function acquireAudioBus(): Promise<BlyricsAudioBus | null> {
   const context = new AudioContext();
   if (!(await resumeOnGesture(context))) return null;
 
-  const source = context.createMediaElementSource(element);
+  // The binding is permanent and unrepeatable. If something already claimed
+  // this element (an earlier context of ours, another extension, a debug
+  // probe), we cannot route its audio at all, and silently carrying on is
+  // what made this look like a working feature that changed nothing.
+  let source: MediaElementAudioSourceNode;
+  try {
+    source = context.createMediaElementSource(element);
+  } catch (error) {
+    console.error(
+      "[BLK-AUDIO-BUS] cannot capture the audible element, its audio will keep playing untouched. Reload the page.",
+      error
+    );
+    await context.close();
+    return null;
+  }
   source.connect(context.destination);
 
   const bus: BlyricsAudioBus = { version: AUDIO_BUS_VERSION, context, source, element };
