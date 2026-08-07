@@ -191,6 +191,54 @@ describe("createCaptureAccumulator", () => {
     });
   });
 
+  describe("discarding what was retained", () => {
+    // A preroll's bytes reach the accumulator under the track's own videoId, so
+    // nothing upstream resets it. Discarding is how a worker throws the ad away
+    // and starts over once it notices the media changed length.
+    it("drops what it was holding but keeps retaining", () => {
+      const accumulator = createCaptureAccumulator(1024);
+      accumulator.setActiveVideoId("song-a");
+      accumulator.addChunk("audio/mp4", ftypBytes());
+      accumulator.discardRetained();
+
+      expect(accumulator.getChunks()).toHaveLength(0);
+      expect(accumulator.addChunk("audio/mp4", moofBytes())).toBe("added");
+      expect(accumulator.getChunks()).toHaveLength(1);
+    });
+
+    it("does not stand the capture down", () => {
+      const accumulator = createCaptureAccumulator(1024);
+      accumulator.setActiveVideoId("song-a");
+      accumulator.discardRetained();
+
+      expect(accumulator.getStats().stoodDown).toBe(false);
+    });
+
+    it("clears a hit cap, so the restarted capture has its full budget", () => {
+      const accumulator = createCaptureAccumulator(10);
+      accumulator.setActiveVideoId("song-a");
+      accumulator.addChunk("audio/mp4", bytes(11));
+      expect(accumulator.getStats().hitCap).toBe(true);
+
+      accumulator.discardRetained();
+
+      expect(accumulator.getStats().hitCap).toBe(false);
+      expect(accumulator.addChunk("audio/mp4", bytes(5))).toBe("added");
+    });
+
+    it("leaves the running totals alone, since those describe the stream", () => {
+      const accumulator = createCaptureAccumulator(1024);
+      accumulator.setActiveVideoId("song-a");
+      accumulator.addChunk("audio/mp4", bytes(12));
+      accumulator.discardRetained();
+
+      const stats = accumulator.getStats();
+      expect(stats.appendCount).toBe(1);
+      expect(stats.totalBytes).toBe(12);
+      expect(stats.retainedChunkCount).toBe(0);
+    });
+  });
+
   describe("edge cases", () => {
     it("addChunk works before any video id has been set", () => {
       const accumulator = createCaptureAccumulator(1024);

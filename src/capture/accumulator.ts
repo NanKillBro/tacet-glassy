@@ -39,6 +39,9 @@ interface CaptureAccumulator {
   // Counters keep running, so the stream is still observable; only the memory
   // goes. A track change re-arms retention by itself.
   standDown(): void;
+  // Throws away what is retained and keeps going. For when the bytes so far
+  // turn out to belong to something other than the track being captured.
+  discardRetained(): void;
 }
 
 function createCaptureAccumulator(maxRetainedBytes: number = DEFAULT_MAX_RETAINED_BYTES): CaptureAccumulator {
@@ -90,6 +93,12 @@ function createCaptureAccumulator(maxRetainedBytes: number = DEFAULT_MAX_RETAINE
     return chunks.slice();
   }
 
+  function discardRetained(): void {
+    chunks = [];
+    retainedBytes = 0;
+    hitCap = false;
+  }
+
   function standDown(): void {
     stoodDown = true;
     chunks = [];
@@ -109,7 +118,7 @@ function createCaptureAccumulator(maxRetainedBytes: number = DEFAULT_MAX_RETAINE
     };
   }
 
-  return { setActiveVideoId, addChunk, getChunks, getStats, standDown };
+  return { setActiveVideoId, addChunk, getChunks, getStats, standDown, discardRetained };
 }
 
 export { DEFAULT_MAX_RETAINED_BYTES, createCaptureAccumulator };

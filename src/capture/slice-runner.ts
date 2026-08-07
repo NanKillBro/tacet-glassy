@@ -1,18 +1,22 @@
 // Runs inside a hidden worker frame: drives that frame's own player across one
 // slice of the track, then hands the captured bytes up to the opener.
 //
-// The player is muted and played fast across its own slice, then paused at the
-// slice boundary. Two measured constraints shape that: a paused player seeked
-// mid-track barely buffers at all (23-66 KB against 1.68 MB for the slice that
-// started at 0), and a player allowed to reach the end of the track hands the
-// frame to the autoplay queue and loses the slice. See src/capture/edge-hopper.ts
-// for the stall and completion logic.
+// The player stays PAUSED and the scrubber is hopped to the buffered edge on
+// every poll, which makes it fetch the next window at once. Measured cold on
+// the same 246 s track: hopping buffered 235.8 s in 6 s, which is 39x realtime,
+// against 18 s for playing through at 16x. Playing is strictly worse, because
+// the playhead both consumes the buffer and caps the fetch rate at whatever it
+// can traverse, and YouTube Music's own API refuses any rate above 2 anyway.
+//
+// The player must also never reach the end of the track: that fires "ended" and
+// hands the frame to the autoplay queue, which loses the slice. See
+// src/capture/edge-hopper.ts for the stall and completion logic.
 
 import type { CaptureAccumulator } from "@/capture/accumulator";
 import { isAdPlayingElement, isPlayingSomethingElse, MOVIE_PLAYER_ELEMENT_ID } from "@/capture/ad-guard";
 import type { SliceCapturedMessage } from "@/capture/bridge-protocol";
 import { concatenateChunks, countInitSegments, planFirstPlusMedia } from "@/capture/decode-plan";
-import { bufferedRangeStart, decideHop } from "@/capture/edge-hopper";
+import { bufferedRangeEnd, bufferedRangeStart, decideHop } from "@/capture/edge-hopper";
 import { log, logError } from "@/capture/log";
 import { getVideoIdFromSearch } from "@/capture/video-id";
 import { callSafely, getYtPlayer, readVideoData, suppressAutoAdvance } from "@/capture/yt-player";
@@ -22,18 +26,15 @@ const POLL_MS = 300;
 const PLAYER_READY_TIMEOUT_MS = 60_000;
 const PLAYER_POLL_MS = 500;
 
-// Fast enough that a slice is pulled well ahead of the playhead, and muted, so
-// nothing is audible. YouTube paces delivery per session, which is why the
-// speed comes from running several of these at once rather than from this rate.
-const SLICE_PLAYBACK_RATE = 16;
-
-// Never play into the final seconds: reaching the end fires "ended" and hands
+// Never seek into the final seconds: reaching the end fires "ended" and hands
 // control to the autoplay queue, which navigates the frame to the next track
 // and loses the slice entirely (observed live: a worker reset onto a different
-// videoId and never reported). The guard has to be measured in media time, not
-// wall clock, because one poll at 16x covers 4.8 s of the track: a flat 5 s
-// guard let two workers step straight over the end between polls.
-const END_OF_TRACK_GUARD_S = Math.max(5, (SLICE_PLAYBACK_RATE * POLL_MS * 3) / 1000);
+// videoId and never reported).
+const END_OF_TRACK_GUARD_S = 15;
+
+// A change this large means the element is playing different media, not that
+// the player refined its estimate.
+const DURATION_CHANGE_S = 2;
 
 // How long the last slice waits, paused at that guard, for the tail it is not
 // allowed to play through to arrive anyway.
@@ -102,8 +103,12 @@ async function runSliceCapture(
   const player = getYtPlayer(document);
   if (player) suppressAutoAdvance(player);
 
-  const duration = video.duration;
-  const sliceEnd = Math.min(assignment.toSeconds, duration);
+  // Not const: a preroll's element reports the ad's length, and the track that
+  // replaces it is a different length entirely. A worker that keeps the first
+  // number it saw captures the ad and reports it as a complete track, which is
+  // how a 20 s "track" of 335,510 bytes came back for a 245.9 s song.
+  let duration = video.duration;
+  let sliceEnd = Math.min(assignment.toSeconds, duration);
   const seekTo = (seconds: number): void => {
     const target = Math.max(0, Math.min(seconds, duration - 0.1));
     if (player && typeof player.seekTo === "function") {
@@ -115,27 +120,6 @@ async function runSliceCapture(
     } catch {
       // The player can reject a seek while re-initialising; the next poll retries.
     }
-  };
-  // The rate goes on the ELEMENT and never through the player. YouTube Music's
-  // API clamps to its UI range: measured, video.playbackRate = 16 takes, and a
-  // following player.setPlaybackRate(16) writes 2 straight back onto the same
-  // element, because getAvailablePlaybackRates() tops out at 2. That single
-  // call was costing about 14x, turning an 18 s acquisition into 262 s.
-  const enforceRate = (): void => {
-    if (video.playbackRate !== SLICE_PLAYBACK_RATE) video.playbackRate = SLICE_PLAYBACK_RATE;
-  };
-  const startPlayback = (): void => {
-    enforceRate();
-    // playVideo stays: driving play() on the element directly had YouTube Music
-    // interrupting it with a pause the worker never requested.
-    if (player && typeof player.playVideo === "function") {
-      callSafely("playVideo", () => player.playVideo?.());
-      enforceRate();
-      return;
-    }
-    void video.play().catch(() => {
-      // Autoplay can refuse transiently; the next poll retries.
-    });
   };
   const stopPlayback = (): void => {
     if (player && typeof player.pauseVideo === "function") {
@@ -149,14 +133,14 @@ async function runSliceCapture(
     }
   };
 
-  // Play BEFORE seeking. Seeking straight after load, while the player is still
-  // wiring up its MediaSource, left mid-track workers in a state where they
-  // fetched nothing at all: they stalled out having captured zero chunks, while
-  // the slice starting at 0 always worked. Letting playback establish first and
-  // then seeking is the sequence the player itself follows.
-  startPlayback();
+  // Establish the stream, then stop playing. Everything after this is seeking:
+  // see the header for why hopping beats playing through.
+  void video.play().catch(() => {
+    // Autoplay can refuse transiently; the loop below does not depend on it.
+  });
   const initDeadline = Date.now() + PLAYBACK_INIT_TIMEOUT_MS;
   while (Date.now() < initDeadline && video.buffered.length === 0) await sleep(200);
+  stopPlayback();
 
   if (assignment.fromSeconds > 0) {
     seekTo(assignment.fromSeconds);
@@ -168,7 +152,6 @@ async function runSliceCapture(
       if (Math.abs(video.currentTime - assignment.fromSeconds) < SEEK_TOLERANCE_S) break;
       seekTo(assignment.fromSeconds);
     }
-    startPlayback();
   }
   await sleep(400);
 
@@ -178,8 +161,9 @@ async function runSliceCapture(
 
   while (true) {
     await sleep(POLL_MS);
-    // The player resets the rate whenever it issues a command of its own.
-    enforceRate();
+    // Never let it play. A playing player consumes the buffer it is trying to
+    // build, and caps the fetch rate at whatever the playhead can traverse.
+    if (!video.paused) stopPlayback();
 
     // If the frame navigated, the autoplay queue took it and this player is on
     // a different track. Stop immediately and report whatever was captured
@@ -189,22 +173,30 @@ async function runSliceCapture(
       break;
     }
 
-    // A worker never needs to play past its own slice, and the last slice must
-    // stop short of the track end so "ended" never fires.
-    const playCeiling = Math.min(sliceEnd, duration - END_OF_TRACK_GUARD_S);
-    const beyondCeiling = video.currentTime >= playCeiling;
-    if (beyondCeiling && !video.paused) stopPlayback();
-    else if (!beyondCeiling && video.paused) startPlayback();
+    // The media under us changed length, so everything captured so far belongs
+    // to something else, almost always a preroll. Throw it away and start over
+    // against the real track rather than reporting the ad as the song.
+    if (Number.isFinite(video.duration) && Math.abs(video.duration - duration) > DURATION_CHANGE_S) {
+      log(
+        `worker slice ${assignment.index} saw the duration change ${duration.toFixed(1)}s to ${video.duration.toFixed(1)}s, restarting`
+      );
+      accumulator.discardRetained();
+      duration = video.duration;
+      sliceEnd = Math.min(assignment.toSeconds, duration);
+      cursor = assignment.fromSeconds;
+      stalls = 0;
+      continue;
+    }
 
-    // Progress is what the player has PLAYED THROUGH, not what it reports as
-    // buffered. Buffered has now been measured wrong twice: a seek can leave
-    // video.buffered advertising an end past sliceEnd, and taking the end of
-    // the range containing the playhead is no better, which declared slices
-    // done having captured 65 KB and 131 KB against a 1.17 MB sibling.
-    // Anything played has necessarily been fetched, and therefore captured.
-    const playedTo = Math.max(cursor, video.currentTime);
+    // Progress is the contiguous buffered edge reached from where the playhead
+    // sits. This is honest here in a way it was not while playing: the playhead
+    // only ever moves into bytes this worker has already pulled, so the range
+    // containing it cannot advertise audio nobody fetched. Reading the whole of
+    // video.buffered instead is what declared slices done having captured
+    // 65 KB against a 1.17 MB sibling.
+    const reach = Math.max(cursor, bufferedRangeEnd(video.buffered, video.currentTime));
     const decision = decideHop({
-      bufferedEnd: playedTo,
+      bufferedEnd: reach,
       cursor,
       sliceEnd,
       trackDuration: duration,
@@ -219,9 +211,12 @@ async function runSliceCapture(
     }
 
     if (decision.action === "seek") {
-      // Playback advances the position on its own; only the bookkeeping moves.
+      // The hop itself: jump the scrubber to the edge of what is buffered,
+      // which is what makes the player fetch the next window immediately
+      // instead of waiting for a playhead to arrive there.
       cursor = decision.cursor;
       stalls = 0;
+      seekTo(Math.min(decision.to, duration - END_OF_TRACK_GUARD_S));
     } else if (decision.action === "nudge") {
       stalls++;
       seekTo(decision.to);
