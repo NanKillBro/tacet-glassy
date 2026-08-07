@@ -1,5 +1,6 @@
-import { isWorkerResultMessage, type LoadCommand } from "./protocol.js";
-import { isRunPathBCommand, type LogMessage, type StepMessage } from "./protocol2.js";
+import { type LoadCommand, isWorkerResultMessage } from "./protocol.js";
+import { type LogMessage, type StepMessage, isCancelSeparationCommand, isRunPathBCommand } from "./protocol2.js";
+import { SeparationHost } from "./separation-host.js";
 
 // -- Path B: offscreen document ----------------------------------------------
 //
@@ -108,7 +109,7 @@ function checkWorker(): Promise<void> {
   return new Promise(resolve => {
     let worker: Worker;
     try {
-      worker = new Worker(chrome.runtime.getURL("assets/separator.js"), { type: "module" });
+      worker = new Worker(chrome.runtime.getURL("assets/workers/separator.js"), { type: "module" });
       sendStep("workerConstructed", true);
     } catch (error) {
       const message = toErrorMessage(error);
@@ -170,9 +171,25 @@ async function runPathB(): Promise<void> {
   sendStep("done", true);
 }
 
+// -- Real separation host -----------------------------------------------
+//
+// Constructed once for this document's lifetime. Nothing in this phase feeds
+// it real audio channels yet, since that is audio acquisition (a later
+// phase): chrome.runtime messaging is JSON-only, so it cannot carry the
+// Float32Array channel data a "start" trigger would need. Cancellation has
+// no such payload problem, so it is wired end to end here.
+
+const separationHost = new SeparationHost();
+
 chrome.runtime.onMessage.addListener(message => {
-  if (!isRunPathBCommand(message)) return;
-  runPathB().catch(error => {
-    sendStep("done", false, toErrorMessage(error));
-  });
+  if (isRunPathBCommand(message)) {
+    runPathB().catch(error => {
+      sendStep("done", false, toErrorMessage(error));
+    });
+    return;
+  }
+
+  if (isCancelSeparationCommand(message)) {
+    separationHost.cancel();
+  }
 });

@@ -1,4 +1,12 @@
-import { isLogMessage, isStartPathBMessage, isStepMessage, type RunPathBCommand } from "../workers/protocol2";
+import { getModelUrl } from "@/cache/model-url";
+import {
+  type ModelUrlMessage,
+  type RunPathBCommand,
+  isGetModelUrlCommand,
+  isLogMessage,
+  isStartPathBMessage,
+  isStepMessage,
+} from "../workers/protocol2";
 
 // -- Path B offscreen document lifecycle and message relay ------------------
 //
@@ -53,7 +61,13 @@ function relayToActiveTab(message: unknown): void {
   });
 }
 
-chrome.runtime.onMessage.addListener((message: unknown, sender) => {
+chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
+  if (isGetModelUrlCommand(message)) {
+    const response: ModelUrlMessage = { type: "blk-model-url", modelUrl: getModelUrl() };
+    sendResponse(response);
+    return;
+  }
+
   if (isStartPathBMessage(message)) {
     const tabId = sender.tab?.id;
     if (tabId === undefined) return;

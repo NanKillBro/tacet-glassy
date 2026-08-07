@@ -54,3 +54,42 @@ export function isLogMessage(data: unknown): data is LogMessage {
     typeof (data as { line?: unknown }).line === "string"
   );
 }
+
+// -- Separation control messages ------------------------------------------------------
+//
+// Small, JSON-safe messages only: chrome.runtime message passing uses JSON
+// serialization in Chrome, not structured clone, so ArrayBuffer/Float32Array
+// payloads (model bytes, audio channels, separated stems) never cross this
+// layer. Those stay inside the offscreen document and its Worker, which talk
+// over Worker postMessage (workers/protocol.ts) instead.
+
+export interface GetModelUrlCommand {
+  type: "blk-get-model-url";
+}
+
+export interface ModelUrlMessage {
+  type: "blk-model-url";
+  modelUrl: string | null;
+}
+
+export interface CancelSeparationCommand {
+  type: "blk-cancel-separation";
+}
+
+export function isGetModelUrlCommand(data: unknown): data is GetModelUrlCommand {
+  return typeof data === "object" && data !== null && (data as { type?: unknown }).type === "blk-get-model-url";
+}
+
+export function isModelUrlMessage(data: unknown): data is ModelUrlMessage {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: unknown }).type === "blk-model-url" &&
+    (typeof (data as { modelUrl?: unknown }).modelUrl === "string" ||
+      (data as { modelUrl?: unknown }).modelUrl === null)
+  );
+}
+
+export function isCancelSeparationCommand(data: unknown): data is CancelSeparationCommand {
+  return typeof data === "object" && data !== null && (data as { type?: unknown }).type === "blk-cancel-separation";
+}
