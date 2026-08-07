@@ -1,8 +1,16 @@
 // Two AudioBufferSourceNodes (vocals, instrumental) into two GainNodes into
-// the shared bus's destination. Engaging disconnects only the destination
-// edge off the bus source, preserving any other edges a sibling extension
-// put there (its own analyser, for instance). The bypass controller is the
-// one path back to safety, used by both an explicit stop and the watchdog.
+// the shared bus's destination, plus a third gain that carries the original
+// and is turned down to silence it. The bypass controller is the one path
+// back to safety, used by both an explicit stop and the watchdog.
+//
+// The original is silenced with a gain of zero and never by disconnecting it
+// from the destination. Web Audio only pulls samples through nodes that reach
+// the destination, so a disconnected MediaElementAudioSourceNode stops being
+// read and the media element stalls behind it: measured on YouTube Music as
+// currentTime frozen and webkitAudioDecodedByteCount stuck, followed by the
+// player discarding the element and building another one, over and over. A
+// zero gain keeps the graph pulling and the element playing while
+// contributing nothing audible.
 //
 // Real Web Audio calls only, kept thin: the gain law and the bypass state
 // machine are pure and tested separately.
@@ -19,6 +27,7 @@ interface GraphState {
   engaged: boolean;
   vocalsGain: number;
   instrumentalGain: number;
+  originalGain: number;
   stemsLoaded: boolean;
   stemFrames: number;
   stemSampleRate: number;
@@ -65,6 +74,16 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   vocalsGainNode.connect(context.destination);
   instrumentalGainNode.connect(context.destination);
 
+  // Re-route the original through a gain of our own. Only the source's own
+  // destination edge is replaced, so any other edge a sibling extension put
+  // there (its own analyser, for instance) survives untouched. Unity gain
+  // until something asks for the stems, so building the graph is inaudible.
+  const originalGainNode = context.createGain();
+  originalGainNode.gain.value = 1;
+  source.disconnect(context.destination);
+  source.connect(originalGainNode);
+  originalGainNode.connect(context.destination);
+
   let vocalsSource: AudioBufferSourceNode | null = null;
   let instrumentalSource: AudioBufferSourceNode | null = null;
   let currentMixLevel = 1;
@@ -90,8 +109,8 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   }
 
   const bypass = createBypassController({
-    reconnectDestination() {
-      source.connect(context.destination);
+    restoreOriginal() {
+      originalGainNode.gain.value = 1;
     },
     stopStems() {
       stopActiveSources();
@@ -152,10 +171,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
       durationSeconds: (vocals[0]?.length ?? 0) / sampleRate,
     };
 
-    // Preserve any other edge off the source node (a sibling extension's own
-    // analyser, for instance): disconnect only the destination edge.
-    source.disconnect(context.destination);
-
+    originalGainNode.gain.value = 0;
     bypass.exitBypass();
     attachTransportListeners();
     // Start where the listener actually is, not at the beginning of the track.
@@ -173,6 +189,18 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   function dispose(): void {
     stopActiveSources();
     loadedStems = null;
+
+    // Hand the source back exactly as the bus handed it over. A discarded
+    // graph that leaves its own gain in place is a second path to the
+    // destination, so the next graph built on the same bus plays the original
+    // twice over, once through each.
+    originalGainNode.gain.value = 1;
+    source.disconnect(originalGainNode);
+    originalGainNode.disconnect();
+    vocalsGainNode.disconnect();
+    instrumentalGainNode.disconnect();
+    source.connect(context.destination);
+
     if (!transportAttached) return;
     transportAttached = false;
     element.removeEventListener("play", syncToElement);
@@ -196,6 +224,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
       engaged: !bypass.isBypassed(),
       vocalsGain: vocalsGainNode.gain.value,
       instrumentalGain: instrumentalGainNode.gain.value,
+      originalGain: originalGainNode.gain.value,
       stemsLoaded: loadedStems !== null,
       stemFrames: samples?.length ?? 0,
       stemSampleRate: loadedStems?.sampleRate ?? 0,
