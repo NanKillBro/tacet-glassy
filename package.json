@@ -1,6 +1,6 @@
 {
-  "name": "better-lyrics-karaoke",
-  "displayName": "Better Lyrics Karaoke",
+  "name": "tacet",
+  "displayName": "Tacet for YouTube Music",
   "version": "0.0.2",
   "description": "Separate vocals from YouTube Music playback and fade between them",
   "author": "Boidu",
