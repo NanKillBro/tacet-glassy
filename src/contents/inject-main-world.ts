@@ -38,6 +38,8 @@ let pendingMixLevel = 1;
 // element keeps playing through its own path and the feature appears to do
 // nothing at all while every log still reports success. The cached graph is
 // therefore only reusable while its element is still the audible one.
+console.log("[BLK-PAGE] karaoke page world ready, build 0.0.2");
+
 function decodedBytes(element: HTMLMediaElement): number {
   return (element as HTMLMediaElement & { webkitAudioDecodedByteCount?: number }).webkitAudioDecodedByteCount ?? 0;
 }

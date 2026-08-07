@@ -1,7 +1,7 @@
 {
   "name": "better-lyrics-karaoke",
   "displayName": "Better Lyrics Karaoke",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Separate vocals from YouTube Music playback and fade between them",
   "author": "Boidu",
   "scripts": {
