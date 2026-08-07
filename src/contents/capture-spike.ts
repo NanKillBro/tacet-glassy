@@ -5,8 +5,10 @@ import type {
   CaptureReadyMessage,
   CapturedAudioMessage,
   CapturedAudioUnavailableMessage,
+  DownloadProgressMessage,
 } from "@/capture/bridge-protocol";
 import { isRequestCapturedAudioMessage } from "@/capture/bridge-protocol";
+import { computeBufferedFraction } from "@/capture/buffered-fraction";
 import { concatenateChunks, planNaiveConcat } from "@/capture/decode-plan";
 import { runCaptureDecodeExperiment } from "@/capture/decode-experiment";
 import { log, logError } from "@/capture/log";
@@ -114,6 +116,18 @@ function isFullyBuffered(element: HTMLVideoElement): boolean {
   return element.buffered.end(element.buffered.length - 1) >= element.duration - FULLY_BUFFERED_EPSILON_S;
 }
 
+function bufferedEndSeconds(element: HTMLVideoElement): number {
+  return element.buffered.length === 0 ? 0 : element.buffered.end(element.buffered.length - 1);
+}
+
+function announceDownloadProgress(element: HTMLVideoElement): void {
+  const videoId = getVideoIdFromSearch(window.location.search);
+  if (!videoId || isAdPlaying()) return;
+  const fraction = computeBufferedFraction(bufferedEndSeconds(element), element.duration);
+  const message: DownloadProgressMessage = { type: "blk-download-progress", videoId, fraction };
+  window.postMessage(message, window.location.origin);
+}
+
 function pollCaptureCompletion(): void {
   const element = currentVideoElement();
   if (!element) return;
@@ -127,6 +141,7 @@ function pollCaptureCompletion(): void {
     });
   }
 
+  announceDownloadProgress(element);
   if (isFullyBuffered(element)) announceIfCaptureComplete(element);
 }
 

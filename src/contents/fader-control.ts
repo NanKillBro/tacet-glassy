@@ -1,5 +1,6 @@
 import faderCss from "data-text:../ui/fader.css";
 import type { PlasmoCSConfig } from "plasmo";
+import { formatDownloadTooltip } from "@/orchestrator/download-tooltip";
 import { createKaraokePipeline } from "@/orchestrator/karaoke-pipeline";
 import type { KaraokeState } from "@/orchestrator/karaoke-state";
 import { createFaderControl } from "@/ui/fader";
@@ -88,7 +89,7 @@ function renderKaraokeState(control: FaderControl, state: KaraokeState): void {
   control.setBusy(state.status === "waiting-for-capture" || state.status === "processing");
   switch (state.status) {
     case "waiting-for-capture":
-      markUnavailable(button, "Sing-along will be ready once this track has finished downloading.");
+      markUnavailable(button, formatDownloadTooltip(state.downloadFraction));
       break;
     case "ready-to-engage":
     case "engaged":

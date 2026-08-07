@@ -20,6 +20,7 @@ interface KaraokeState {
   processed: number;
   total: number;
   reason: string | null;
+  downloadFraction: number;
 }
 
 type KaraokeEvent =
@@ -28,11 +29,20 @@ type KaraokeEvent =
   | { type: "engage"; videoId: string }
   | { type: "stage"; videoId: string; stage: string }
   | { type: "progress"; videoId: string; processed: number; total: number }
+  | { type: "download-progress"; videoId: string; fraction: number }
   | { type: "stems-loaded"; videoId: string }
   | { type: "failed"; videoId: string; reason: string };
 
 function initialKaraokeState(videoId: string): KaraokeState {
-  return { status: "waiting-for-capture", videoId, stage: null, processed: 0, total: 0, reason: null };
+  return {
+    status: "waiting-for-capture",
+    videoId,
+    stage: null,
+    processed: 0,
+    total: 0,
+    reason: null,
+    downloadFraction: Number.NaN,
+  };
 }
 
 function reduceKaraokeState(state: KaraokeState, event: KaraokeEvent): KaraokeState {
@@ -54,6 +64,9 @@ function reduceKaraokeState(state: KaraokeState, event: KaraokeEvent): KaraokeSt
 
     case "progress":
       return state.status === "processing" ? { ...state, processed: event.processed, total: event.total } : state;
+
+    case "download-progress":
+      return state.status === "waiting-for-capture" ? { ...state, downloadFraction: event.fraction } : state;
 
     case "stems-loaded":
       return state.status === "processing" ? { ...state, status: "engaged", reason: null } : state;

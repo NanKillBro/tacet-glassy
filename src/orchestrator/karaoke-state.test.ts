@@ -11,6 +11,7 @@ describe("initialKaraokeState", () => {
       processed: 0,
       total: 0,
       reason: null,
+      downloadFraction: Number.NaN,
     });
   });
 });
@@ -24,6 +25,7 @@ describe("track-changed", () => {
       processed: 10,
       total: 10,
       reason: null,
+      downloadFraction: 0,
     };
     expect(reduceKaraokeState(engaged, { type: "track-changed", videoId: "video-2" })).toEqual(
       initialKaraokeState("video-2")
@@ -38,6 +40,7 @@ describe("track-changed", () => {
       processed: 0,
       total: 0,
       reason: "boom",
+      downloadFraction: 0,
     };
     expect(reduceKaraokeState(failed, { type: "track-changed", videoId: "video-2" })).toEqual(
       initialKaraokeState("video-2")
@@ -136,6 +139,30 @@ describe("stage and progress", () => {
   });
 });
 
+describe("download-progress", () => {
+  it("records the buffered fraction while waiting for capture", () => {
+    const state = initialKaraokeState("video-1");
+    const next = reduceKaraokeState(state, { type: "download-progress", videoId: "video-1", fraction: 0.42 });
+    expect(next.downloadFraction).toBe(0.42);
+    expect(next.status).toBe("waiting-for-capture");
+  });
+
+  it("is ignored once past waiting-for-capture", () => {
+    const ready = reduceKaraokeState(initialKaraokeState("video-1"), {
+      type: "capture-ready",
+      videoId: "video-1",
+    });
+    const next = reduceKaraokeState(ready, { type: "download-progress", videoId: "video-1", fraction: 0.9 });
+    expect(next).toBe(ready);
+  });
+
+  it("is ignored for a stale videoId from a previous track", () => {
+    const state = initialKaraokeState("video-1");
+    const next = reduceKaraokeState(state, { type: "download-progress", videoId: "video-0", fraction: 0.5 });
+    expect(next).toBe(state);
+  });
+});
+
 describe("stems-loaded", () => {
   it("moves processing to engaged and clears any reason", () => {
     let state = initialKaraokeState("video-1");
@@ -197,6 +224,7 @@ describe("invariants", () => {
       processed: 7,
       total: 7,
       reason: null,
+      downloadFraction: 0,
     };
     const next = reduceKaraokeState(engaged, { type: "track-changed", videoId: "video-2" });
     expect(next.processed).toBe(0);

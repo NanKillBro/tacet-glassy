@@ -29,6 +29,12 @@ export interface CaptureReadyMessage {
   videoId: string;
 }
 
+export interface DownloadProgressMessage {
+  type: "blk-download-progress";
+  videoId: string;
+  fraction: number;
+}
+
 export function isRequestCapturedAudioMessage(data: unknown): data is RequestCapturedAudioMessage {
   return (
     typeof data === "object" &&
@@ -65,5 +71,15 @@ export function isCaptureReadyMessage(data: unknown): data is CaptureReadyMessag
     data !== null &&
     (data as { type?: unknown }).type === "blk-capture-ready" &&
     typeof (data as { videoId?: unknown }).videoId === "string"
+  );
+}
+
+export function isDownloadProgressMessage(data: unknown): data is DownloadProgressMessage {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: unknown }).type === "blk-download-progress" &&
+    typeof (data as { videoId?: unknown }).videoId === "string" &&
+    typeof (data as { fraction?: unknown }).fraction === "number"
   );
 }

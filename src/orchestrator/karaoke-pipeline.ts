@@ -14,6 +14,7 @@ import {
   isCaptureReadyMessage,
   isCapturedAudioMessage,
   isCapturedAudioUnavailableMessage,
+  isDownloadProgressMessage,
 } from "@/capture/bridge-protocol";
 import { getVideoIdFromSearch } from "@/capture/video-id";
 import { decodeOpusToPcm } from "@/cache/opus-codec";
@@ -152,6 +153,11 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     if (isCaptureReadyMessage(data)) {
       log(`capture ready for ${data.videoId}`);
       dispatch({ type: "capture-ready", videoId: data.videoId });
+      return;
+    }
+
+    if (isDownloadProgressMessage(data)) {
+      dispatch({ type: "download-progress", videoId: data.videoId, fraction: data.fraction });
       return;
     }
 
