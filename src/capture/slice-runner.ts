@@ -11,7 +11,7 @@
 import type { CaptureAccumulator } from "@/capture/accumulator";
 import { isAdPlayingElement, isPlayingSomethingElse, MOVIE_PLAYER_ELEMENT_ID } from "@/capture/ad-guard";
 import type { SliceCapturedMessage } from "@/capture/bridge-protocol";
-import { concatenateChunks, planNaiveConcat } from "@/capture/decode-plan";
+import { concatenateChunks, countInitSegments, planFirstPlusMedia } from "@/capture/decode-plan";
 import { bufferedRangeStart, decideHop } from "@/capture/edge-hopper";
 import { log, logError } from "@/capture/log";
 import { getVideoIdFromSearch } from "@/capture/video-id";
@@ -235,7 +235,15 @@ async function runSliceCapture(
   const chunks = accumulator.getChunks();
   if (chunks.length === 0) logError(`worker slice ${assignment.index} captured nothing`, new Error("no chunks"));
 
-  const bytes = chunks.length === 0 ? new Uint8Array(0) : concatenateChunks(planNaiveConcat(chunks));
+  // Keep the first initialization and drop any later one. A worker plays at
+  // 16x with delivery constantly behind it, which is exactly when YouTube
+  // switches audio quality, and a second WebM header spliced into the middle of
+  // the bytes makes the whole capture undecodable.
+  const initSegments = countInitSegments(chunks);
+  if (initSegments > 1) {
+    log(`worker slice ${assignment.index} saw ${initSegments} initializations, keeping the first`);
+  }
+  const bytes = chunks.length === 0 ? new Uint8Array(0) : concatenateChunks(planFirstPlusMedia(chunks));
   const message: SliceCapturedMessage = {
     type: "blk-slice-captured",
     videoId,

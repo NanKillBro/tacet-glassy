@@ -55,3 +55,39 @@ describe("looksLikeInitSegment", () => {
     });
   });
 });
+
+describe("WebM", () => {
+  function ebmlHeader(length = 16): Uint8Array {
+    const buffer = new Uint8Array(length);
+    buffer.set([0x1a, 0x45, 0xdf, 0xa3]);
+    return buffer;
+  }
+
+  function cluster(length = 16): Uint8Array {
+    const buffer = new Uint8Array(length);
+    buffer.set([0x1f, 0x43, 0xb6, 0x75]);
+    return buffer;
+  }
+
+  // This is the container YouTube Music actually serves. Missing it meant every
+  // chunk was tagged as media, so a mid-stream quality switch spliced a second
+  // header into the bytes and the capture stopped decoding.
+  it("recognises an EBML header as an initialization", () => {
+    expect(looksLikeInitSegment(ebmlHeader())).toBe(true);
+  });
+
+  it("does not mistake a cluster for an initialization", () => {
+    expect(looksLikeInitSegment(cluster())).toBe(false);
+  });
+
+  it("needs the whole EBML id, not a prefix of it", () => {
+    expect(looksLikeInitSegment(new Uint8Array([0x1a, 0x45]))).toBe(false);
+    expect(looksLikeInitSegment(new Uint8Array([0x1a, 0x45, 0xdf, 0x00, 0, 0, 0, 0]))).toBe(false);
+  });
+
+  it("still recognises fragmented MP4 alongside it", () => {
+    const ftyp = new Uint8Array(16);
+    ftyp.set([0, 0, 0, 0, 0x66, 0x74, 0x79, 0x70]);
+    expect(looksLikeInitSegment(ftyp)).toBe(true);
+  });
+});

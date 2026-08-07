@@ -18,10 +18,11 @@ import {
   isRequestPrefetchMessage,
 } from "@/capture/bridge-protocol";
 import { computeBufferedFraction } from "@/capture/buffered-fraction";
-import { concatenateChunks, planNaiveConcat } from "@/capture/decode-plan";
+import { concatenateChunks, countInitSegments, planFirstPlusMedia } from "@/capture/decode-plan";
 import { runCaptureDecodeExperiment } from "@/capture/decode-experiment";
 import { log, logError } from "@/capture/log";
 import { type CapturedSlice, captureTrackInSlices } from "@/capture/frame-pool";
+import { installForcedSilence, silenceMediaIn } from "@/capture/silence-frame";
 import { runSliceCapture } from "@/capture/slice-runner";
 import { DEFAULT_WORKER_COUNT, planSlices } from "@/capture/slice-plan";
 import { installSourceBufferCapture } from "@/capture/sourcebuffer-patch";
@@ -103,7 +104,21 @@ const capture = installSourceBufferCapture({ isAdPlaying, onAudioChunk });
 
 const workerAssignment = readWorkerAssignment(window.location.search);
 
+// How often a worker frame re-checks that nothing in it can make a sound.
+// Cheap, and the only thing that catches an element which autoplays straight
+// from its attribute without anyone calling play().
+const SILENCE_SWEEP_MS = 250;
+
 if (workerAssignment) {
+  // Before anything else in this frame. A worker used to mute its element only
+  // once waitForPlayer() had found one already decoding, so everything up to
+  // that point, preroll ads included, came out of the listener's speakers.
+  if (!installForcedSilence(HTMLMediaElement.prototype)) {
+    logError("worker frame could not be silenced, refusing to capture in it", new Error("no media setters"));
+  }
+  silenceMediaIn(document);
+  setInterval(() => silenceMediaIn(document), SILENCE_SWEEP_MS);
+
   const workerVideoId = getVideoIdFromSearch(window.location.search);
   log(
     `worker frame for slice ${workerAssignment.index} [${workerAssignment.fromSeconds.toFixed(1)}s, ${workerAssignment.toSeconds.toFixed(1)}s)`
@@ -343,7 +358,10 @@ function respondToCapturedAudioRequest(videoId: string): void {
     return;
   }
 
-  const bytes = concatenateChunks(planNaiveConcat(accumulator.getChunks()));
+  const chunks = accumulator.getChunks();
+  const initSegments = countInitSegments(chunks);
+  if (initSegments > 1) log(`capture saw ${initSegments} initializations for videoId=${videoId}, keeping the first`);
+  const bytes = concatenateChunks(planFirstPlusMedia(chunks));
   const message: CapturedAudioMessage = {
     type: "blk-captured-audio",
     videoId,
