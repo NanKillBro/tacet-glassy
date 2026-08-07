@@ -1,0 +1,37 @@
+{
+  "name": "better-lyrics-karaoke",
+  "displayName": "Better Lyrics Karaoke",
+  "version": "0.0.1",
+  "description": "Separate vocals from YouTube Music playback and fade between them",
+  "author": "Boidu",
+  "scripts": {
+    "build:worker": "tsc -p workers/tsconfig.json",
+    "dev": "npm run build:worker && plasmo dev --verbose",
+    "build": "npm run build:worker && plasmo build",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome lint . && biome format .",
+    "lint:fix": "biome lint --write . && biome format --write .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "plasmo": "0.90.5"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "1.8.3",
+    "@types/chrome": "^0.2.5",
+    "@types/node": "^22.19.6",
+    "fake-indexeddb": "^6.2.5",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  },
+  "manifest": {
+    "host_permissions": ["https://music.youtube.com/*"],
+    "permissions": ["storage"],
+    "web_accessible_resources": [
+      {
+        "resources": ["assets/ort/*", "assets/pageWorld.js", "assets/separator.js", "assets/protocol.js"],
+        "matches": ["https://music.youtube.com/*"]
+      }
+    ]
+  }
+}

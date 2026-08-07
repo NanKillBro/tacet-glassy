@@ -1,0 +1,13 @@
+node_modules/
+.plasmo/
+build/
+docs/
+*.onnx
+.env*
+!.env.example
+
+assets/ort/*.wasm
+assets/separator.js
+assets/separator.js.map
+assets/protocol.js
+assets/protocol.js.map
