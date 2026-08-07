@@ -21,9 +21,15 @@ import { decodeOpusToPcm } from "@/cache/opus-codec";
 import { initialKaraokeState, reduceKaraokeState } from "@/orchestrator/karaoke-state";
 import type { KaraokeState } from "@/orchestrator/karaoke-state";
 import type { LoadStemsMessage, SetMixLevelMessage, StopStemsMessage } from "@/pageworld/protocol";
+import { loadSettingsFrom } from "@/settings/storage";
 import { base64ToBytes, bytesToBase64 } from "@/relay/base64";
 import { type ChunkAssembler, createChunkAssembler, splitIntoChunks } from "@/relay/chunk-transfer";
-import type { CancelSeparationCommand, CaptureChunkMessage, StemChunkMessage } from "../../workers/protocol2";
+import type {
+  CancelSeparationCommand,
+  CaptureChunkMessage,
+  ProbeCacheCommand,
+  StemChunkMessage,
+} from "../../workers/protocol2";
 import {
   isStemChunkMessage,
   isTrackDoneMessage,
@@ -121,6 +127,13 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
 
     resetStemAssembly();
     dispatch({ type: "track-changed", videoId });
+
+    // Ask straight away whether this track has already been separated. The
+    // cache lookup used to live only inside the capture-completion path, so a
+    // track had to be fully re-captured before the extension would even look,
+    // and cached stems were therefore never used at all.
+    const probe: ProbeCacheCommand = { type: "blk-probe-cache", videoId };
+    chrome.runtime.sendMessage(probe).catch(error => logError("failed to send cache probe", error));
   }
 
   const pollTimer = setInterval(checkTrackChange, TRACK_POLL_MS);
@@ -156,6 +169,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     if (isCaptureReadyMessage(data)) {
       log(`capture ready for ${data.videoId}`);
       dispatch({ type: "capture-ready", videoId: data.videoId });
+      maybeAutoEngage(data.videoId);
       return;
     }
 
@@ -277,6 +291,27 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
         dispatch({ type: "failed", videoId, reason: "Timed out waiting for the captured track." });
       }
     }, CAPTURE_REQUEST_TIMEOUT_MS);
+  }
+
+  // -- Auto separate -------------------------------------------------------
+  //
+  // autoSeparateEnabled (src/settings/settings.ts, default on) starts
+  // separation the moment capture is ready, without moving the mix level
+  // itself, so stems are already cached by the time the user reaches for the
+  // fader. Reads the setting fresh per track rather than caching it, since a
+  // single pipeline instance lives across many tracks.
+
+  function maybeAutoEngage(videoId: string): void {
+    loadSettingsFrom(chrome.storage.sync)
+      .then(settings => {
+        if (!settings.autoSeparateEnabled) return;
+        if (videoId !== state.videoId || state.status !== "ready-to-engage") return;
+
+        log(`auto-separating ${videoId}`);
+        dispatch({ type: "engage", videoId });
+        requestCapturedAudio(videoId);
+      })
+      .catch(error => logError("failed to read the auto-separate setting", error));
   }
 
   function engage(mixLevel: number): void {

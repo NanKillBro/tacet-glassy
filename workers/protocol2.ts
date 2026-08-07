@@ -1,3 +1,5 @@
+import type { Settings } from "../src/settings/settings.js";
+
 // -- Spike 2 message protocol -----------------------------------------------
 //
 // Shared by contents/spike2.ts (isolated world), background.ts (service
@@ -224,3 +226,137 @@ export type TrackPipelineOutboundMessage =
   | StemChunkMessage
   | TrackDoneMessage
   | TrackErrorMessage;
+
+// -- Cache status and clearing (popup) ----------------------------------------
+//
+// Popup to background to offscreen and back, the same relay shape as
+// GetModelUrlCommand above but answered by the offscreen document instead of
+// background itself, since only it holds the IndexedDB connection and knows
+// whether a separation is running (see workers/offscreen.ts).
+
+export type CacheClearTarget = "stems" | "model";
+
+export interface GetCacheStatusCommand {
+  type: "blk-get-cache-status";
+}
+
+export interface CacheStatusMessage {
+  type: "blk-cache-status";
+  stemCacheBytes: number;
+  modelCached: boolean;
+  modelCacheBytes: number;
+}
+
+export interface ClearStemCacheCommand {
+  type: "blk-clear-stem-cache";
+}
+
+export interface ClearModelCacheCommand {
+  type: "blk-clear-model-cache";
+}
+
+export interface ClearCacheResultMessage {
+  type: "blk-clear-cache-result";
+  target: CacheClearTarget;
+  ok: boolean;
+  reason?: string;
+}
+
+export function isGetCacheStatusCommand(data: unknown): data is GetCacheStatusCommand {
+  return typeof data === "object" && data !== null && (data as { type?: unknown }).type === "blk-get-cache-status";
+}
+
+export function isCacheStatusMessage(data: unknown): data is CacheStatusMessage {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: unknown }).type === "blk-cache-status" &&
+    typeof (data as { stemCacheBytes?: unknown }).stemCacheBytes === "number" &&
+    typeof (data as { modelCached?: unknown }).modelCached === "boolean" &&
+    typeof (data as { modelCacheBytes?: unknown }).modelCacheBytes === "number"
+  );
+}
+
+export function isClearStemCacheCommand(data: unknown): data is ClearStemCacheCommand {
+  return typeof data === "object" && data !== null && (data as { type?: unknown }).type === "blk-clear-stem-cache";
+}
+
+export function isClearModelCacheCommand(data: unknown): data is ClearModelCacheCommand {
+  return typeof data === "object" && data !== null && (data as { type?: unknown }).type === "blk-clear-model-cache";
+}
+
+export function isClearCacheResultMessage(data: unknown): data is ClearCacheResultMessage {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: unknown }).type === "blk-clear-cache-result" &&
+    ((data as { target?: unknown }).target === "stems" || (data as { target?: unknown }).target === "model") &&
+    typeof (data as { ok?: unknown }).ok === "boolean"
+  );
+}
+
+// -- Settings relay (offscreen has no chrome.storage) --------------------------
+//
+// An offscreen document is granted chrome.runtime and nothing else: chrome.storage
+// is undefined there even with the permission declared in the manifest, and
+// reading it throws. The offscreen document asks background for the current
+// settings on startup, and background pushes an update whenever they change,
+// rather than the offscreen document ever touching chrome.storage itself.
+
+export interface GetSettingsCommand {
+  type: "blk-get-settings";
+}
+
+export interface SettingsMessage {
+  type: "blk-settings";
+  settings: Settings;
+}
+
+export interface SettingsChangedMessage {
+  type: "blk-settings-changed";
+  settings: Settings;
+}
+
+export function isGetSettingsCommand(data: unknown): data is GetSettingsCommand {
+  return typeof data === "object" && data !== null && (data as { type?: unknown }).type === "blk-get-settings";
+}
+
+export function isSettingsMessage(data: unknown): data is SettingsMessage {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: unknown }).type === "blk-settings" &&
+    typeof (data as { settings?: unknown }).settings === "object"
+  );
+}
+
+export function isSettingsChangedMessage(data: unknown): data is SettingsChangedMessage {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: unknown }).type === "blk-settings-changed" &&
+    typeof (data as { settings?: unknown }).settings === "object"
+  );
+}
+
+// -- Cache probe --------------------------------------------------------------
+//
+// Asks the offscreen document whether this videoId already has separated stems,
+// and to deliver them if so. Without this the cache was effectively write-only:
+// the lookup lived inside the capture-completion path, so a track had to be
+// fully re-captured before the extension would even look, and cached stems were
+// never used.
+
+export interface ProbeCacheCommand {
+  type: "blk-probe-cache";
+  videoId: string;
+}
+
+export function isProbeCacheCommand(data: unknown): data is ProbeCacheCommand {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: unknown }).type === "blk-probe-cache" &&
+    typeof (data as { videoId?: unknown }).videoId === "string"
+  );
+}

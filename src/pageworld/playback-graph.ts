@@ -23,6 +23,8 @@ interface GraphState {
   stemFrames: number;
   stemSampleRate: number;
   instrumentalRms: number;
+  stemsPlaying: boolean;
+  elementTime: number;
 }
 
 interface PlaybackGraph {
@@ -62,6 +64,17 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   let vocalsSource: AudioBufferSourceNode | null = null;
   let instrumentalSource: AudioBufferSourceNode | null = null;
   let currentMixLevel = 1;
+  let transportAttached = false;
+  let loadedStems: {
+    vocals: Float32Array<ArrayBuffer>[];
+    instrumental: Float32Array<ArrayBuffer>[];
+    sampleRate: number;
+    durationSeconds: number;
+  } | null = null;
+
+  // The element behind the bus, so the graph can follow the player's transport
+  // rather than being told about it.
+  const element = source.mediaElement;
 
   function stopActiveSources(): void {
     vocalsSource?.stop();
@@ -88,26 +101,61 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     instrumentalGainNode.gain.value = gains.instrumentalGain;
   }
 
+  // An AudioBufferSourceNode cannot be paused or repositioned once started, so
+  // following the player means tearing the pair down and starting a new one at
+  // the right offset. Without this the stems always began at 0:00 no matter
+  // where the track was, and any pause or seek desynchronised them for good.
+  function startSourcesAt(offsetSeconds: number): void {
+    if (!loadedStems) return;
+    stopActiveSources();
+
+    const offset = Math.max(0, Math.min(offsetSeconds, loadedStems.durationSeconds));
+    vocalsSource = createStemBufferSource(context, loadedStems.vocals, loadedStems.sampleRate);
+    instrumentalSource = createStemBufferSource(context, loadedStems.instrumental, loadedStems.sampleRate);
+    vocalsSource.connect(vocalsGainNode);
+    instrumentalSource.connect(instrumentalGainNode);
+    vocalsSource.start(0, offset);
+    instrumentalSource.start(0, offset);
+    applyMixLevel(currentMixLevel);
+  }
+
+  function syncToElement(): void {
+    if (!loadedStems || bypass.isBypassed()) return;
+    if (element.paused) stopActiveSources();
+    else startSourcesAt(element.currentTime);
+  }
+
+  function attachTransportListeners(): void {
+    if (transportAttached) return;
+    transportAttached = true;
+    element.addEventListener("play", syncToElement);
+    element.addEventListener("playing", syncToElement);
+    element.addEventListener("pause", stopActiveSources);
+    element.addEventListener("seeked", syncToElement);
+    element.addEventListener("ratechange", syncToElement);
+  }
+
   function loadStems(
     vocals: Float32Array<ArrayBuffer>[],
     instrumental: Float32Array<ArrayBuffer>[],
     sampleRate: number
   ): void {
     stopActiveSources();
-
-    vocalsSource = createStemBufferSource(context, vocals, sampleRate);
-    instrumentalSource = createStemBufferSource(context, instrumental, sampleRate);
-    vocalsSource.connect(vocalsGainNode);
-    instrumentalSource.connect(instrumentalGainNode);
+    loadedStems = {
+      vocals,
+      instrumental,
+      sampleRate,
+      durationSeconds: (vocals[0]?.length ?? 0) / sampleRate,
+    };
 
     // Preserve any other edge off the source node (a sibling extension's own
     // analyser, for instance): disconnect only the destination edge.
     source.disconnect(context.destination);
 
-    vocalsSource.start();
-    instrumentalSource.start();
     bypass.exitBypass();
-    applyMixLevel(currentMixLevel);
+    attachTransportListeners();
+    // Start where the listener actually is, not at the beginning of the track.
+    if (!element.paused) startSourcesAt(element.currentTime);
   }
 
   function setMixLevel(mixLevel: number): void {
@@ -119,10 +167,11 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   }
 
   function describe(): GraphState {
-    const buffer = instrumentalSource?.buffer ?? null;
+    // Report the retained stems, not the live source: sources are torn down and
+    // rebuilt on every pause and seek, so a paused graph still has stems loaded.
+    const samples = loadedStems?.instrumental[0] ?? null;
     let instrumentalRms = 0;
-    if (buffer) {
-      const samples = buffer.getChannelData(0);
+    if (samples) {
       let sum = 0;
       for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i];
       instrumentalRms = Math.sqrt(sum / samples.length);
@@ -131,10 +180,12 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
       engaged: !bypass.isBypassed(),
       vocalsGain: vocalsGainNode.gain.value,
       instrumentalGain: instrumentalGainNode.gain.value,
-      stemsLoaded: buffer !== null,
-      stemFrames: buffer?.length ?? 0,
-      stemSampleRate: buffer?.sampleRate ?? 0,
+      stemsLoaded: loadedStems !== null,
+      stemFrames: samples?.length ?? 0,
+      stemSampleRate: loadedStems?.sampleRate ?? 0,
       instrumentalRms,
+      stemsPlaying: instrumentalSource !== null,
+      elementTime: Number.isFinite(element.currentTime) ? element.currentTime : 0,
     };
   }
 

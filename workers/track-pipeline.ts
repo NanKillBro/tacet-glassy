@@ -160,6 +160,24 @@ class TrackPipeline {
   // here, not only in handleCaptureChunk, is what makes every isStale()
   // check downstream see the cancellation immediately, even mid-decode
   // where SeparationHost.cancel() alone has nothing to abort.
+  // Answers "are there already stems for this videoId" without needing the
+  // audio. The alias lookup is keyed by videoId alone, so it costs one
+  // IndexedDB read and can run the moment a track starts, long before any
+  // capture exists. Returns true when stems were delivered.
+  async probeCache(videoId: string): Promise<boolean> {
+    this.activeVideoId = videoId;
+    const contentKey = await getContentKeyForVideoId(videoId);
+    if (!contentKey || this.isStale(videoId)) return false;
+
+    const record = await getStemRecord(contentKey);
+    if (!record || this.isStale(videoId)) return false;
+    if (decideCacheLookup(record, null) !== "alias-hit") return false;
+
+    this.sendStage(videoId, "checking-cache");
+    await this.deliver(videoId, record);
+    return true;
+  }
+
   cancelActive(): void {
     this.separationHost.cancel();
     this.activeVideoId = null;

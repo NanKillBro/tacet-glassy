@@ -1,13 +1,27 @@
+import { clearAllAliases } from "../src/cache/keys.js";
+import { clearCachedModel, getCachedModelSize } from "../src/cache/model-cache.js";
+import { clearAllStemRecords, evictUntilWithinBudget, getTotalStemBytes } from "../src/cache/stem-store.js";
+import { DEFAULT_SETTINGS, shouldEvictForNewBudget } from "../src/settings/settings.js";
+import type { Settings } from "../src/settings/settings.js";
 import { type LoadCommand, isWorkerResultMessage } from "./protocol.js";
 import {
+  type CacheStatusMessage,
+  type ClearCacheResultMessage,
+  type GetSettingsCommand,
   type LogMessage,
   type StepMessage,
   isCancelSeparationCommand,
   isCaptureChunkMessage,
+  isClearModelCacheCommand,
+  isClearStemCacheCommand,
+  isGetCacheStatusCommand,
+  isProbeCacheCommand,
   isRunPathBCommand,
+  isSettingsChangedMessage,
+  isSettingsMessage,
 } from "./protocol2.js";
 import { SeparationHost } from "./separation-host.js";
-import { TrackPipeline } from "./track-pipeline.js";
+import { TrackPipeline, fetchModelUrl } from "./track-pipeline.js";
 
 // -- Path B: offscreen document ----------------------------------------------
 //
@@ -181,6 +195,48 @@ async function runPathB(): Promise<void> {
   sendStep("done", true);
 }
 
+// -- Settings-driven cache budget --------------------------------------------
+//
+// The offscreen document owns every write to the stem store, so it is the
+// only place that can apply a changed budget without waiting for a reload:
+// it keeps the live cacheBudgetBytes value in memory, evicts right away if
+// usage already exceeds a smaller budget, and hands the current value to the
+// track pipeline on every future write (see TrackPipeline's constructor).
+//
+// An offscreen document is granted chrome.runtime and nothing else: chrome.storage
+// is undefined here even with the permission declared in the manifest, and
+// reading it at module scope threw and took the whole document down with it
+// (nothing below ever registered). The current value is fetched from
+// background on startup and pushed on every change instead; see
+// src/background.ts and workers/protocol2.ts's settings relay.
+
+let currentCacheBudgetBytes = DEFAULT_SETTINGS.cacheBudgetBytes;
+
+function applySettings(settings: Settings): void {
+  currentCacheBudgetBytes = settings.cacheBudgetBytes;
+}
+
+async function reactToBudgetChange(newBudgetBytes: number): Promise<void> {
+  const usedBytes = await getTotalStemBytes();
+  if (shouldEvictForNewBudget(usedBytes, newBudgetBytes)) {
+    await evictUntilWithinBudget(newBudgetBytes);
+  }
+}
+
+const getSettingsCommand: GetSettingsCommand = { type: "blk-get-settings" };
+chrome.runtime
+  .sendMessage(getSettingsCommand)
+  .then(response => {
+    if (isSettingsMessage(response)) applySettings(response.settings);
+  })
+  .catch(error => {
+    console.error("[BLK-OFFSCREEN] failed to load settings", error);
+  });
+
+function getCacheBudgetBytes(): number {
+  return currentCacheBudgetBytes;
+}
+
 // -- Real separation host -----------------------------------------------
 //
 // One Worker for this document's lifetime, shared by the track pipeline
@@ -189,7 +245,7 @@ async function runPathB(): Promise<void> {
 // active" clears in step with the Worker actually stopping.
 
 const separationHost = new SeparationHost();
-const trackPipeline = new TrackPipeline(separationHost);
+const trackPipeline = new TrackPipeline(separationHost, getCacheBudgetBytes);
 
 chrome.runtime.onMessage.addListener(message => {
   if (isRunPathBCommand(message)) {
@@ -206,7 +262,83 @@ chrome.runtime.onMessage.addListener(message => {
 
   if (isCancelSeparationCommand(message)) {
     trackPipeline.cancelActive();
+    return;
   }
+
+  if (isSettingsChangedMessage(message)) {
+    applySettings(message.settings);
+    reactToBudgetChange(message.settings.cacheBudgetBytes).catch(error => {
+      console.error("[BLK-OFFSCREEN] failed to react to a settings change", error);
+    });
+  }
+});
+
+// -- Cache status and clearing (popup) ---------------------------------------
+//
+// Routed through src/background.ts, since only the offscreen document holds
+// the live IndexedDB connection and knows whether a separation is currently
+// running. A running separation is cancelled first in both cases, so a job
+// in flight cannot write a fresh record into a store the user just asked to
+// empty. See src/settings/ for the setting this reacts to.
+
+async function fetchCacheStatus(): Promise<CacheStatusMessage> {
+  const stemCacheBytes = await getTotalStemBytes();
+  const modelUrl = await fetchModelUrl();
+  const modelCacheBytes = modelUrl ? await getCachedModelSize(modelUrl) : null;
+  return {
+    type: "blk-cache-status",
+    stemCacheBytes,
+    modelCached: modelCacheBytes !== null,
+    modelCacheBytes: modelCacheBytes ?? 0,
+  };
+}
+
+async function clearStemCache(): Promise<ClearCacheResultMessage> {
+  trackPipeline.cancelActive();
+  await clearAllStemRecords();
+  await clearAllAliases();
+  return { type: "blk-clear-cache-result", target: "stems", ok: true };
+}
+
+async function clearModelCache(): Promise<ClearCacheResultMessage> {
+  trackPipeline.cancelActive();
+  const modelUrl = await fetchModelUrl();
+  if (!modelUrl) {
+    return { type: "blk-clear-cache-result", target: "model", ok: false, reason: "No model URL is configured." };
+  }
+  await clearCachedModel(modelUrl);
+  return { type: "blk-clear-cache-result", target: "model", ok: true };
+}
+
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (isGetCacheStatusCommand(message)) {
+    fetchCacheStatus()
+      .then(sendResponse)
+      .catch(error => {
+        console.error("[BLK-OFFSCREEN] failed to read cache status", error);
+      });
+    return true;
+  }
+
+  if (isClearStemCacheCommand(message)) {
+    clearStemCache()
+      .then(sendResponse)
+      .catch(error => {
+        console.error("[BLK-OFFSCREEN] failed to clear the stem cache", error);
+      });
+    return true;
+  }
+
+  if (isClearModelCacheCommand(message)) {
+    clearModelCache()
+      .then(sendResponse)
+      .catch(error => {
+        console.error("[BLK-OFFSCREEN] failed to clear the model cache", error);
+      });
+    return true;
+  }
+
+  return undefined;
 });
 
 // -- Stem verification hook -----------------------------------------------
@@ -304,4 +436,26 @@ async function analyseCachedStems(): Promise<StemAnalysis[]> {
   return results;
 }
 
+chrome.runtime.onMessage.addListener(message => {
+  if (!isProbeCacheCommand(message)) return undefined;
+  trackPipeline.probeCache(message.videoId).catch(error => {
+    console.error("[BLK-OFFSCREEN] cache probe failed", error);
+  });
+  return undefined;
+});
+
 (self as unknown as Record<string, unknown>).blkAnalyseCachedStems = analyseCachedStems;
+
+// -- Synthetic pipeline bisect --------------------------------------------
+//
+// Runs the real separation path over a generated signal, so the capture and
+// decode stages can be ruled in or out without waiting on a track to buffer.
+
+async function runSelfTest(forceWasm = false): Promise<unknown> {
+  const { runPipelineSelfTest } = await import("./pipeline-selftest.js");
+  const modelUrl = await fetchModelUrl();
+  if (!modelUrl) return { verdict: "FAILED: no separation model URL is configured" };
+  return runPipelineSelfTest(separationHost, modelUrl, forceWasm);
+}
+
+(self as unknown as Record<string, unknown>).blkRunPipelineSelfTest = runSelfTest;
