@@ -2,10 +2,9 @@
 //
 // Shared by contents/spike2.ts (isolated world), background.ts (service
 // worker), and workers/offscreen.ts (offscreen document). Step messages carry
-// the same shape whether they cross window.postMessage (Path A) or
-// chrome.runtime messaging (Path B).
+// the offscreen document's progress over chrome.runtime messaging (Path B).
 
-export type Spike2Path = "A" | "B";
+export type Spike2Path = "B";
 
 export interface StartPathBMessage {
   type: "blk-spike2-start-pathb";

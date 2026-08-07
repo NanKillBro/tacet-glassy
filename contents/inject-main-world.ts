@@ -1,17 +1,11 @@
 import type { PlasmoCSConfig } from "plasmo";
 
+// Phase 7 injects the page-world audio graph script from here. Empty until
+// then: both scripts this content script used to inject belonged to the
+// abandoned spike paths.
+
 export const config: PlasmoCSConfig = {
   matches: ["https://music.youtube.com/*"],
   run_at: "document_start",
   all_frames: false,
 };
-
-function injectScript(fileName: string): void {
-  const script = document.createElement("script");
-  script.src = chrome.runtime.getURL(fileName);
-  script.type = "text/javascript";
-  (document.head || document.documentElement).appendChild(script);
-}
-
-injectScript("assets/pageWorld.js");
-injectScript("assets/pageWorldSpike2.js");

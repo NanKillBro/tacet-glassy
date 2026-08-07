@@ -30,20 +30,6 @@
   "manifest": {
     "host_permissions": ["https://music.youtube.com/*"],
     "permissions": ["storage", "offscreen"],
-    "web_accessible_resources": [
-      {
-        "resources": [
-          "assets/ort/*",
-          "assets/pageWorld.js",
-          "assets/pageWorldSpike2.js",
-          "assets/separator.js",
-          "assets/protocol.js",
-          "assets/protocol2.js",
-          "assets/offscreen.*"
-        ],
-        "matches": ["https://music.youtube.com/*"]
-      }
-    ],
     "content_security_policy": {
       "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
     }
