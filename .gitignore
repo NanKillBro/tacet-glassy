@@ -37,6 +37,7 @@ Thumbs.db
 .claude/
 
 .env.*
+!.env.example
 
 # Model weights, fetched at runtime and cached in IndexedDB
 *.onnx

@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { computeInstrumental } from "@/separation/derived-stems";
 
 describe("computeInstrumental", () => {
-  it("returns original − vocals per channel", () => {
+  it("returns original - vocals per channel", () => {
     const original = [Float32Array.from([1, 2, 3, 4]), Float32Array.from([10, 20, 30, 40])];
     const vocals = [Float32Array.from([0.5, 0.5, 0.5, 0.5]), Float32Array.from([1, 2, 3, 4])];
     const out = computeInstrumental(original, vocals);

@@ -35,6 +35,12 @@ Import paths were rewritten from composer's `@/audio/separation/...` and
 were made: logic, formatting (beyond what Biome reformats automatically),
 and test bodies are unchanged from the source.
 
+Punctuation normalization is also an allowed vendoring edit: this repo bans
+em dashes and en dashes outright, and treats stray Unicode punctuation
+(a minus sign, U+2212, standing in for an ASCII hyphen) the same way. Either
+gets swapped for a colon or an ASCII hyphen on sight when carried in from
+composer. This never touches an assertion or changes behavior.
+
 One type annotation in `audio-codec.ts` differs from composer: `sha256Hex`
 takes `Uint8Array<ArrayBuffer>` instead of `Uint8Array`. This repo's
 TypeScript (5.9.3) is newer than composer's (5.7.3) and enforces stricter
