@@ -130,6 +130,54 @@ describe("StreamingStitcher", () => {
     });
   });
 
+  describe("totalFrames contract", () => {
+    it("never emits more than totalFrames when totalFrames undershoots the chunk data", () => {
+      const trueLength = SEGMENT_SAMPLES + STRIDE_SAMPLES * 3;
+      const totalFrames = trueLength - 500;
+      const channels = [makeRamp(trueLength, 0), makeRamp(trueLength, 1)];
+      const chunks = Array.from(iterateChunks(channels));
+
+      const stitcher = new StreamingStitcher(totalFrames, channels.length);
+      for (const chunk of chunks) {
+        stitcher.push(chunk);
+        expect(stitcher.finalisedFrames).toBeLessThanOrEqual(totalFrames);
+      }
+      stitcher.flush();
+
+      expect(stitcher.finalisedFrames).toBe(totalFrames);
+    });
+
+    it("throws once a chunk sequence would exceed totalFrames", () => {
+      const totalFrames = STRIDE_SAMPLES;
+      const channels = [makeRamp(SEGMENT_SAMPLES + STRIDE_SAMPLES * 2, 0)];
+      const chunks = Array.from(iterateChunks(channels));
+      expect(chunks.length).toBeGreaterThan(2);
+
+      const stitcher = new StreamingStitcher(totalFrames, channels.length);
+      stitcher.push(chunks[0]);
+      stitcher.push(chunks[1]);
+      expect(stitcher.finalisedFrames).toBe(totalFrames);
+
+      expect(() => stitcher.push(chunks[2])).toThrow(/totalFrames/i);
+    });
+
+    it("flush pads to totalFrames with silence when no chunks arrive, matching stitchChunks([], totalFrames, numChannels)", () => {
+      const totalFrames = 1000;
+      const numChannels = 2;
+      const batch = stitchChunks([], totalFrames, numChannels);
+
+      const stitcher = new StreamingStitcher(totalFrames, numChannels);
+      const result = stitcher.flush();
+      if (result === null) throw new Error("expected flush to emit silence");
+
+      expect(result.length).toBe(numChannels);
+      for (let c = 0; c < numChannels; c++) {
+        expect(Array.from(result[c])).toEqual(Array.from(batch[c]));
+      }
+      expect(stitcher.finalisedFrames).toBe(totalFrames);
+    });
+  });
+
   describe("edge cases", () => {
     it("flush() with no chunks pushed returns null", () => {
       const stitcher = new StreamingStitcher(0, 2);

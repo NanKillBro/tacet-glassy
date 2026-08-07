@@ -67,8 +67,16 @@ class StreamingStitcher {
       return null;
     }
 
+    const remaining = this.totalFrames - this.emittedFrames;
+    if (remaining <= 0) {
+      throw new Error(
+        `StreamingStitcher: chunk sequence exceeds totalFrames (${this.totalFrames}); already emitted ${this.emittedFrames} frames`
+      );
+    }
+
     const previous = this.pending;
     const coreLength = previous.length - OVERLAP_SAMPLES;
+    const emitLength = Math.min(previous.length, remaining);
     const output: Float32Array[] = [];
 
     for (let c = 0; c < this.numChannels; c++) {
@@ -82,10 +90,10 @@ class StreamingStitcher {
       for (let k = 0; k < OVERLAP_SAMPLES; k++) {
         merged[coreLength + k] += curChannel[k] * this.fadeIn[k];
       }
-      output.push(merged);
+      output.push(emitLength === previous.length ? merged : merged.slice(0, emitLength));
     }
 
-    this.emittedFrames += previous.length;
+    this.emittedFrames += emitLength;
     this.pending = {
       data: chunk.data.map(channel => channel.slice(OVERLAP_SAMPLES, chunkLength)),
       length: chunkLength - OVERLAP_SAMPLES,
@@ -95,9 +103,36 @@ class StreamingStitcher {
   }
 
   flush(): Float32Array[] | null {
-    if (this.pending === null) return null;
-    const output = this.pending.data.map(channel => channel.slice());
-    this.emittedFrames += this.pending.length;
+    const remaining = this.totalFrames - this.emittedFrames;
+    if (remaining <= 0) {
+      this.pending = null;
+      return null;
+    }
+
+    // totalFrames is a duration estimate handed to the constructor before any
+    // audio arrives; the pushed chunks are the ground truth and can fall short
+    // of it (a truncated source, a dropped chunk, or a totalFrames estimate
+    // that overshoots the real data). The caller is a progressive decoder
+    // expecting exactly totalFrames samples back, so the gap is padded with
+    // silence here rather than returned short, matching stitchChunks(), whose
+    // output array is zero-initialised up front and only overwritten where
+    // real chunk data lands.
+    if (this.pending === null) {
+      const silence = Array.from({ length: this.numChannels }, () => new Float32Array(remaining));
+      this.emittedFrames += remaining;
+      return silence;
+    }
+
+    const pending = this.pending;
+    const tailLength = Math.min(pending.length, remaining);
+    const shortfall = remaining - tailLength;
+    const output = pending.data.map(channel => {
+      const out = new Float32Array(tailLength + shortfall);
+      out.set(channel.subarray(0, tailLength));
+      return out;
+    });
+
+    this.emittedFrames += tailLength + shortfall;
     this.pending = null;
     return output;
   }
