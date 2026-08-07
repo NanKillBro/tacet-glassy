@@ -9,6 +9,12 @@
 
 import { isFaderInteractive, shouldCloseForDisabled } from "@/ui/fader-disabled-gate";
 import {
+  dockCouplingCardClosed,
+  dockCouplingCardOpened,
+  dockCouplingShouldCloseCard,
+  initialDockCouplingState,
+} from "@/ui/fader-dock-coupling";
+import {
   HOLD_MS,
   LABEL_EXIT_FALLBACK_MS,
   LABEL_HIDE_MS,
@@ -39,6 +45,7 @@ const DOCK_MENU_CLASS = "blyrics-dock__menu";
 const DOCK_MENU_OPEN_CLASS = "blyrics-dock__menu--open";
 const BAR_CONTROL_CLASS = "blyrics-sing--bar";
 const BAR_MENU_CLASS = "blyrics-mix--bar";
+const DOCK_EXPANDED_CLASS = "blyrics-dock__inner--expanded";
 
 interface CreateFaderControlOptions {
   host?: FaderHost;
@@ -307,6 +314,47 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
     options.onChange(frame.mixLevel);
   }
 
+  // -- Dock expansion coupling --------------------------------------------------
+
+  function dockInnerElement(): HTMLElement | null {
+    return button.closest<HTMLElement>(".blyrics-dock__inner");
+  }
+
+  let dockCouplingState = initialDockCouplingState();
+  let dockClassObserver: MutationObserver | null = null;
+
+  function stopWatchingDockCollapse(): void {
+    dockClassObserver?.disconnect();
+    dockClassObserver = null;
+  }
+
+  function watchDockCollapse(inner: HTMLElement): void {
+    stopWatchingDockCollapse();
+    dockClassObserver = new MutationObserver(() => {
+      const expanded = inner.classList.contains(DOCK_EXPANDED_CLASS);
+      if (dockCouplingShouldCloseCard(open, expanded)) setOpen(false);
+    });
+    dockClassObserver.observe(inner, { attributes: true, attributeFilter: ["class"] });
+  }
+
+  function syncDockExpansion(next: boolean): void {
+    if (host !== "dock") return;
+    const inner = dockInnerElement();
+    if (!inner) return;
+
+    if (next) {
+      const result = dockCouplingCardOpened(inner.classList.contains(DOCK_EXPANDED_CLASS));
+      dockCouplingState = result.state;
+      if (result.addExpandedClass) inner.classList.add(DOCK_EXPANDED_CLASS);
+      watchDockCollapse(inner);
+    } else {
+      const result = dockCouplingCardClosed(dockCouplingState);
+      dockCouplingState = result.state;
+      if (result.removeExpandedClass) inner.classList.remove(DOCK_EXPANDED_CLASS);
+      stopWatchingDockCollapse();
+    }
+  }
+
   // -- Open / close -------------------------------------------------------------
 
   let open = false;
@@ -314,6 +362,7 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
   function setOpen(next: boolean): void {
     open = next;
     if (next) place();
+    syncDockExpansion(next);
     // Same unconditional-pair pattern as the active class above, for the
     // menu's enter/exit chrome.
     menu.classList.toggle("blyrics-mix--open", next);
@@ -449,6 +498,7 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
     button.classList.toggle(BAR_CONTROL_CLASS, next === "bar");
     menu.classList.toggle(DOCK_MENU_CLASS, next === "dock");
     menu.classList.toggle(BAR_MENU_CLASS, next === "bar");
+    if (next !== "dock") stopWatchingDockCollapse();
   }
 
   function destroy(): void {
@@ -456,6 +506,7 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
     window.removeEventListener("scroll", onScroll);
     document.removeEventListener("pointerdown", onDocumentPointerDown);
     disabledObserver.disconnect();
+    stopWatchingDockCollapse();
     clearHold();
     if (hideTimer !== null) clearTimeout(hideTimer);
     menu.remove();
