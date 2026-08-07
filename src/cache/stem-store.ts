@@ -159,5 +159,32 @@ async function evictUntilWithinBudget(budgetBytes: number): Promise<void> {
   await deleteEntries(keysToEvict);
 }
 
-export { getStemRecord, putStemRecord, DEFAULT_BUDGET_BYTES };
+// -- Usage and clearing (settings UI) ------------------------------------------
+
+async function getTotalStemBytes(): Promise<number> {
+  const entries = await readAllEntries();
+  return entries.reduce((sum, entry) => sum + entry.bytes, 0);
+}
+
+async function clearAllStemRecords(): Promise<void> {
+  const db = await openDB();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(STEMS_STORE_NAME, "readwrite");
+    tx.objectStore(STEMS_STORE_NAME).clear();
+    tx.onerror = () => reject(tx.error ?? new Error("stem-store: clear failed"));
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+  });
+}
+
+export {
+  getStemRecord,
+  putStemRecord,
+  DEFAULT_BUDGET_BYTES,
+  evictUntilWithinBudget,
+  getTotalStemBytes,
+  clearAllStemRecords,
+};
 export type { StemRecord, StemRecordInput };

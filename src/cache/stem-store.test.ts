@@ -2,7 +2,14 @@ import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { openDB, STEMS_STORE_NAME } from "@/cache/idb";
-import { DEFAULT_BUDGET_BYTES, getStemRecord, putStemRecord } from "@/cache/stem-store";
+import {
+  DEFAULT_BUDGET_BYTES,
+  clearAllStemRecords,
+  evictUntilWithinBudget,
+  getStemRecord,
+  getTotalStemBytes,
+  putStemRecord,
+} from "@/cache/stem-store";
 import type { StemRecordInput } from "@/cache/stem-store";
 
 // -- Test helpers -----------------------------------------------------------------
@@ -213,5 +220,72 @@ describe("invariants", () => {
 
   it("uses the default budget when none is provided", () => {
     expect(DEFAULT_BUDGET_BYTES).toBe(250 * 1024 * 1024);
+  });
+});
+
+// -- getTotalStemBytes -----------------------------------------------------------------
+
+describe("getTotalStemBytes", () => {
+  it("is zero for an empty store", async () => {
+    expect(await getTotalStemBytes()).toBe(0);
+  });
+
+  it("sums bytes across every record", async () => {
+    await putStemRecord("content-a", makeInput({ vocals: makeBlob(100), instrumental: makeBlob(50) }));
+    await putStemRecord("content-b", makeInput({ vocals: makeBlob(30), instrumental: makeBlob(20) }));
+    expect(await getTotalStemBytes()).toBe(200);
+  });
+
+  it("reflects eviction that already happened", async () => {
+    await putStemRecord("content-a", makeInput({ vocals: makeBlob(100), instrumental: makeBlob(100) }));
+    await putStemRecord("content-b", makeInput({ vocals: makeBlob(100), instrumental: makeBlob(100) }), 250);
+    expect(await getTotalStemBytes()).toBe(200);
+  });
+});
+
+// -- clearAllStemRecords -----------------------------------------------------------------
+
+describe("clearAllStemRecords", () => {
+  it("removes every record", async () => {
+    await putStemRecord("content-a", makeInput());
+    await putStemRecord("content-b", makeInput());
+
+    await clearAllStemRecords();
+
+    expect(await getStemRecord("content-a")).toBeNull();
+    expect(await getStemRecord("content-b")).toBeNull();
+    expect(await getTotalStemBytes()).toBe(0);
+  });
+
+  it("is a no-op on an already-empty store", async () => {
+    await expect(clearAllStemRecords()).resolves.toBeUndefined();
+    expect(await getTotalStemBytes()).toBe(0);
+  });
+
+  it("a write after clearing works normally", async () => {
+    await putStemRecord("content-a", makeInput());
+    await clearAllStemRecords();
+    await putStemRecord("content-b", makeInput());
+    expect(await getStemRecord("content-b")).not.toBeNull();
+  });
+});
+
+// -- evictUntilWithinBudget (exported for settings-driven budget changes) -----------------
+
+describe("evictUntilWithinBudget", () => {
+  it("evicts immediately when called with a budget smaller than current usage", async () => {
+    await putStemRecord("content-a", makeInput({ vocals: makeBlob(100), instrumental: makeBlob(100) }));
+    await putStemRecord("content-b", makeInput({ vocals: makeBlob(100), instrumental: makeBlob(100) }));
+    expect(await getTotalStemBytes()).toBe(400);
+
+    await evictUntilWithinBudget(250);
+
+    expect(await getTotalStemBytes()).toBeLessThanOrEqual(250);
+  });
+
+  it("does nothing when usage is already within the given budget", async () => {
+    await putStemRecord("content-a", makeInput({ vocals: makeBlob(50), instrumental: makeBlob(50) }));
+    await evictUntilWithinBudget(1000);
+    expect(await getTotalStemBytes()).toBe(100);
   });
 });

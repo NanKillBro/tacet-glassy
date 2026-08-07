@@ -29,6 +29,7 @@
     "../src/orchestrator/cache-lookup.ts",
     "../src/orchestrator/region-accumulator.ts",
     "../src/relay/base64.ts",
-    "../src/relay/chunk-transfer.ts"
+    "../src/relay/chunk-transfer.ts",
+    "../src/settings/settings.ts"
   ]
 }

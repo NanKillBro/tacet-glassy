@@ -1,0 +1,245 @@
+/* Colours, radii, easing and spacing carried over from src/ui/fader.css
+   (the approved mock's tokens), not reinvented: the oklch accent expression,
+   the cubic-bezier eases, and the 9/11/14/20px radius steps all match. The
+   popup is its own opaque window rather than an overlay on the page, so it
+   uses a solid background instead of fader.css's backdrop-filter card. */
+
+:root {
+  --blk-accent: oklch(from hsl(45, 100%, 56%) l calc(c * 1.85) h);
+  --blk-ease: cubic-bezier(0.2, 0, 0, 1);
+  --blk-bg: hsl(0, 0%, 7%);
+  --blk-recessed: hsla(0, 0%, 100%, 0.06);
+  --blk-hover: hsla(0, 0%, 100%, 0.1);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 320px;
+  background: var(--blk-bg);
+  color: hsla(0, 0%, 100%, 0.9);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font-size: 13px;
+}
+
+.blk-popup {
+  display: flex;
+  flex-direction: column;
+  padding: 14px;
+  gap: 4px;
+}
+
+.blk-popup__header {
+  padding: 2px 2px 10px;
+}
+
+.blk-popup__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: hsla(0, 0%, 100%, 0.95);
+}
+
+/* -- Rows ------------------------------------------------------------------- */
+
+.blk-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px;
+  border-radius: 14px;
+  transition: background-color 160ms var(--blk-ease);
+}
+
+.blk-row:hover {
+  background-color: var(--blk-hover);
+}
+
+.blk-row--stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.blk-row__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.blk-row__label {
+  font-size: 13px;
+  font-weight: 500;
+  color: hsla(0, 0%, 100%, 0.92);
+}
+
+.blk-row__hint {
+  font-size: 11px;
+  color: hsla(0, 0%, 100%, 0.45);
+  line-height: 1.4;
+}
+
+.blk-row__value {
+  font-size: 11px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--blk-accent) 85%, #fff);
+}
+
+/* -- Toggle switch ------------------------------------------------------------ */
+
+.blk-toggle {
+  position: relative;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 20px;
+  padding: 2px;
+  border: none;
+  border-radius: 11px;
+  background-color: hsla(0, 0%, 100%, 0.14);
+  cursor: pointer;
+  transition: background-color 160ms var(--blk-ease);
+}
+
+.blk-toggle::after {
+  content: "";
+  display: block;
+  width: 16px;
+  height: 16px;
+  border-radius: 9px;
+  background-color: hsl(0, 0%, 96%);
+  box-shadow: rgba(0, 0, 0, 0.35) 0 1px 3px 0;
+  transform: translateX(0);
+  transition: transform 160ms var(--blk-ease);
+}
+
+.blk-toggle:focus-visible {
+  outline: 2px solid var(--blk-accent);
+  outline-offset: 2px;
+}
+
+.blk-toggle--on {
+  background-color: color-mix(in srgb, var(--blk-accent) 70%, transparent);
+}
+
+.blk-toggle--on::after {
+  transform: translateX(16px);
+}
+
+/* -- Slider --------------------------------------------------------------------- */
+
+.blk-slider {
+  width: 100%;
+  height: 20px;
+  margin: 0;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.blk-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 3px;
+  background-color: var(--blk-recessed);
+  box-shadow: inset rgba(0, 0, 0, 0.3) 0 1px 2px 0;
+}
+
+.blk-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -5px;
+  border-radius: 9px;
+  background-color: hsl(0, 0%, 96%);
+  box-shadow: rgba(0, 0, 0, 0.45) 0 1px 3px 0;
+  transition: transform 160ms var(--blk-ease);
+}
+
+.blk-slider::-webkit-slider-thumb:active {
+  transform: scale(0.92);
+}
+
+.blk-slider::-moz-range-track {
+  height: 6px;
+  border-radius: 3px;
+  background-color: var(--blk-recessed);
+}
+
+.blk-slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border: none;
+  border-radius: 9px;
+  background-color: hsl(0, 0%, 96%);
+  box-shadow: rgba(0, 0, 0, 0.45) 0 1px 3px 0;
+}
+
+.blk-slider:focus-visible {
+  outline: none;
+}
+
+.blk-slider:focus-visible::-webkit-slider-thumb {
+  outline: 2px solid var(--blk-accent);
+  outline-offset: 2px;
+}
+
+/* -- Buttons ----------------------------------------------------------------- */
+
+.blk-button {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 9px;
+  background-color: hsla(0, 0%, 100%, 0.1);
+  color: hsla(0, 0%, 100%, 0.85);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background-color 160ms var(--blk-ease),
+    color 160ms var(--blk-ease),
+    opacity 160ms var(--blk-ease);
+}
+
+.blk-button:hover:not(:disabled) {
+  background-color: hsla(0, 0%, 100%, 0.18);
+  color: hsla(0, 0%, 100%, 0.98);
+}
+
+.blk-button:active:not(:disabled) {
+  scale: 0.96;
+}
+
+.blk-button:focus-visible {
+  outline: 2px solid var(--blk-accent);
+  outline-offset: 2px;
+}
+
+.blk-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* -- Status line --------------------------------------------------------------- */
+
+.blk-popup__status {
+  min-height: 14px;
+  padding: 6px 10px 0;
+  font-size: 11px;
+  color: hsla(0, 0%, 100%, 0.45);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .blk-row,
+  .blk-toggle,
+  .blk-toggle::after,
+  .blk-slider::-webkit-slider-thumb,
+  .blk-button {
+    transition: none;
+  }
+}

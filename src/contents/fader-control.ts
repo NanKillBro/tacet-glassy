@@ -3,6 +3,7 @@ import type { PlasmoCSConfig } from "plasmo";
 import { formatDownloadTooltip } from "@/orchestrator/download-tooltip";
 import { createKaraokePipeline } from "@/orchestrator/karaoke-pipeline";
 import type { KaraokeState } from "@/orchestrator/karaoke-state";
+import { loadSettingsFrom } from "@/settings/storage";
 import { createFaderControl } from "@/ui/fader";
 import type { FaderControl } from "@/ui/fader";
 import { attachFaderMount, hasBetterLyrics } from "@/ui/mount";
@@ -41,8 +42,6 @@ function injectStylesheet(): void {
   style.textContent = faderCss;
   (document.head ?? document.documentElement).appendChild(style);
 }
-
-injectStylesheet();
 
 // dim is for genuine failure only. While working, the shimmer is the
 // indication, and greying it out at the same time smothers it.
@@ -104,17 +103,36 @@ function renderKaraokeState(control: FaderControl, state: KaraokeState): void {
   }
 }
 
-// createFaderControl emits its initial value during construction, before the
-// pipeline below exists, so this cannot assume the pipeline is assigned yet.
-let pipeline: ReturnType<typeof createKaraokePipeline> | undefined;
+// -- Master switch gate ----------------------------------------------------
+//
+// singAlongEnabled defaults to off (src/settings/settings.ts). Off means
+// none of this runs at all: the control never mounts, the pipeline is never
+// created, and nothing below it (an AudioContext, a claim on the media
+// element) is ever constructed. This is the only sanctioned change to this
+// file; everything inside mountFaderIfEnabled is unchanged from before.
 
-const control = createFaderControl({
-  host: hasBetterLyrics() ? "dock" : "bar",
-  onChange: mixLevel => pipeline?.engage(mixLevel),
+async function mountFaderIfEnabled(): Promise<void> {
+  const settings = await loadSettingsFrom(chrome.storage.sync);
+  if (!settings.singAlongEnabled) return;
+
+  injectStylesheet();
+
+  // createFaderControl emits its initial value during construction, before the
+  // pipeline below exists, so this cannot assume the pipeline is assigned yet.
+  let pipeline: ReturnType<typeof createKaraokePipeline> | undefined;
+
+  const control = createFaderControl({
+    host: hasBetterLyrics() ? "dock" : "bar",
+    onChange: mixLevel => pipeline?.engage(mixLevel),
+  });
+
+  pipeline = createKaraokePipeline({
+    onStateChange: state => renderKaraokeState(control, state),
+  });
+
+  attachFaderMount({ button: control.button, setHost: control.setHost });
+}
+
+mountFaderIfEnabled().catch(error => {
+  console.error("[BLK] failed to check the sing-along setting", error);
 });
-
-pipeline = createKaraokePipeline({
-  onStateChange: state => renderKaraokeState(control, state),
-});
-
-attachFaderMount({ button: control.button, setHost: control.setHost });

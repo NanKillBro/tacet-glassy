@@ -1,6 +1,12 @@
 import "fake-indexeddb/auto";
 import { MODEL_STORE_NAME, openDB } from "@/cache/idb";
-import { fetchAndCacheModel, hasCachedModel, readCachedModel } from "@/cache/model-cache";
+import {
+  clearCachedModel,
+  fetchAndCacheModel,
+  getCachedModelSize,
+  hasCachedModel,
+  readCachedModel,
+} from "@/cache/model-cache";
 import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -213,5 +219,69 @@ describe("edge cases", () => {
     expect(new Uint8Array((await readCachedModel("https://models.example.com/other.onnx")) as ArrayBuffer)).toEqual(
       bytesB
     );
+  });
+});
+
+// -- getCachedModelSize -----------------------------------------------------------------
+
+describe("getCachedModelSize", () => {
+  it("returns null for a model never fetched", async () => {
+    expect(await getCachedModelSize(MODEL_URL)).toBeNull();
+  });
+
+  it("returns the byte size after caching", async () => {
+    const bytes = makeBytes(1234);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => streamingResponse(bytes, 200))
+    );
+    await fetchAndCacheModel(MODEL_URL, new AbortController().signal, () => {});
+    expect(await getCachedModelSize(MODEL_URL)).toBe(1234);
+  });
+
+  it("returns null for a corrupt cache entry", async () => {
+    await putRaw(MODEL_URL, { garbage: true });
+    expect(await getCachedModelSize(MODEL_URL)).toBeNull();
+  });
+});
+
+// -- clearCachedModel -----------------------------------------------------------------
+
+describe("clearCachedModel", () => {
+  it("removes a cached model", async () => {
+    const bytes = makeBytes(100);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => streamingResponse(bytes, 50))
+    );
+    await fetchAndCacheModel(MODEL_URL, new AbortController().signal, () => {});
+    expect(await hasCachedModel(MODEL_URL)).toBe(true);
+
+    await clearCachedModel(MODEL_URL);
+
+    expect(await hasCachedModel(MODEL_URL)).toBe(false);
+    expect(await getCachedModelSize(MODEL_URL)).toBeNull();
+  });
+
+  it("is a no-op for a url that was never cached", async () => {
+    await expect(clearCachedModel(MODEL_URL)).resolves.toBeUndefined();
+  });
+
+  it("clearing one url leaves another untouched", async () => {
+    const bytesA = makeBytes(10, 1);
+    const bytesB = makeBytes(20, 2);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        input === MODEL_URL ? streamingResponse(bytesA, 5) : streamingResponse(bytesB, 5)
+      )
+    );
+    await fetchAndCacheModel(MODEL_URL, new AbortController().signal, () => {});
+    await fetchAndCacheModel("https://models.example.com/other.onnx", new AbortController().signal, () => {});
+
+    await clearCachedModel(MODEL_URL);
+
+    expect(await hasCachedModel(MODEL_URL)).toBe(false);
+    expect(await hasCachedModel("https://models.example.com/other.onnx")).toBe(true);
   });
 });
