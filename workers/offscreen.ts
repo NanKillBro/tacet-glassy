@@ -1,4 +1,4 @@
-import { clearAllAliases } from "../src/cache/keys.js";
+import { SEPARATION_VERSION, clearAllAliases } from "../src/cache/keys.js";
 import { clearCachedModel, getCachedModelSize } from "../src/cache/model-cache.js";
 import { clearAllStemRecords, evictUntilWithinBudget, getTotalStemBytes } from "../src/cache/stem-store.js";
 import { DEFAULT_SETTINGS, shouldEvictForNewBudget } from "../src/settings/settings.js";
@@ -194,6 +194,39 @@ async function runPathB(): Promise<void> {
   await checkWorker();
   sendStep("done", true);
 }
+
+// -- Separation version purge -------------------------------------------------
+//
+// Content keys now include the model identity, but a videoId alias written by an
+// older build still points at a record produced by that older model. Left alone,
+// a probe follows the stale alias and serves stems the current model would never
+// produce: the fp16 to fp32 switch fixed separation while silent NaN-derived
+// stems kept being served from cache. Clearing once per version change is the
+// only way to be sure nothing older survives.
+
+const SEPARATION_VERSION_KEY = "blk-separation-version";
+
+function purgeStaleSeparations(): void {
+  let previous: string | null = null;
+  try {
+    previous = localStorage.getItem(SEPARATION_VERSION_KEY);
+  } catch (error) {
+    console.warn("[BLK-OFFSCREEN] could not read the separation version", error);
+    return;
+  }
+  if (previous === SEPARATION_VERSION) return;
+
+  Promise.all([clearAllStemRecords(), clearAllAliases()])
+    .then(() => {
+      localStorage.setItem(SEPARATION_VERSION_KEY, SEPARATION_VERSION);
+      console.log(`[BLK-OFFSCREEN] cleared stems from a previous separation version (${previous ?? "none"})`);
+    })
+    .catch(error => {
+      console.error("[BLK-OFFSCREEN] failed to purge stale separations", error);
+    });
+}
+
+purgeStaleSeparations();
 
 // -- Settings-driven cache budget --------------------------------------------
 //

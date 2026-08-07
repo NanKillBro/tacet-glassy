@@ -2,7 +2,7 @@ import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
 import { beforeEach, describe, expect, it } from "vitest";
 import { ALIASES_STORE_NAME, openDB } from "@/cache/idb";
-import { computeContentKey, getContentKeyForVideoId, setVideoIdAlias } from "@/cache/keys";
+import { clearAllAliases, computeContentKey, getContentKeyForVideoId, setVideoIdAlias } from "@/cache/keys";
 
 // -- Test helpers -----------------------------------------------------------------
 
@@ -26,15 +26,29 @@ beforeEach(() => {
 // -- computeContentKey -----------------------------------------------------------------
 
 describe("computeContentKey", () => {
-  it("matches the known SHA-256 hex digest of empty bytes", async () => {
+  // These used to assert the raw SHA-256 of the audio. The key now mixes in the
+  // separation version deliberately, so stems produced by an older model are
+  // unreachable rather than served as though they were current. The properties
+  // below are what callers actually depend on.
+  it("is a 64 character hex digest", async () => {
     const key = await computeContentKey(new Uint8Array(0));
-    expect(key).toBe("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
+    expect(key).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it("matches the known SHA-256 hex digest of ascii bytes", async () => {
+  it("is deterministic for the same bytes", async () => {
     const bytes = new TextEncoder().encode("foo");
-    const key = await computeContentKey(bytes);
-    expect(key).toBe("2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae");
+    expect(await computeContentKey(bytes)).toBe(await computeContentKey(new TextEncoder().encode("foo")));
+  });
+
+  it("differs for different bytes", async () => {
+    const foo = await computeContentKey(new TextEncoder().encode("foo"));
+    const bar = await computeContentKey(new TextEncoder().encode("bar"));
+    expect(foo).not.toBe(bar);
+  });
+
+  it("is not the bare audio digest, so a model change invalidates old stems", async () => {
+    const key = await computeContentKey(new Uint8Array(0));
+    expect(key).not.toBe("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
   });
 
   it("accepts a plain ArrayBuffer", async () => {
@@ -42,7 +56,7 @@ describe("computeContentKey", () => {
     const arrayBuffer = new ArrayBuffer(bytes.length);
     new Uint8Array(arrayBuffer).set(bytes);
     const key = await computeContentKey(arrayBuffer);
-    expect(key).toBe("2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae");
+    expect(key).toBe(await computeContentKey(bytes));
   });
 
   describe("invariants", () => {
@@ -93,5 +107,30 @@ describe("error paths", () => {
   it("reads a corrupt alias entry as absent rather than crashing", async () => {
     await putRawAlias("video-corrupt", { unexpected: 123 });
     await expect(getContentKeyForVideoId("video-corrupt")).resolves.toBeNull();
+  });
+});
+
+// -- clearAllAliases -----------------------------------------------------------------
+
+describe("clearAllAliases", () => {
+  it("removes every alias", async () => {
+    await setVideoIdAlias("video-1", "content-hash-1");
+    await setVideoIdAlias("video-2", "content-hash-2");
+
+    await clearAllAliases();
+
+    expect(await getContentKeyForVideoId("video-1")).toBeNull();
+    expect(await getContentKeyForVideoId("video-2")).toBeNull();
+  });
+
+  it("is a no-op on an already-empty store", async () => {
+    await expect(clearAllAliases()).resolves.toBeUndefined();
+  });
+
+  it("a write after clearing works normally", async () => {
+    await setVideoIdAlias("video-1", "content-hash-1");
+    await clearAllAliases();
+    await setVideoIdAlias("video-2", "content-hash-2");
+    expect(await getContentKeyForVideoId("video-2")).toBe("content-hash-2");
   });
 });
