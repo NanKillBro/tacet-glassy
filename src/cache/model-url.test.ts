@@ -1,4 +1,4 @@
-import { MODEL_FILENAME, getModelUrl } from "@/cache/model-url";
+import { DEFAULT_MODEL_BASE_URL, MODEL_FILENAME, getModelUrl } from "@/cache/model-url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const ENV_KEY = "PLASMO_PUBLIC_MODEL_BASE_URL";
@@ -30,19 +30,29 @@ describe("getModelUrl", () => {
   });
 
   describe("edge cases", () => {
-    it("returns null when the env var is unset", () => {
+    // Behaviour changed deliberately: this used to return null when unset.
+    // Plasmo leaves an unresolved "$VAR/*" in host_permissions and Chrome then
+    // ignores the malformed entry without a diagnostic, so an unset variable
+    // produced a permissionless fetch that failed silently. Falling back to the
+    // same host that host_permissions names keeps the two in agreement.
+    it("falls back to the default host when the env var is unset", () => {
       delete process.env[ENV_KEY];
-      expect(getModelUrl()).toBeNull();
+      expect(getModelUrl()).toBe(`${DEFAULT_MODEL_BASE_URL}/${MODEL_FILENAME}`);
     });
 
-    it("returns null for an empty string", () => {
+    it("falls back to the default host for an empty string", () => {
       process.env[ENV_KEY] = "";
-      expect(getModelUrl()).toBeNull();
+      expect(getModelUrl()).toBe(`${DEFAULT_MODEL_BASE_URL}/${MODEL_FILENAME}`);
     });
 
-    it("returns null for a whitespace-only value", () => {
+    it("falls back to the default host for a whitespace-only value", () => {
       process.env[ENV_KEY] = "   ";
-      expect(getModelUrl()).toBeNull();
+      expect(getModelUrl()).toBe(`${DEFAULT_MODEL_BASE_URL}/${MODEL_FILENAME}`);
+    });
+
+    it("uses a default host that host_permissions actually grants", () => {
+      expect(DEFAULT_MODEL_BASE_URL).toMatch(/^https:\/\//);
+      expect(DEFAULT_MODEL_BASE_URL.endsWith("/")).toBe(false);
     });
   });
 });
