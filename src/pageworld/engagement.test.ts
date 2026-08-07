@@ -9,6 +9,7 @@ function input(overrides: Partial<EngagementInput> = {}): EngagementInput {
     boundElementConnected: false,
     target: "same",
     acquiring: false,
+    stemsEngaged: true,
     ...overrides,
   };
 }
@@ -50,6 +51,21 @@ describe("decideEngagement", () => {
 
     it("does not engage against an element that cannot be identified yet", () => {
       expect(decideEngagement(input({ graph: "none", target: "none" }))).toBe("hold");
+    });
+
+    // A track change keeps the element and the graph and swaps only the stems.
+    // Treating a bound graph as finished meant the first track of a session was
+    // the only one that ever engaged, and pausing was the only way out of it.
+    it("loads new stems into the graph already bound to their element", () => {
+      expect(
+        decideEngagement(input({ graph: "bound", boundElementConnected: true, target: "same", stemsEngaged: false }))
+      ).toBe("load");
+    });
+
+    it("waits rather than loading stems it cannot confirm the element for", () => {
+      expect(
+        decideEngagement(input({ graph: "bound", boundElementConnected: true, target: "none", stemsEngaged: false }))
+      ).toBe("hold");
     });
   });
 

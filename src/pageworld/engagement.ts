@@ -15,17 +15,22 @@ interface EngagementInput {
   boundElementConnected: boolean;
   target: TargetPosition;
   acquiring: boolean;
+  // Whether the graph already holds the stems in hand. A track change keeps the
+  // element and the graph and replaces only these.
+  stemsEngaged: boolean;
 }
 
 // hold covers both "correctly engaged" and "cannot act yet": the caller waits.
-type EngagementAction = "idle" | "hold" | "rebind" | "engage";
+type EngagementAction = "idle" | "hold" | "rebind" | "engage" | "load";
 
 function decideEngagement(input: EngagementInput): EngagementAction {
   if (!input.hasStems) return "idle";
 
   if (input.graph === "bound") {
     if (!input.boundElementConnected) return "rebind";
-    return input.target === "other" ? "rebind" : "hold";
+    if (input.target === "other") return "rebind";
+    if (input.target === "none") return "hold";
+    return input.stemsEngaged ? "hold" : "load";
   }
 
   if (input.target === "none" || input.acquiring) return "hold";

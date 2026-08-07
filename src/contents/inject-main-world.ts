@@ -41,6 +41,9 @@ let cachedElement: HTMLMediaElement | null = null;
 let acquiring: Promise<PlaybackGraph | null> | null = null;
 let pendingMixLevel = 1;
 let pendingStems: LoadedStems | null = null;
+// The stems the graph is actually playing, which is not the same question as
+// whether a graph exists: a track change replaces these and nothing else.
+let engagedStems: LoadedStems | null = null;
 // Reported by the probe. Both silent outcomes of a failed claim look identical
 // from outside, and "holding" versus "trying and failing" is the whole diagnosis.
 let lastAction: EngagementAction = "idle";
@@ -92,6 +95,14 @@ function discardGraph(): void {
   cachedGraph.dispose();
   cachedGraph = null;
   cachedElement = null;
+  engagedStems = null;
+}
+
+function applyStems(graph: PlaybackGraph, stems: LoadedStems): void {
+  graph.loadStems(stems.vocals, stems.instrumental, stems.sampleRate);
+  graph.setMixLevel(pendingMixLevel);
+  engagedStems = stems;
+  console.log(`[BLK-PAGE] stems playing for videoId=${stems.videoId}, mix level ${pendingMixLevel}`);
 }
 
 function buildGraph(element: HTMLMediaElement): Promise<PlaybackGraph | null> {
@@ -149,10 +160,19 @@ function reconcile(): void {
     boundElementConnected: cachedElement?.isConnected ?? false,
     target: targetPosition(stems),
     acquiring: acquiring !== null,
+    stemsEngaged: engagedStems === stems,
   });
   lastAction = action;
 
   if (action === "idle" || action === "hold") return;
+
+  // A track change keeps the element, so the graph is reused rather than torn
+  // down and rebuilt: rebuilding would re-claim an element that can only ever
+  // be claimed once.
+  if (action === "load" && cachedGraph) {
+    applyStems(cachedGraph, stems);
+    return;
+  }
 
   if (action === "rebind") {
     console.warn("[BLK-PAGE] the element these stems belong to changed, tearing the graph down");
@@ -176,9 +196,7 @@ function reconcile(): void {
       discardGraph();
       return;
     }
-    graph.loadStems(stems.vocals, stems.instrumental, stems.sampleRate);
-    graph.setMixLevel(pendingMixLevel);
-    console.log(`[BLK-PAGE] stems playing, mix level ${pendingMixLevel}, original is now silenced`);
+    applyStems(graph, stems);
   });
 }
 
@@ -212,6 +230,7 @@ window.addEventListener("message", event => {
 
   if (isStopStemsMessage(data)) {
     pendingStems = null;
+    engagedStems = null;
     cachedGraph?.stopStems();
   }
 });
