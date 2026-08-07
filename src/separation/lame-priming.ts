@@ -54,7 +54,7 @@ function readTagOffset(versionBits: number, channelMode: number): number {
   return 0;
 }
 
-function parseLamePriming(input: ArrayBuffer | Uint8Array): LamePriming {
+function parseLamePriming(input: ArrayBufferLike | Uint8Array): LamePriming {
   const empty: LamePriming = { samples: 0, sampleRate: 0 };
   const bytes = input instanceof Uint8Array ? input : new Uint8Array(input);
   const frameOffset = findFirstMp3FrameOffset(bytes);

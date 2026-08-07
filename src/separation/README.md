@@ -28,6 +28,7 @@ first line recording where it came from.
 - `demucs-spec.test.ts`
 - `derived-stems.test.ts`
 - `validate-channels.test.ts`
+- `lame-priming.test.ts`
 
 Import paths were rewritten from composer's `@/audio/separation/...` and
 `@/audio/lame-priming` to this repo's `@/separation/...`. No other changes
@@ -40,6 +41,13 @@ TypeScript (5.9.3) is newer than composer's (5.7.3) and enforces stricter
 `BufferSource` typing that rejects the wider `Uint8Array<ArrayBufferLike>`,
 even though the runtime behavior is identical. Composer will need the same
 annotation once it upgrades TypeScript past 5.9.
+
+`lame-priming.ts` has the same class of divergence: `parseLamePriming` takes
+`ArrayBufferLike | Uint8Array` instead of `ArrayBuffer | Uint8Array`, needed
+once `lame-priming.test.ts` started passing `.buffer` from a bare `Uint8Array`
+(typed `ArrayBufferLike`, since it may back a `SharedArrayBuffer`) into a
+parameter that only accepted `ArrayBuffer`. Runtime behavior is unchanged;
+`new Uint8Array(input)` already accepted `ArrayBufferLike`.
 
 ## Deliberately not vendored
 
