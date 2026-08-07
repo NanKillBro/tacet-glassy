@@ -34,7 +34,15 @@ let pendingMixLevel = 1;
 
 function buildGraph(): Promise<PlaybackGraph | null> {
   return acquireAudioBus().then(bus => {
-    if (!bus) return null;
+    if (!bus) {
+      console.warn("[BLK-PAGE] could not acquire the audio bus, playback is unchanged");
+      return null;
+    }
+    console.log(
+      `[BLK-PAGE] audio bus acquired, context=${bus.context.state}, element decoded bytes=${
+        (bus.element as HTMLMediaElement & { webkitAudioDecodedByteCount?: number }).webkitAudioDecodedByteCount ?? 0
+      }`
+    );
 
     const graph = createPlaybackGraph({ context: bus.context, source: bus.source });
 
@@ -71,9 +79,15 @@ window.addEventListener("message", event => {
   }
 
   if (isLoadStemsMessage(data)) {
+    console.log(`[BLK-PAGE] load-stems received, sampleRate=${data.sampleRate}, channels=${data.vocals.length}`);
     ensureGraph().then(graph => {
-      graph?.loadStems(data.vocals, data.instrumental, data.sampleRate);
-      graph?.setMixLevel(pendingMixLevel);
+      if (!graph) {
+        console.warn("[BLK-PAGE] no graph, stems not loaded, you will still hear the original");
+        return;
+      }
+      graph.loadStems(data.vocals, data.instrumental, data.sampleRate);
+      graph.setMixLevel(pendingMixLevel);
+      console.log(`[BLK-PAGE] stems playing, mix level ${pendingMixLevel}, original is now disconnected`);
     });
     return;
   }
