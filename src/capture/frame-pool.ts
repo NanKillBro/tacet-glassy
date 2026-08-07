@@ -67,7 +67,11 @@ function captureTrackInSlices(options: SliceCaptureOptions): Promise<CapturedSli
       clearTimeout(timer);
       signal?.removeEventListener("abort", onAbort);
       for (const frame of frames) frame.remove();
-      const result = [...collected.values()].sort((a, b) => a.index - b.index);
+      // A worker reports even when it captured nothing, so the pool can settle
+      // promptly; those empty slices count as answered but carry no audio.
+      const result = [...collected.values()]
+        .filter(slice => slice.bytes.byteLength > 0)
+        .sort((a, b) => a.index - b.index);
       log(`slice capture ${reason}: ${result.length}/${slices.length} slices for videoId=${videoId}`);
       resolve(result);
     };

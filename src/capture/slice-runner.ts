@@ -15,6 +15,7 @@ import { concatenateChunks, planNaiveConcat } from "@/capture/decode-plan";
 import { bufferedRangeEnd, bufferedRangeStart, decideHop } from "@/capture/edge-hopper";
 import { log, logError } from "@/capture/log";
 import { getVideoIdFromSearch } from "@/capture/video-id";
+import { callSafely, getYtPlayer, suppressAutoAdvance } from "@/capture/yt-player";
 import type { WorkerAssignment } from "@/capture/worker-frame";
 
 const POLL_MS = 300;
@@ -33,6 +34,12 @@ const SLICE_PLAYBACK_RATE = 16;
 // wall clock, because one poll at 16x covers 4.8 s of the track: a flat 5 s
 // guard let two workers step straight over the end between polls.
 const END_OF_TRACK_GUARD_S = Math.max(5, (SLICE_PLAYBACK_RATE * POLL_MS * 3) / 1000);
+
+// How long to let playback establish before seeking, and how hard to insist
+// the seek actually took.
+const PLAYBACK_INIT_TIMEOUT_MS = 8000;
+const SEEK_CONFIRM_ATTEMPTS = 6;
+const SEEK_TOLERANCE_S = 5;
 
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -80,33 +87,74 @@ async function runSliceCapture(
   }
 
   video.muted = true;
-  // Looping makes "ended" unreachable, which is the only event that hands the
-  // frame to the autoplay queue. Guarding by pausing near the end raced the
-  // poll interval and lost: workers navigated onto unrelated videoIds mid-run
-  // and their slices were never reported. This removes the race rather than
-  // narrowing it.
   video.loop = true;
+
+  // Everything below goes through YTM's own player where possible. Driving the
+  // element directly lost both ways: mid-track workers had their play()
+  // interrupted by a pause the player issued, and frames were navigated onto
+  // the next queue item regardless of video.loop.
+  const player = getYtPlayer(document);
+  if (player) suppressAutoAdvance(player);
+
   const duration = video.duration;
   const sliceEnd = Math.min(assignment.toSeconds, duration);
-  try {
-    video.currentTime = Math.min(assignment.fromSeconds, Math.max(0, duration - 0.1));
-  } catch (error) {
-    logError(`worker slice ${assignment.index} could not seek to its start`, error);
-  }
-  await sleep(600);
+  const seekTo = (seconds: number): void => {
+    const target = Math.max(0, Math.min(seconds, duration - 0.1));
+    if (player && typeof player.seekTo === "function") {
+      callSafely("seekTo", () => player.seekTo?.(target, true));
+      return;
+    }
+    try {
+      video.currentTime = target;
+    } catch {
+      // The player can reject a seek while re-initialising; the next poll retries.
+    }
+  };
+  const startPlayback = (): void => {
+    video.playbackRate = SLICE_PLAYBACK_RATE;
+    if (player && typeof player.playVideo === "function") {
+      callSafely("setPlaybackRate", () => player.setPlaybackRate?.(SLICE_PLAYBACK_RATE));
+      callSafely("playVideo", () => player.playVideo?.());
+      return;
+    }
+    void video.play().catch(() => {
+      // Autoplay can refuse transiently; the next poll retries.
+    });
+  };
+  const stopPlayback = (): void => {
+    if (player && typeof player.pauseVideo === "function") {
+      callSafely("pauseVideo", () => player.pauseVideo?.());
+      return;
+    }
+    try {
+      video.pause();
+    } catch {
+      // Not fatal: the loop only needs the buffered edge to keep growing.
+    }
+  };
 
-  // Drive playback rather than sitting paused. A paused player keeps buffering
-  // only from where it already was: measured cold, a paused worker seeked to
-  // its slice mid-track stalled out with 23-66 KB while the slice starting at 0
-  // pulled 1.68 MB. Playing fast pulls the whole slice, and because each worker
-  // only covers its own span it never reaches the end of the track, which is
-  // what would trigger the autoplay queue.
-  video.playbackRate = SLICE_PLAYBACK_RATE;
-  try {
-    await video.play();
-  } catch (error) {
-    logError(`worker slice ${assignment.index} could not start playback`, error);
+  // Play BEFORE seeking. Seeking straight after load, while the player is still
+  // wiring up its MediaSource, left mid-track workers in a state where they
+  // fetched nothing at all: they stalled out having captured zero chunks, while
+  // the slice starting at 0 always worked. Letting playback establish first and
+  // then seeking is the sequence the player itself follows.
+  startPlayback();
+  const initDeadline = Date.now() + PLAYBACK_INIT_TIMEOUT_MS;
+  while (Date.now() < initDeadline && video.buffered.length === 0) await sleep(200);
+
+  if (assignment.fromSeconds > 0) {
+    seekTo(assignment.fromSeconds);
+    // Confirm the seek landed. An ignored seek leaves the worker capturing the
+    // opening of the track instead of its own slice, which looks like success
+    // right up until the slices are assembled.
+    for (let attempt = 0; attempt < SEEK_CONFIRM_ATTEMPTS; attempt++) {
+      await sleep(300);
+      if (Math.abs(video.currentTime - assignment.fromSeconds) < SEEK_TOLERANCE_S) break;
+      seekTo(assignment.fromSeconds);
+    }
+    startPlayback();
   }
+  await sleep(400);
 
   const startSeconds = bufferedRangeStart(video.buffered, assignment.fromSeconds);
   let cursor = assignment.fromSeconds;
@@ -127,18 +175,8 @@ async function runSliceCapture(
     // stop short of the track end so "ended" never fires.
     const playCeiling = Math.min(sliceEnd, duration - END_OF_TRACK_GUARD_S);
     const beyondCeiling = video.currentTime >= playCeiling;
-    if (beyondCeiling && !video.paused) {
-      try {
-        video.pause();
-      } catch {
-        // Not fatal: the loop only needs the buffered edge to keep growing.
-      }
-    } else if (!beyondCeiling && video.paused) {
-      video.playbackRate = SLICE_PLAYBACK_RATE;
-      void video.play().catch(() => {
-        // Autoplay can refuse transiently; the next poll retries.
-      });
-    }
+    if (beyondCeiling && !video.paused) stopPlayback();
+    else if (!beyondCeiling && video.paused) startPlayback();
 
     cursor = Math.max(cursor, Math.min(video.currentTime, sliceEnd));
     const decision = decideHop({
@@ -159,30 +197,22 @@ async function runSliceCapture(
     if (decision.action === "seek") {
       cursor = decision.cursor;
       stalls = 0;
-      try {
-        video.currentTime = decision.to;
-      } catch {
-        // Seeking can throw while the player re-initialises; the next poll retries.
-      }
+      seekTo(decision.to);
     } else if (decision.action === "nudge") {
       stalls++;
-      try {
-        video.currentTime = decision.to;
-      } catch {
-        // Same as above: a failed nudge just means another poll.
-      }
+      seekTo(decision.to);
     } else {
       stalls++;
     }
   }
 
+  // Always report, even empty. A silent worker leaves the pool waiting out its
+  // whole timeout, which both delays the caller and makes the elapsed time
+  // meaningless as a measurement.
   const chunks = accumulator.getChunks();
-  if (chunks.length === 0) {
-    logError(`worker slice ${assignment.index} captured nothing`, new Error("no chunks"));
-    return;
-  }
+  if (chunks.length === 0) logError(`worker slice ${assignment.index} captured nothing`, new Error("no chunks"));
 
-  const bytes = concatenateChunks(planNaiveConcat(chunks));
+  const bytes = chunks.length === 0 ? new Uint8Array(0) : concatenateChunks(planNaiveConcat(chunks));
   const message: SliceCapturedMessage = {
     type: "blk-slice-captured",
     videoId,
