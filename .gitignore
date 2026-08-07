@@ -1,12 +1,50 @@
+# Dependencies
 node_modules/
-.plasmo/
-build/
-docs/
-*.onnx
-.env*
-!.env.example
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
+# Build outputs
+build/
+dist/
+
+# Development
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Plasmo
+.plasmo/
+
+# TypeScript
+*.tsbuildinfo
+
+.claude/
+
+.env.*
+
+# Model weights, fetched at runtime and cached in IndexedDB
+*.onnx
+
+# ORT wasm binaries, repopulate with assets/ort/README.md
 assets/ort/*.wasm
+
+# Built by build:worker, not Parcel
 assets/separator.js
 assets/separator.js.map
 assets/protocol.js
