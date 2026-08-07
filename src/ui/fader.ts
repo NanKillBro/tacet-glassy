@@ -8,11 +8,9 @@
 // through onChange and nothing else. It never touches audio.
 
 import {
-  CARD_GAP_PX,
   HOLD_MS,
   LABEL_EXIT_FALLBACK_MS,
   LABEL_HIDE_MS,
-  VIEWPORT_EDGE_PX,
   computeCommit,
   computePaintFrame,
   stepValue,
@@ -20,12 +18,26 @@ import {
 } from "@/ui/fader-geometry";
 import type { Pole } from "@/ui/fader-geometry";
 import { createFilledGlyphSvg, createGlyphMaskUrl, createOutlineIcon } from "@/ui/fader-icons";
+import { computeCardPosition } from "@/ui/fader-position";
 import { createSpring } from "@/ui/spring";
 import type { Spring, SpringDeps, SpringMode } from "@/ui/spring";
 
 type FaderHost = "dock" | "bar";
 type GlyphKind = "mic" | "note";
 type GlyphLayerKind = GlyphKind | "busy";
+
+// -- Better Lyrics' own dock classes, reused rather than restyled --------------
+// In the dock, Better Lyrics' stylesheet is the only definition of this
+// chrome, so a user theme layered on top of it styles our control too. In
+// the player bar, Better Lyrics may not be installed at all, so that path
+// carries a self-contained copy under the --bar modifier classes in
+// fader.css instead of these.
+const DOCK_CONTROL_CLASS = "blyrics-dock__control";
+const DOCK_CONTROL_ACTIVE_CLASS = "blyrics-dock__control--active";
+const DOCK_MENU_CLASS = "blyrics-dock__menu";
+const DOCK_MENU_OPEN_CLASS = "blyrics-dock__menu--open";
+const BAR_CONTROL_CLASS = "blyrics-sing--bar";
+const BAR_MENU_CLASS = "blyrics-mix--bar";
 
 interface CreateFaderControlOptions {
   host?: FaderHost;
@@ -153,7 +165,8 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
 
   const button = document.createElement("button");
   button.type = "button";
-  button.className = host === "bar" ? "blyrics-sing blyrics-sing--bar" : "blyrics-sing";
+  button.className = "blyrics-sing";
+  button.classList.add(host === "dock" ? DOCK_CONTROL_CLASS : BAR_CONTROL_CLASS);
   button.setAttribute("aria-haspopup", "true");
   button.setAttribute("aria-expanded", "false");
   button.setAttribute("aria-label", "Sing-along");
@@ -163,6 +176,7 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
 
   const menu = document.createElement("div");
   menu.className = "blyrics-mix";
+  menu.classList.add(host === "dock" ? DOCK_MENU_CLASS : BAR_MENU_CLASS);
   menu.setAttribute("role", "group");
   menu.setAttribute("aria-label", "Sing-along level");
 
@@ -186,23 +200,27 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
     return (pill ?? button).getBoundingClientRect();
   }
 
-  function opensDown(): boolean {
-    if (host === "bar") return false;
+  // No dock ancestor in the player bar, so this is naturally null there:
+  // computeCardPosition already reads a null data-position as opens-up.
+  function currentDataPosition(): string | null {
+    if (host === "bar") return null;
     const dock = button.closest<HTMLElement>(".blyrics-dock");
-    return (dock?.dataset.position ?? "").startsWith("top");
+    return dock?.dataset.position ?? null;
   }
 
   function place(): void {
-    const rect = button.getBoundingClientRect();
-    const anchor = anchorRect();
-    const down = opensDown();
-    const centred = rect.left + rect.width / 2 - menu.offsetWidth / 2;
-    const maxLeft = window.innerWidth - menu.offsetWidth - VIEWPORT_EDGE_PX;
-    menu.style.left = `${Math.min(Math.max(VIEWPORT_EDGE_PX, centred), Math.max(VIEWPORT_EDGE_PX, maxLeft))}px`;
-    menu.style.top = down ? `${anchor.bottom + CARD_GAP_PX}px` : "";
-    menu.style.bottom = down ? "" : `${window.innerHeight - anchor.top + CARD_GAP_PX}px`;
-    menu.classList.toggle("blyrics-mix--down", down);
-    menu.classList.toggle("blyrics-mix--up", !down);
+    const position = computeCardPosition(
+      button.getBoundingClientRect(),
+      anchorRect(),
+      { width: menu.offsetWidth, height: menu.offsetHeight },
+      { width: window.innerWidth, height: window.innerHeight },
+      currentDataPosition()
+    );
+    menu.style.left = `${position.left}px`;
+    menu.style.top = position.top;
+    menu.style.bottom = position.bottom;
+    menu.classList.toggle("blyrics-mix--down", position.opensDown);
+    menu.classList.toggle("blyrics-mix--up", !position.opensDown);
   }
 
   // -- Paint --------------------------------------------------------------------
@@ -252,7 +270,12 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
   function commit(mode: SpringMode, announce = true): void {
     const frame = computeCommit(v);
     paint.set(frame.effectiveValue, mode);
+    // Both classes are toggled unconditionally: whichever host is mounted,
+    // only the class matching its own chrome (blyrics-dock__control--active
+    // from Better Lyrics, or blyrics-sing--active scoped under --bar) has a
+    // matching CSS rule, so the other one is inert.
     button.classList.toggle("blyrics-sing--active", frame.effectiveValue !== 0);
+    button.classList.toggle(DOCK_CONTROL_ACTIVE_CLASS, frame.effectiveValue !== 0);
     track.dataset.rest = String(frame.effectiveValue === 0);
     track.setAttribute("aria-valuenow", String(Math.round(frame.effectiveValue * 100)));
     track.setAttribute("aria-valuetext", frame.label);
@@ -269,7 +292,10 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
   function setOpen(next: boolean): void {
     open = next;
     if (next) place();
+    // Same unconditional-pair pattern as the active class above, for the
+    // menu's enter/exit chrome.
     menu.classList.toggle("blyrics-mix--open", next);
+    menu.classList.toggle(DOCK_MENU_OPEN_CLASS, next);
     button.setAttribute("aria-expanded", String(next));
     if (next) track.focus();
   }
@@ -383,7 +409,10 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
     // The control is stateless UI over a single value: moving it between
     // hosts is a reparent and a class swap, nothing is torn down or re-read.
     host = next;
-    button.classList.toggle("blyrics-sing--bar", next === "bar");
+    button.classList.toggle(DOCK_CONTROL_CLASS, next === "dock");
+    button.classList.toggle(BAR_CONTROL_CLASS, next === "bar");
+    menu.classList.toggle(DOCK_MENU_CLASS, next === "dock");
+    menu.classList.toggle(BAR_MENU_CLASS, next === "bar");
   }
 
   function destroy(): void {
