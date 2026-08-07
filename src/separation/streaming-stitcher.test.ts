@@ -36,20 +36,59 @@ function collectStreamed(channels: Float32Array[], totalFrames: number): Float32
   return output;
 }
 
-const TRACK_LENGTHS: [string, number][] = [
-  ["shorter than one segment", Math.floor(SEGMENT_SAMPLES / 2)],
-  ["exactly one stride", STRIDE_SAMPLES],
-  ["partial final chunk", SEGMENT_SAMPLES + STRIDE_SAMPLES + 12345],
-  ["several full chunks", SEGMENT_SAMPLES + STRIDE_SAMPLES * 4],
-  ["empty input", 0],
+// mulberry32, a small deterministic PRNG. Seeded so the noise fixtures below
+// are identical across runs, unlike a ramp, which repeats the same value at
+// the same relative offset in every chunk and can mask boundary errors.
+function makeSeededRandom(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function makeNoise(length: number, seed: number): Float32Array {
+  const rand = makeSeededRandom(seed);
+  const out = new Float32Array(length);
+  for (let i = 0; i < length; i++) out[i] = rand() * 2 - 1;
+  return out;
+}
+
+const BOUNDARY_LENGTHS: number[] = [
+  0,
+  1,
+  STRIDE_SAMPLES - 1,
+  STRIDE_SAMPLES,
+  STRIDE_SAMPLES + 1,
+  SEGMENT_SAMPLES - 1,
+  SEGMENT_SAMPLES,
+  SEGMENT_SAMPLES + 1,
+  SEGMENT_SAMPLES + STRIDE_SAMPLES - 1,
+  SEGMENT_SAMPLES + STRIDE_SAMPLES,
+  SEGMENT_SAMPLES + STRIDE_SAMPLES + 1,
+  SEGMENT_SAMPLES + 2 * STRIDE_SAMPLES - 1,
+  SEGMENT_SAMPLES + 2 * STRIDE_SAMPLES,
+  SEGMENT_SAMPLES + 2 * STRIDE_SAMPLES + 1,
 ];
+
+function makeRandomLengths(count: number, max: number, seed: number): number[] {
+  const rand = makeSeededRandom(seed);
+  const lengths: number[] = [];
+  for (let i = 0; i < count; i++) lengths.push(Math.floor(rand() * max));
+  return lengths;
+}
+
+const SWEEP_LENGTHS: number[] = [...BOUNDARY_LENGTHS, ...makeRandomLengths(50, SEGMENT_SAMPLES * 3, 0xc0ffee)];
 
 // -- Tests -----------------------------------------------------------------
 
 describe("StreamingStitcher", () => {
   describe("bit-identical to batch stitchChunks", () => {
-    it.each(TRACK_LENGTHS)("%s (totalFrames=%i)", (_label, totalFrames) => {
-      const channels = [makeRamp(totalFrames, 0), makeRamp(totalFrames, 1)];
+    it.each(SWEEP_LENGTHS)("totalFrames=%i", totalFrames => {
+      const channels = [makeNoise(totalFrames, totalFrames * 2 + 1), makeNoise(totalFrames, totalFrames * 2 + 2)];
       const chunks = Array.from(iterateChunks(channels));
       const batch = stitchChunks(chunks, totalFrames, channels.length);
       const streamed = collectStreamed(channels, totalFrames);
@@ -98,35 +137,6 @@ describe("StreamingStitcher", () => {
 
       expect(stitcher.finalisedFrames).toBe(runningTotal);
       expect(runningTotal).toBe(totalFrames);
-    });
-
-    it("keeps finalisedFrames monotonically non-decreasing", () => {
-      const totalFrames = SEGMENT_SAMPLES + STRIDE_SAMPLES * 3 + 999;
-      const channels = [makeRamp(totalFrames, 0)];
-      const chunks = Array.from(iterateChunks(channels));
-
-      const stitcher = new StreamingStitcher(totalFrames, channels.length);
-      let previous = stitcher.finalisedFrames;
-
-      for (const chunk of chunks) {
-        stitcher.push(chunk);
-        expect(stitcher.finalisedFrames).toBeGreaterThanOrEqual(previous);
-        previous = stitcher.finalisedFrames;
-      }
-      stitcher.flush();
-      expect(stitcher.finalisedFrames).toBeGreaterThanOrEqual(previous);
-    });
-
-    it("emits exactly totalFrames frames in total after flush", () => {
-      const totalFrames = SEGMENT_SAMPLES + STRIDE_SAMPLES + 12345;
-      const channels = [makeRamp(totalFrames, 0), makeRamp(totalFrames, 1)];
-      const chunks = Array.from(iterateChunks(channels));
-
-      const stitcher = new StreamingStitcher(totalFrames, channels.length);
-      for (const chunk of chunks) stitcher.push(chunk);
-      stitcher.flush();
-
-      expect(stitcher.finalisedFrames).toBe(totalFrames);
     });
   });
 
