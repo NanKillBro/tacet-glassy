@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome lint . && biome format .",
     "lint:fix": "biome lint --write . && biome format --write .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "sync:ort": "cp node_modules/onnxruntime-web/dist/ort.webgpu.bundle.min.mjs assets/ort/ && cp node_modules/onnxruntime-web/dist/ort-wasm*.mjs assets/ort/ && cp node_modules/onnxruntime-web/dist/ort-wasm*.wasm assets/ort/"
   },
   "dependencies": {
     "plasmo": "0.90.5"
@@ -22,6 +23,7 @@
     "@types/node": "^22.19.6",
     "@types/trusted-types": "^2.0.7",
     "fake-indexeddb": "^6.2.5",
+    "onnxruntime-web": "1.26.0",
     "typescript": "^5.9.3",
     "vitest": "^4.1.10"
   },
