@@ -42,19 +42,21 @@ interface PlaybackGraph {
   describe(): GraphState;
 }
 
-function createStemBufferSource(
+// Built once per track. A full track is tens of megabytes per stem, and the
+// copy runs on the main thread, so rebuilding these per transport event froze
+// playback and eventually exhausted memory. An AudioBuffer feeds any number of
+// source nodes; only the source node is single use.
+function createStemBuffer(
   context: AudioContext,
   channels: Float32Array<ArrayBuffer>[],
   sampleRate: number
-): AudioBufferSourceNode {
+): AudioBuffer {
   if (channels.length === 0) {
     throw new Error("playback-graph: a stem needs at least one channel");
   }
   const buffer = context.createBuffer(channels.length, channels[0].length, sampleRate);
   channels.forEach((channel, index) => buffer.copyToChannel(channel, index));
-  const node = context.createBufferSource();
-  node.buffer = buffer;
-  return node;
+  return buffer;
 }
 
 function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
@@ -77,12 +79,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   let instrumentalSource: AudioBufferSourceNode | null = null;
   let currentMixLevel = 1;
   let transportAttached = false;
-  let loadedStems: {
-    vocals: Float32Array<ArrayBuffer>[];
-    instrumental: Float32Array<ArrayBuffer>[];
-    sampleRate: number;
-    durationSeconds: number;
-  } | null = null;
+  let loadedStems: { vocals: AudioBuffer; instrumental: AudioBuffer; durationSeconds: number } | null = null;
 
   // Followed directly, rather than being told about the transport.
   const element = source.mediaElement;
@@ -119,8 +116,10 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     stopActiveSources();
 
     const offset = Math.max(0, Math.min(offsetSeconds, loadedStems.durationSeconds));
-    vocalsSource = createStemBufferSource(context, loadedStems.vocals, loadedStems.sampleRate);
-    instrumentalSource = createStemBufferSource(context, loadedStems.instrumental, loadedStems.sampleRate);
+    vocalsSource = context.createBufferSource();
+    vocalsSource.buffer = loadedStems.vocals;
+    instrumentalSource = context.createBufferSource();
+    instrumentalSource.buffer = loadedStems.instrumental;
     vocalsSource.connect(vocalsGainNode);
     instrumentalSource.connect(instrumentalGainNode);
     vocalsSource.start(0, offset);
@@ -150,11 +149,17 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     sampleRate: number
   ): void {
     stopActiveSources();
+    if (vocals.length === 0 || instrumental.length === 0) {
+      console.warn("[BLK-PAGE] load-stems carried no channels, staying on the original");
+      return;
+    }
+
+    const vocalsBuffer = createStemBuffer(context, vocals, sampleRate);
+    const instrumentalBuffer = createStemBuffer(context, instrumental, sampleRate);
     loadedStems = {
-      vocals,
-      instrumental,
-      sampleRate,
-      durationSeconds: (vocals[0]?.length ?? 0) / sampleRate,
+      vocals: vocalsBuffer,
+      instrumental: instrumentalBuffer,
+      durationSeconds: vocalsBuffer.duration,
     };
 
     originalGainNode.gain.value = 0;
@@ -197,7 +202,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   function describe(): GraphState {
     // The retained stems, not the live source: sources are rebuilt on every
     // pause and seek, so a paused graph still has stems loaded.
-    const samples = loadedStems?.instrumental[0] ?? null;
+    const samples = loadedStems?.instrumental.getChannelData(0) ?? null;
     let instrumentalRms = 0;
     if (samples) {
       let sum = 0;
@@ -211,7 +216,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
       originalGain: originalGainNode.gain.value,
       stemsLoaded: loadedStems !== null,
       stemFrames: samples?.length ?? 0,
-      stemSampleRate: loadedStems?.sampleRate ?? 0,
+      stemSampleRate: loadedStems?.instrumental.sampleRate ?? 0,
       instrumentalRms,
       stemsPlaying: instrumentalSource !== null,
       elementTime: Number.isFinite(element.currentTime) ? element.currentTime : 0,
@@ -228,5 +233,5 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   };
 }
 
-export { createPlaybackGraph, createStemBufferSource };
+export { createPlaybackGraph };
 export type { GraphState, PlaybackGraph, PlaybackGraphDeps };
