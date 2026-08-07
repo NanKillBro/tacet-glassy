@@ -1,12 +1,14 @@
 import faderCss from "data-text:../ui/fader.css";
 import type { PlasmoCSConfig } from "plasmo";
-import { formatDownloadTooltip } from "@/orchestrator/download-tooltip";
+import { describeDownload } from "@/orchestrator/download-tooltip";
 import { createKaraokePipeline } from "@/orchestrator/karaoke-pipeline";
 import type { KaraokeState } from "@/orchestrator/karaoke-state";
 import { loadSettingsFrom } from "@/settings/storage";
 import { createFaderControl } from "@/ui/fader";
 import type { FaderControl } from "@/ui/fader";
 import { attachFaderMount, hasBetterLyrics } from "@/ui/mount";
+import { createTooltip } from "@/ui/tooltip";
+import type { Tooltip, TooltipContent } from "@/ui/tooltip";
 
 // -- Fader UI wiring -----------------------------------------------------------
 //
@@ -43,62 +45,62 @@ function injectStylesheet(): void {
   (document.head ?? document.documentElement).appendChild(style);
 }
 
-// dim is for genuine failure only. While working, the shimmer is the
-// indication, and greying it out at the same time smothers it.
-function markUnavailable(button: HTMLButtonElement, reason: string, dim = false): void {
-  button.disabled = true;
+// aria-disabled rather than the disabled attribute: a disabled button fires no
+// pointer events, so the hover card explaining why it is unavailable could never
+// appear on the states that most need it. src/ui/fader.ts gates every gesture on
+// this attribute instead.
+function markUnavailable(button: HTMLButtonElement, dim = false): void {
   button.setAttribute("aria-disabled", "true");
-  button.title = reason;
   button.style.opacity = dim ? "0.45" : "";
   button.style.filter = dim ? "grayscale(70%)" : "";
   button.style.cursor = "not-allowed";
 }
 
 function markAvailable(button: HTMLButtonElement): void {
-  button.disabled = false;
   button.removeAttribute("aria-disabled");
-  button.title = "";
   button.style.opacity = "";
   button.style.filter = "";
   button.style.cursor = "";
 }
 
-function describeStage(state: KaraokeState): string {
+function describeStage(state: KaraokeState): TooltipContent {
   switch (state.stage) {
     case "checking-cache":
-      return "Checking for cached vocals…";
+      return { label: "Checking for cached vocals", percent: null };
     case "decoding":
-      return "Decoding the captured track…";
+      return { label: "Decoding the captured track", percent: null };
     case "downloading-model":
-      return "Downloading the vocal separation model…";
-    case "separating": {
-      const percent = state.total > 0 ? ` ${Math.round((state.processed / state.total) * 100)}%` : "";
-      return `Separating vocals…${percent}`;
-    }
+      return { label: "Preparing the separation model", percent: null };
+    case "separating":
+      return { label: "Separating vocals", percent: state.total > 0 ? state.processed / state.total : null };
     case "encoding":
-      return "Finishing up…";
+      return { label: "Finishing up", percent: null };
     default:
-      return "Preparing sing-along…";
+      return { label: "Preparing sing-along", percent: null };
   }
 }
 
-function renderKaraokeState(control: FaderControl, state: KaraokeState): void {
+function renderKaraokeState(control: FaderControl, tooltip: Tooltip, state: KaraokeState): void {
   const button = control.button;
   // The shimmer, not a grey-out, is the working state. Grey reads as broken.
   control.setBusy(state.status === "waiting-for-capture" || state.status === "processing");
   switch (state.status) {
     case "waiting-for-capture":
-      markUnavailable(button, formatDownloadTooltip(state.downloadFraction, state.downloadSource));
+      markUnavailable(button);
+      tooltip.setContent(describeDownload(state.downloadFraction, state.downloadSource));
       break;
     case "ready-to-engage":
     case "engaged":
       markAvailable(button);
+      tooltip.setContent({ label: "Drag to remove vocals", percent: null });
       break;
     case "processing":
-      markUnavailable(button, describeStage(state));
+      markUnavailable(button);
+      tooltip.setContent(describeStage(state));
       break;
     case "failed":
-      markUnavailable(button, `Sing-along unavailable: ${state.reason ?? "unknown error"}`, true);
+      markUnavailable(button, true);
+      tooltip.setContent({ label: `Sing-along unavailable: ${state.reason ?? "unknown error"}`, percent: null });
       break;
   }
 }
@@ -126,8 +128,10 @@ async function mountFaderIfEnabled(): Promise<void> {
     onChange: mixLevel => pipeline?.engage(mixLevel),
   });
 
+  const tooltip = createTooltip(control.button);
+
   pipeline = createKaraokePipeline({
-    onStateChange: state => renderKaraokeState(control, state),
+    onStateChange: state => renderKaraokeState(control, tooltip, state),
   });
 
   attachFaderMount({ button: control.button, setHost: control.setHost });

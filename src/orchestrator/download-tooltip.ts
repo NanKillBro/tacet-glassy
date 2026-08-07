@@ -1,22 +1,21 @@
-// Two acquisition paths reach this tooltip, paced by different things: the
-// hidden player runs whatever the listener does, the fallback only finishes if
-// they sit through the track.
+// Two acquisition paths reach this card, paced by different things: the hidden
+// player runs regardless of what the listener does, the fallback only finishes
+// if they sit through the track. The card is one line, so the distinction lives
+// in the label rather than in a sentence after it.
+
+import type { TooltipContent } from "@/ui/tooltip";
 
 type DownloadSource = "hidden-player" | "listener-playback";
 
-const HIDDEN_PLAYER_REASON = "Downloading in the background. This runs on its own, so you can keep listening.";
-const LISTENER_PLAYBACK_REASON = "This is paced by YouTube's own buffering, so it can be slow.";
+const HIDDEN_PLAYER_LABEL = "Downloading the track";
+const LISTENER_PLAYBACK_LABEL = "Buffering with the player";
 
-function reasonFor(source: DownloadSource): string {
-  return source === "hidden-player" ? HIDDEN_PLAYER_REASON : LISTENER_PLAYBACK_REASON;
+function describeDownload(bufferedFraction: number, source: DownloadSource = "listener-playback"): TooltipContent {
+  return {
+    label: source === "hidden-player" ? HIDDEN_PLAYER_LABEL : LISTENER_PLAYBACK_LABEL,
+    percent: Number.isFinite(bufferedFraction) ? Math.min(1, Math.max(0, bufferedFraction)) : null,
+  };
 }
 
-function formatDownloadTooltip(bufferedFraction: number, source: DownloadSource = "listener-playback"): string {
-  const reason = reasonFor(source);
-  if (!Number.isFinite(bufferedFraction)) return `Downloading the track… ${reason}`;
-  const percent = Math.round(Math.min(1, Math.max(0, bufferedFraction)) * 100);
-  return `Downloading the track… ${percent}%. ${reason}`;
-}
-
-export { formatDownloadTooltip, HIDDEN_PLAYER_REASON, LISTENER_PLAYBACK_REASON };
+export { describeDownload, HIDDEN_PLAYER_LABEL, LISTENER_PLAYBACK_LABEL };
 export type { DownloadSource };

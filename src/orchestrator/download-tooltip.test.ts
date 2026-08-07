@@ -1,81 +1,61 @@
 import { describe, expect, it } from "vitest";
-import { HIDDEN_PLAYER_REASON, LISTENER_PLAYBACK_REASON, formatDownloadTooltip } from "@/orchestrator/download-tooltip";
+import { HIDDEN_PLAYER_LABEL, LISTENER_PLAYBACK_LABEL, describeDownload } from "@/orchestrator/download-tooltip";
 
-describe("formatDownloadTooltip", () => {
-  it("shows a rounded percentage mid-download", () => {
-    expect(formatDownloadTooltip(0.4699)).toBe(
-      "Downloading the track… 47%. This is paced by YouTube's own buffering, so it can be slow."
-    );
+describe("describeDownload", () => {
+  it("carries the fraction through as a percentage the card can render", () => {
+    expect(describeDownload(0.4699, "listener-playback")).toEqual({
+      label: LISTENER_PLAYBACK_LABEL,
+      percent: 0.4699,
+    });
   });
 
   describe("edge cases", () => {
-    it("shows 0% at the very start", () => {
-      expect(formatDownloadTooltip(0)).toBe(
-        "Downloading the track… 0%. This is paced by YouTube's own buffering, so it can be slow."
-      );
+    it("keeps the exact bounds", () => {
+      expect(describeDownload(0).percent).toBe(0);
+      expect(describeDownload(1).percent).toBe(1);
     });
 
-    it("shows 100% once fully buffered", () => {
-      expect(formatDownloadTooltip(1)).toBe(
-        "Downloading the track… 100%. This is paced by YouTube's own buffering, so it can be slow."
-      );
+    it("clamps a fraction outside the unit interval", () => {
+      expect(describeDownload(-0.2).percent).toBe(0);
+      expect(describeDownload(1.4).percent).toBe(1);
     });
 
-    it("clamps a fraction below 0", () => {
-      expect(formatDownloadTooltip(-0.2)).toBe(
-        "Downloading the track… 0%. This is paced by YouTube's own buffering, so it can be slow."
-      );
-    });
-
-    it("clamps a fraction above 1", () => {
-      expect(formatDownloadTooltip(1.4)).toBe(
-        "Downloading the track… 100%. This is paced by YouTube's own buffering, so it can be slow."
-      );
-    });
-
-    it("omits the percentage when the duration is unknown (NaN fraction)", () => {
-      expect(formatDownloadTooltip(Number.NaN)).toBe(
-        "Downloading the track… This is paced by YouTube's own buffering, so it can be slow."
-      );
-    });
-
-    it("omits the percentage for a non-finite fraction", () => {
-      expect(formatDownloadTooltip(Number.POSITIVE_INFINITY)).toBe(
-        "Downloading the track… This is paced by YouTube's own buffering, so it can be slow."
-      );
+    // null is "no number yet", which the card shows as an unquantified step.
+    // Zero would read as stalled.
+    it("reports no percentage when the duration is unknown", () => {
+      expect(describeDownload(Number.NaN).percent).toBeNull();
+      expect(describeDownload(Number.POSITIVE_INFINITY).percent).toBeNull();
     });
   });
 
   describe("regressions", () => {
-    it("always mentions the honest reason, not just a bare percentage", () => {
-      expect(formatDownloadTooltip(0.5)).toContain("paced by YouTube's own buffering");
+    // The two paths are paced by different things, and the card claiming the
+    // listener's own buffering was responsible while a hidden player did the
+    // work is how the mechanism came to look broken.
+    it("distinguishes the hidden player from the listener's own playback", () => {
+      expect(describeDownload(0.5, "hidden-player").label).toBe(HIDDEN_PLAYER_LABEL);
+      expect(describeDownload(0.5, "listener-playback").label).toBe(LISTENER_PLAYBACK_LABEL);
+      expect(HIDDEN_PLAYER_LABEL).not.toBe(LISTENER_PLAYBACK_LABEL);
+    });
+
+    it("defaults to the slower path rather than promising the faster one", () => {
+      expect(describeDownload(0.5).label).toBe(LISTENER_PLAYBACK_LABEL);
     });
   });
-});
 
-describe("acquisition source", () => {
-  // The two paths are paced by different things, and the tooltip claiming the
-  // listener's own buffering is responsible while a hidden player does the work
-  // is how the mechanism came to look broken.
-  it("says the work is happening in the background for a hidden player", () => {
-    const tooltip = formatDownloadTooltip(0.5, "hidden-player");
-    expect(tooltip).toContain("50%");
-    expect(tooltip).toContain(HIDDEN_PLAYER_REASON);
-    expect(tooltip).not.toContain(LISTENER_PLAYBACK_REASON);
-  });
+  describe("invariants", () => {
+    it("always names one of the two known paths", () => {
+      for (const source of ["hidden-player", "listener-playback"] as const) {
+        expect([HIDDEN_PLAYER_LABEL, LISTENER_PLAYBACK_LABEL]).toContain(describeDownload(0.5, source).label);
+      }
+    });
 
-  it("blames YouTube's buffering only when riding the listener's playback", () => {
-    expect(formatDownloadTooltip(0.5, "listener-playback")).toContain(LISTENER_PLAYBACK_REASON);
-  });
-
-  it("defaults to the listener's playback when no source is given", () => {
-    expect(formatDownloadTooltip(0.5)).toContain(LISTENER_PLAYBACK_REASON);
-  });
-
-  it("omits a percentage it does not have, for either source", () => {
-    expect(formatDownloadTooltip(Number.NaN, "hidden-player")).toBe(`Downloading the track… ${HIDDEN_PLAYER_REASON}`);
-    expect(formatDownloadTooltip(Number.NaN, "listener-playback")).toBe(
-      `Downloading the track… ${LISTENER_PLAYBACK_REASON}`
-    );
+    // The label is a step name, never a sentence: the card is one line and its
+    // motion rolls that line, so the ellipsis is the card's to add.
+    it("leaves punctuation to the card", () => {
+      for (const label of [HIDDEN_PLAYER_LABEL, LISTENER_PLAYBACK_LABEL]) {
+        expect(label).not.toMatch(/[.…]$/);
+      }
+    });
   });
 });

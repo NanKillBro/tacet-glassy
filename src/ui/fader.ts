@@ -200,6 +200,11 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
 
   let v = 0;
 
+  // The control reports unavailable through aria-disabled rather than the
+  // disabled attribute, which would stop it firing the pointer events its hover
+  // card needs (see src/contents/fader-control.ts).
+  const isMarkedDisabled = (): boolean => button.getAttribute("aria-disabled") === "true";
+
   // -- Placement --------------------------------------------------------------
   // In the dock the gap is measured off the pill, because the button sits
   // inside its 8px padding. In the bar the button is the outermost thing, so
@@ -392,10 +397,10 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
   }
 
   button.addEventListener("pointerdown", () => {
-    if (!isFaderInteractive(button.disabled)) return;
+    if (!isFaderInteractive(isMarkedDisabled())) return;
     holdHandled = false;
     holdTimer = setTimeout(() => {
-      if (!isFaderInteractive(button.disabled)) return;
+      if (!isFaderInteractive(isMarkedDisabled())) return;
       holdHandled = true;
       setOpen(true);
     }, HOLD_MS);
@@ -404,17 +409,17 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
   button.addEventListener("pointerleave", clearHold);
   button.addEventListener("click", () => {
     if (holdHandled) return;
-    if (!isFaderInteractive(button.disabled)) return;
+    if (!isFaderInteractive(isMarkedDisabled())) return;
     v = v === 0 ? -1 : 0;
     commit("settle");
   });
   button.addEventListener("dblclick", () => {
-    if (!isFaderInteractive(button.disabled)) return;
+    if (!isFaderInteractive(isMarkedDisabled())) return;
     setOpen(true);
   });
   button.addEventListener("keydown", event => {
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      if (!isFaderInteractive(button.disabled)) return;
+      if (!isFaderInteractive(isMarkedDisabled())) return;
       event.preventDefault();
       setOpen(true);
     }
@@ -429,9 +434,9 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
   // -- Disabled gate --------------------------------------------------------
 
   const disabledObserver = new MutationObserver(() => {
-    if (shouldCloseForDisabled(open, button.disabled)) setOpen(false);
+    if (shouldCloseForDisabled(open, isMarkedDisabled())) setOpen(false);
   });
-  disabledObserver.observe(button, { attributes: true, attributeFilter: ["disabled"] });
+  disabledObserver.observe(button, { attributes: true, attributeFilter: ["aria-disabled"] });
 
   function onMenuKeydown(event: KeyboardEvent): void {
     if (event.key === "Escape") {
