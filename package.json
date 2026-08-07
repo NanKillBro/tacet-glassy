@@ -26,8 +26,13 @@
     "vitest": "^4.1.10"
   },
   "manifest": {
-    "host_permissions": ["https://music.youtube.com/*"],
-    "permissions": ["storage", "offscreen"],
+    "host_permissions": [
+      "https://music.youtube.com/*"
+    ],
+    "permissions": [
+      "storage",
+      "offscreen"
+    ],
     "web_accessible_resources": [
       {
         "resources": [
@@ -39,8 +44,13 @@
           "assets/protocol2.js",
           "assets/offscreen.*"
         ],
-        "matches": ["https://music.youtube.com/*"]
+        "matches": [
+          "https://music.youtube.com/*"
+        ]
       }
-    ]
+    ],
+    "content_security_policy": {
+      "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
+    }
   }
 }
