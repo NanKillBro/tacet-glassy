@@ -1,13 +1,22 @@
 import type { PlasmoCSConfig } from "plasmo";
 import { DEFAULT_MAX_RETAINED_BYTES, createCaptureAccumulator } from "@/capture/accumulator";
-import { AD_PLAYING_CLASS, MOVIE_PLAYER_ELEMENT_ID, isAdPlayingElement } from "@/capture/ad-guard";
+import {
+  AD_PLAYING_CLASS,
+  MOVIE_PLAYER_ELEMENT_ID,
+  isAdPlayingElement,
+  isPlayingSomethingElse,
+} from "@/capture/ad-guard";
 import type {
   CaptureReadyMessage,
   CapturedAudioMessage,
   CapturedAudioUnavailableMessage,
   DownloadProgressMessage,
 } from "@/capture/bridge-protocol";
-import { isCaptureStandDownMessage, isRequestCapturedAudioMessage } from "@/capture/bridge-protocol";
+import {
+  isCaptureStandDownMessage,
+  isRequestCapturedAudioMessage,
+  isRequestPrefetchMessage,
+} from "@/capture/bridge-protocol";
 import { computeBufferedFraction } from "@/capture/buffered-fraction";
 import { concatenateChunks, planNaiveConcat } from "@/capture/decode-plan";
 import { runCaptureDecodeExperiment } from "@/capture/decode-experiment";
@@ -18,6 +27,7 @@ import { DEFAULT_WORKER_COUNT, planSlices } from "@/capture/slice-plan";
 import { installSourceBufferCapture } from "@/capture/sourcebuffer-patch";
 import { getVideoIdFromSearch } from "@/capture/video-id";
 import { readWorkerAssignment } from "@/capture/worker-frame";
+import { getYtPlayer, readVideoData } from "@/capture/yt-player";
 import { selectPlaybackElement } from "@/pageworld/select-media-element";
 
 // -- Phase 6 capture spike -----------------------------------------------
@@ -50,7 +60,13 @@ const FULLY_BUFFERED_EPSILON_S = 0.5;
 
 const accumulator = createCaptureAccumulator();
 
+// Ads have to be excluded on the player's own word, not on a CSS class. A
+// preroll that never set ytp-ad-playing was captured, announced as the track,
+// separated and cached under the track's videoId, which is how a 20 s "track"
+// ended up in the cache.
 function isAdPlaying(): boolean {
+  const player = getYtPlayer(document);
+  if (isPlayingSomethingElse(readVideoData(player), getVideoIdFromSearch(window.location.search))) return true;
   return isAdPlayingElement(document.getElementById(MOVIE_PLAYER_ELEMENT_ID));
 }
 
@@ -201,6 +217,29 @@ if (runsOrchestration) setInterval(pollCaptureCompletion, ENDED_LISTENER_POLL_MS
 
 let slicedPrefetch: Promise<CapturedSlice[]> | null = null;
 
+// One worker, not four. Measured cold on three unseen tracks, four workers are
+// fast and full of holes because every worker that seeks mid-track stalls
+// within seconds: 2.30 MB / 0.03 / 0.04 / 0.07 on a 300.7 s track, and
+// 1.99 / 1.25 / 0.31 / 0.88 on a 210.4 s one. A single worker starting at zero
+// never seeks and captured a whole 249.5 s track, 4,062,324 bytes at the
+// stream's own 130 kbps, in 262 s. That is about real time, so this buys
+// completeness and automation rather than speed: YouTube paces delivery per
+// session and playbackRate does not move it. DEFAULT_WORKER_COUNT stays
+// reachable from the console for anyone re-measuring the parallel path.
+const PRODUCTION_WORKER_COUNT = 1;
+
+// Long enough for the cache probe to answer first, so a track that already has
+// stems never spawns a player at all.
+const PREFETCH_DELAY_MS = 6000;
+
+interface PrefetchedTrack {
+  mimeType: string;
+  bytes: Uint8Array;
+}
+
+const prefetchedByVideoId = new Map<string, PrefetchedTrack>();
+const prefetchStartedFor = new Set<string>();
+
 function prefetchTrackInSlices(workerCount = DEFAULT_WORKER_COUNT): Promise<CapturedSlice[]> {
   if (slicedPrefetch) return slicedPrefetch;
 
@@ -225,6 +264,47 @@ function prefetchTrackInSlices(workerCount = DEFAULT_WORKER_COUNT): Promise<Capt
   return slicedPrefetch;
 }
 
+// -- Acquiring a track without the listener's help -------------------------
+//
+// The capture that rides the listener's own playback only completes when they
+// sit through the whole track, because YouTube buffers a limited window ahead
+// of the playhead. A hidden worker plays the same track in its own muted
+// player instead, so the track is acquired whatever the listener does with
+// theirs, and they can skip around freely while it runs.
+
+function startPrefetchFor(videoId: string): void {
+  if (prefetchStartedFor.has(videoId) || stoodDownVideoIds.has(videoId)) return;
+  prefetchStartedFor.add(videoId);
+
+  window.setTimeout(() => {
+    // The cache probe answers in this window. A track whose stems are already
+    // cached has stood capture down by now and needs no player at all.
+    if (stoodDownVideoIds.has(videoId)) {
+      log(`prefetch skipped for videoId=${videoId}, its stems are already cached`);
+      return;
+    }
+    if (getVideoIdFromSearch(window.location.search) !== videoId) return;
+
+    log(`prefetching videoId=${videoId} in a hidden player`);
+    void prefetchTrackInSlices(PRODUCTION_WORKER_COUNT)
+      .then(slices => {
+        const captured = slices[0];
+        if (!captured || captured.bytes.byteLength === 0) {
+          log(`prefetch for videoId=${videoId} captured nothing, falling back to the listener's own playback`);
+          return;
+        }
+        prefetchedByVideoId.set(videoId, {
+          mimeType: captured.mimeType,
+          bytes: new Uint8Array(captured.bytes),
+        });
+        log(`prefetch complete for videoId=${videoId}, ${captured.bytes.byteLength} bytes`);
+        if (stoodDownVideoIds.has(videoId)) return;
+        announceCaptureReady(videoId);
+      })
+      .catch(error => logError(`prefetch failed for videoId=${videoId}`, error));
+  }, PREFETCH_DELAY_MS);
+}
+
 // -- Production handoff: captured bytes on request ------------------------
 //
 // The real karaoke path (src/orchestrator/karaoke-pipeline.ts, ISOLATED
@@ -235,6 +315,24 @@ function prefetchTrackInSlices(workerCount = DEFAULT_WORKER_COUNT): Promise<Capt
 // stays spike-only for now.
 
 function respondToCapturedAudioRequest(videoId: string): void {
+  // The hidden worker's bytes win over the listener's own playback: they cover
+  // the whole track, where the accumulator holds only whatever the listener
+  // happened to play through.
+  const prefetched = prefetchedByVideoId.get(videoId);
+  if (prefetched) {
+    const bytes = prefetched.bytes.slice();
+    const message: CapturedAudioMessage = {
+      type: "blk-captured-audio",
+      videoId,
+      mimeType: prefetched.mimeType,
+      bytes: bytes.buffer,
+    };
+    const byteLength = bytes.byteLength;
+    window.postMessage(message, window.location.origin, [bytes.buffer]);
+    log(`prefetched audio sent for videoId=${videoId}, bytes=${byteLength}`);
+    return;
+  }
+
   const stats = accumulator.getStats();
 
   if (stats.videoId !== videoId || stats.retainedChunkCount === 0) {
@@ -269,6 +367,7 @@ window.addEventListener("message", event => {
   if (event.source !== window || event.origin !== window.location.origin) return;
   const data: unknown = event.data;
   if (isRequestCapturedAudioMessage(data)) respondToCapturedAudioRequest(data.videoId);
+  if (isRequestPrefetchMessage(data) && runsOrchestration) startPrefetchFor(data.videoId);
   if (isCaptureStandDownMessage(data)) standDownFor(data.videoId);
 });
 

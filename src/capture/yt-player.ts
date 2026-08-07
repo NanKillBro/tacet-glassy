@@ -8,9 +8,12 @@
 // optional and called through a guard, since this is an undocumented surface
 // that YouTube is free to change.
 
+import type { PlayerVideoData } from "@/capture/ad-guard";
+
 const MOVIE_PLAYER_ID = "movie_player";
 
 interface YtPlayer {
+  getVideoData?: () => PlayerVideoData;
   playVideo?: () => void;
   pauseVideo?: () => void;
   seekTo?: (seconds: number, allowSeekAhead?: boolean) => void;
@@ -52,6 +55,17 @@ function suppressAutoAdvance(player: YtPlayer): void {
   callSafely("clearQueue", player.clearQueue && (() => player.clearQueue?.()));
 }
 
+// What the player believes it is playing, or null if it will not say. Callers
+// pair this with isPlayingSomethingElse in ad-guard.ts.
+function readVideoData(player: YtPlayer | null): PlayerVideoData | null {
+  if (!player || typeof player.getVideoData !== "function") return null;
+  try {
+    return player.getVideoData() ?? null;
+  } catch {
+    return null;
+  }
+}
+
 function isPlaying(player: YtPlayer): boolean {
   if (typeof player.getPlayerState !== "function") return false;
   try {
@@ -61,5 +75,5 @@ function isPlaying(player: YtPlayer): boolean {
   }
 }
 
-export { getYtPlayer, suppressAutoAdvance, callSafely, isPlaying, PLAYER_STATE_PLAYING };
+export { getYtPlayer, suppressAutoAdvance, callSafely, isPlaying, readVideoData, PLAYER_STATE_PLAYING };
 export type { YtPlayer };

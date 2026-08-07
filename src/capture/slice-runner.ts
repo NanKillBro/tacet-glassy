@@ -9,13 +9,13 @@
 // for the stall and completion logic.
 
 import type { CaptureAccumulator } from "@/capture/accumulator";
-import { isAdPlayingElement, MOVIE_PLAYER_ELEMENT_ID } from "@/capture/ad-guard";
+import { isAdPlayingElement, isPlayingSomethingElse, MOVIE_PLAYER_ELEMENT_ID } from "@/capture/ad-guard";
 import type { SliceCapturedMessage } from "@/capture/bridge-protocol";
 import { concatenateChunks, planNaiveConcat } from "@/capture/decode-plan";
 import { bufferedRangeStart, decideHop } from "@/capture/edge-hopper";
 import { log, logError } from "@/capture/log";
 import { getVideoIdFromSearch } from "@/capture/video-id";
-import { callSafely, getYtPlayer, suppressAutoAdvance } from "@/capture/yt-player";
+import { callSafely, getYtPlayer, readVideoData, suppressAutoAdvance } from "@/capture/yt-player";
 import type { WorkerAssignment } from "@/capture/worker-frame";
 
 const POLL_MS = 300;
@@ -35,6 +35,10 @@ const SLICE_PLAYBACK_RATE = 16;
 // guard let two workers step straight over the end between polls.
 const END_OF_TRACK_GUARD_S = Math.max(5, (SLICE_PLAYBACK_RATE * POLL_MS * 3) / 1000);
 
+// How long the last slice waits, paused at that guard, for the tail it is not
+// allowed to play through to arrive anyway.
+const TAIL_SETTLE_MS = 4000;
+
 // How long to let playback establish before seeking, and how hard to insist
 // the seek actually took.
 const PLAYBACK_INIT_TIMEOUT_MS = 8000;
@@ -46,6 +50,8 @@ function sleep(ms: number): Promise<void> {
 }
 
 function isAdPlaying(doc: Document): boolean {
+  const requested = getVideoIdFromSearch(doc.defaultView?.location.search ?? "");
+  if (isPlayingSomethingElse(readVideoData(getYtPlayer(doc)), requested)) return true;
   return isAdPlayingElement(doc.getElementById(MOVIE_PLAYER_ELEMENT_ID));
 }
 
@@ -179,10 +185,11 @@ async function runSliceCapture(
     else if (!beyondCeiling && video.paused) startPlayback();
 
     // Progress is what the player has PLAYED THROUGH, not what it reports as
-    // buffered. A seek can leave video.buffered advertising a range whose end
-    // already passes sliceEnd, so a buffered-based test declared slices done
-    // having captured almost nothing (66 KB and 19 KB against 1.4 MB). Anything
-    // played has necessarily been fetched, and therefore captured.
+    // buffered. Buffered has now been measured wrong twice: a seek can leave
+    // video.buffered advertising an end past sliceEnd, and taking the end of
+    // the range containing the playhead is no better, which declared slices
+    // done having captured 65 KB and 131 KB against a 1.17 MB sibling.
+    // Anything played has necessarily been fetched, and therefore captured.
     const playedTo = Math.max(cursor, video.currentTime);
     const decision = decideHop({
       bufferedEnd: playedTo,
@@ -209,6 +216,17 @@ async function runSliceCapture(
     } else {
       stalls++;
     }
+  }
+
+  // The final slice cannot play through its own end: the ceiling above stops
+  // it short so "ended" never fires and the autoplay queue never takes the
+  // frame, which left every track missing its last seconds (measured: slice 3
+  // gave up short of 210.0s on a 210.4s track). A player paused near the end
+  // keeps filling ahead of its playhead, so waiting is enough to capture the
+  // tail. Only this slice needs it; the rest really do play through.
+  if (sliceEnd >= duration - END_OF_TRACK_GUARD_S) {
+    log(`worker slice ${assignment.index} waiting ${TAIL_SETTLE_MS}ms for the track's tail to buffer`);
+    await sleep(TAIL_SETTLE_MS);
   }
 
   // Always report, even empty. A silent worker leaves the pool waiting out its

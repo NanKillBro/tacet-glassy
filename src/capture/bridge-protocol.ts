@@ -29,6 +29,15 @@ export interface CaptureReadyMessage {
   videoId: string;
 }
 
+// Asks for the track to be acquired in a hidden player rather than waiting on
+// the listener to sit through it. Sent from the isolated world because only it
+// can read the master switch: the capture script runs in the page world for
+// every track regardless, and must never spawn a player off its own bat.
+export interface RequestPrefetchMessage {
+  type: "blk-request-prefetch";
+  videoId: string;
+}
+
 // Sent when this track's stems came out of the cache. Capture cannot stop the
 // player fetching audio, but it can stop retaining it: without this a separated
 // track still fills the accumulator on every replay and still announces itself
@@ -97,6 +106,15 @@ export function isCapturedAudioUnavailableMessage(data: unknown): data is Captur
     (data as { type?: unknown }).type === "blk-captured-audio-unavailable" &&
     typeof (data as { videoId?: unknown }).videoId === "string" &&
     typeof (data as { reason?: unknown }).reason === "string"
+  );
+}
+
+export function isRequestPrefetchMessage(data: unknown): data is RequestPrefetchMessage {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: unknown }).type === "blk-request-prefetch" &&
+    typeof (data as { videoId?: unknown }).videoId === "string"
   );
 }
 

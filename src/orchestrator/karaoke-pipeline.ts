@@ -12,6 +12,7 @@
 import {
   type CaptureStandDownMessage,
   type RequestCapturedAudioMessage,
+  type RequestPrefetchMessage,
   isCaptureReadyMessage,
   isCapturedAudioMessage,
   isCapturedAudioUnavailableMessage,
@@ -104,7 +105,12 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   }
 
   function postToPageWorld(
-    message: SetMixLevelMessage | LoadStemsMessage | StopStemsMessage | CaptureStandDownMessage,
+    message:
+      | SetMixLevelMessage
+      | LoadStemsMessage
+      | StopStemsMessage
+      | CaptureStandDownMessage
+      | RequestPrefetchMessage,
     transfer?: Transferable[]
   ): void {
     window.postMessage(message, window.location.origin, transfer);
@@ -134,6 +140,11 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     resetStemAssembly();
     dispatch({ type: "track-changed", videoId });
     probeCacheFor(videoId);
+    // Sent from here rather than left to the capture script to decide, because
+    // this module only exists when the master switch is on. The capture script
+    // runs for every track either way and must not spawn a hidden player
+    // unless the feature is actually enabled.
+    postToPageWorld({ type: "blk-request-prefetch", videoId });
   }
 
   // Asks straight away whether this track has already been separated. The cache

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isCaptureReadyMessage,
   isCaptureStandDownMessage,
+  isRequestPrefetchMessage,
   isCapturedAudioMessage,
   isCapturedAudioUnavailableMessage,
   isRequestCapturedAudioMessage,
@@ -9,6 +10,7 @@ import {
 import type {
   CaptureReadyMessage,
   CaptureStandDownMessage,
+  RequestPrefetchMessage,
   CapturedAudioMessage,
   CapturedAudioUnavailableMessage,
   RequestCapturedAudioMessage,
@@ -51,6 +53,11 @@ describe("capture bridge protocol", () => {
     expect(isCaptureReadyMessage(structuredClone(message))).toBe(true);
   });
 
+  it("round-trips blk-request-prefetch", () => {
+    const message: RequestPrefetchMessage = { type: "blk-request-prefetch", videoId: "abc123" };
+    expect(isRequestPrefetchMessage(structuredClone(message))).toBe(true);
+  });
+
   it("round-trips blk-capture-stand-down", () => {
     const message: CaptureStandDownMessage = { type: "blk-capture-stand-down", videoId: "abc123" };
     expect(isCaptureStandDownMessage(structuredClone(message))).toBe(true);
@@ -66,6 +73,12 @@ describe("capture bridge protocol", () => {
 
     it("rejects a request message missing videoId", () => {
       expect(isRequestCapturedAudioMessage({ type: "blk-request-captured-audio" })).toBe(false);
+    });
+
+    it("does not confuse a prefetch request with a request for captured audio", () => {
+      expect(isRequestPrefetchMessage({ type: "blk-request-prefetch" })).toBe(false);
+      expect(isRequestPrefetchMessage({ type: "blk-request-captured-audio", videoId: "abc123" })).toBe(false);
+      expect(isRequestCapturedAudioMessage({ type: "blk-request-prefetch", videoId: "abc123" })).toBe(false);
     });
 
     it("rejects a stand-down message missing videoId, and does not confuse it with capture-ready", () => {
