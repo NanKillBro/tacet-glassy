@@ -29,7 +29,11 @@
     "vitest": "^4.1.10"
   },
   "manifest": {
-    "host_permissions": ["https://music.youtube.com/*", "https://models.composer.dacubeking.com/*"],
+    "host_permissions": [
+      "https://music.youtube.com/*",
+      "https://*.googlevideo.com/*",
+      "https://models.composer.dacubeking.com/*"
+    ],
     "permissions": ["storage", "offscreen"],
     "content_security_policy": {
       "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
@@ -43,6 +47,7 @@
           "assets/src/cache/*",
           "assets/src/orchestrator/*",
           "assets/src/relay/*",
+          "assets/src/settings/*",
           "assets/offscreen.html"
         ],
         "matches": ["https://music.youtube.com/*"]
