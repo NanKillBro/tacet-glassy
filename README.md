@@ -8,6 +8,12 @@
   Vocal separation for YouTube Music, running entirely in your browser.
 </p>
 
+<p align="center">
+  <a href="https://github.com/better-lyrics/tacet/releases/latest"><img src="https://img.shields.io/github/v/release/better-lyrics/tacet?include_prereleases&label=release&color=black" alt="Latest release" /></a>
+  <a href="https://github.com/better-lyrics/tacet/releases"><img src="https://img.shields.io/github/downloads/better-lyrics/tacet/total?label=downloads&color=black" alt="Downloads" /></a>
+  <a href="https://github.com/better-lyrics/tacet/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/better-lyrics/tacet/release.yml?label=build&color=black" alt="Build" /></a>
+</p>
+
 Tacet splits whatever you are listening to into vocals and instrumental, then
 gives you a fader to sit anywhere between the two. Slide it down for karaoke,
 slide it up to hear the vocal on its own, leave it in the middle for the song as
@@ -35,15 +41,21 @@ your music never leaves your machine.
 
 ## Install
 
+Grab the zip from the [latest release](https://github.com/better-lyrics/tacet/releases/latest)
+and unzip it. Then open `chrome://extensions/`, turn on developer mode, click
+"Load unpacked" and choose the folder you unzipped.
+
+Or build it yourself:
+
 ```bash
 git clone https://github.com/better-lyrics/tacet
 cd tacet
 npm install
+npm run sync:ort
 npm run build
 ```
 
-Open `chrome://extensions/`, turn on developer mode, click "Load unpacked" and
-choose `build/chrome-mv3-prod`.
+That leaves the same folder at `build/chrome-mv3-prod` to load unpacked.
 
 The first track fetches the separation model, which is a 170 MB one time
 download. Sing-along can be switched off from the popup, which takes effect on
@@ -77,6 +89,14 @@ Decisions live in small pure modules with tests beside them, and the Web Audio
 and DOM work sits in thin wrappers around those. `window.blkKaraokeProbe()` in
 the page console reports what actually reached Web Audio, which is the quickest
 way to see what the graph is doing.
+
+## Releasing
+
+Run the [Release workflow](../../actions/workflows/release.yml) from the Actions
+tab. It typechecks, lints, runs the tests, builds, tags the commit and drafts a
+release with the zip attached. Three digits for a release (`1.2.0`), four for a
+canary (`1.2.0.1`), which is published as a pre-release. The draft is left for
+you to look over and publish.
 
 ## Acknowledgements
 
