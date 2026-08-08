@@ -39,6 +39,7 @@ import type {
 } from "../../workers/protocol2";
 import {
   isCacheHitMessage,
+  isCacheMissMessage,
   isStemChunkMessage,
   isTrackDoneMessage,
   isTrackErrorMessage,
@@ -134,10 +135,10 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
 
     resetStemAssembly();
     dispatch({ type: "track-changed", videoId });
+    // Acquisition waits for the answer. Starting both at once raced the lookup,
+    // and a cold offscreen document loses that race and re-downloads a track
+    // whose stems were already cached.
     probeCacheFor(videoId);
-    // From here, not the capture script: this module only exists when the
-    // master switch is on, and that script runs for every track regardless.
-    postToPageWorld({ type: "blk-request-prefetch", videoId });
   }
 
   // The cache lookup used to live only in the capture-completion path, so a
@@ -281,6 +282,14 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       // The relay through background does not guarantee ordering, so the stems
       // may already be complete and would otherwise sit assembled and unused.
       finishStemsIfReady(message.videoId);
+      return;
+    }
+    if (isCacheMissMessage(message)) {
+      if (message.videoId !== state.videoId) return;
+      log(`no cached stems for ${message.videoId}, acquiring`);
+      // From here, not the capture script: this module only exists when the
+      // master switch is on, and that script runs for every track regardless.
+      postToPageWorld({ type: "blk-request-prefetch", videoId: message.videoId });
       return;
     }
     if (isTrackStageMessage(message)) {

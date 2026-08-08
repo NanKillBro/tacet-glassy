@@ -231,6 +231,7 @@ export function isTrackErrorMessage(data: unknown): data is TrackErrorMessage {
 
 export type TrackPipelineOutboundMessage =
   | CacheHitMessage
+  | CacheMissMessage
   | TrackStageMessage
   | TrackProgressMessage
   | StemChunkMessage
@@ -373,6 +374,23 @@ export function isProbeCacheCommand(data: unknown): data is ProbeCacheCommand {
 export interface CacheHitMessage {
   type: "blk-cache-hit";
   videoId: string;
+}
+
+// The other answer. Without it the tab cannot tell a finished probe from a slow
+// one, so acquisition started on a timer and raced the lookup: a cold offscreen
+// document answers well after six seconds and the track downloaded again.
+export interface CacheMissMessage {
+  type: "blk-cache-miss";
+  videoId: string;
+}
+
+export function isCacheMissMessage(data: unknown): data is CacheMissMessage {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: unknown }).type === "blk-cache-miss" &&
+    typeof (data as { videoId?: unknown }).videoId === "string"
+  );
 }
 
 export function isCacheHitMessage(data: unknown): data is CacheHitMessage {

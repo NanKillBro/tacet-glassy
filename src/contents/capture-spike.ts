@@ -224,9 +224,10 @@ let slicedPrefetchVideoId: string | null = null;
 // about ten seconds. DEFAULT_WORKER_COUNT stays reachable from the console.
 const PRODUCTION_WORKER_COUNT = 1;
 
-// Long enough for the cache probe to answer first, so a track that already has
-// stems never spawns a player at all.
-const PREFETCH_DELAY_MS = 6000;
+// The request now only arrives once the cache lookup has answered "no stems",
+// so the old six second head start is pure latency. Kept short rather than zero
+// so a rapid skip through several tracks does not spawn a player per track.
+const PREFETCH_DELAY_MS = 800;
 
 interface PrefetchedTrack {
   mimeType: string;

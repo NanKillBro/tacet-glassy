@@ -170,12 +170,22 @@ class TrackPipeline {
   // capture exists. Returns true when stems were delivered.
   async probeCache(videoId: string): Promise<boolean> {
     this.activeVideoId = videoId;
+
+    // Every path out of here answers, so the tab can start acquiring the moment
+    // the lookup comes back empty instead of guessing at how long it will take.
+    const miss = (): boolean => {
+      if (!this.isStale(videoId)) post({ type: "blk-cache-miss", videoId });
+      return false;
+    };
+
     const contentKey = await getContentKeyForVideoId(videoId);
-    if (!contentKey || this.isStale(videoId)) return false;
+    if (!contentKey) return miss();
+    if (this.isStale(videoId)) return false;
 
     const record = await getStemRecord(contentKey);
-    if (!record || this.isStale(videoId)) return false;
-    if (decideCacheLookup(record, null) !== "alias-hit") return false;
+    if (!record) return miss();
+    if (this.isStale(videoId)) return false;
+    if (decideCacheLookup(record, null) !== "alias-hit") return miss();
 
     // Before the stems, not after: the tab is waiting on a capture that is
     // never going to be needed, and only this moves it over to taking delivery.
