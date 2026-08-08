@@ -1,4 +1,5 @@
 import { getModelUrl } from "@/cache/model-url";
+import { createTabRegistry } from "@/orchestrator/tab-registry";
 import { SETTINGS_STORAGE_KEY } from "@/settings/settings";
 import { loadSettingsFrom } from "@/settings/storage";
 import {
@@ -64,25 +65,24 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
 //
 // Content script to background to offscreen for capture chunks; offscreen to
 // background to content script for everything else, routed by videoId since
-// offscreen cannot call chrome.tabs itself. tabIdByVideoId is cleared once a
-// job finishes, so it never grows across a long browsing session.
+// offscreen cannot call chrome.tabs itself.
 
-const tabIdByVideoId = new Map<string, number>();
+const tabRegistry = createTabRegistry();
 
 function relayToTabForVideo(videoId: string, message: unknown): void {
-  const tabId = tabIdByVideoId.get(videoId);
-  if (tabId === undefined) return;
-  chrome.tabs.sendMessage(tabId, message).catch(error => {
-    logger.error("relay failed", error);
-  });
+  for (const tabId of tabRegistry.tabsFor(videoId)) {
+    chrome.tabs.sendMessage(tabId, message).catch(() => tabRegistry.forgetTab(tabId));
+  }
 }
+
+chrome.tabs.onRemoved.addListener(tabId => tabRegistry.forgetTab(tabId));
 
 chrome.runtime.onMessage.addListener((message: unknown, sender) => {
   // A cache probe needs the same tab bookkeeping as a capture chunk, since any
   // stems it finds are delivered straight back to that tab.
   if (isProbeCacheCommand(message)) {
     const probeTabId = sender.tab?.id;
-    if (probeTabId !== undefined) tabIdByVideoId.set(message.videoId, probeTabId);
+    if (probeTabId !== undefined) tabRegistry.remember(message.videoId, probeTabId);
     ensureOffscreenDocument()
       .then(() => chrome.runtime.sendMessage(message))
       .catch(error => {
@@ -93,7 +93,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender) => {
 
   if (isCaptureChunkMessage(message)) {
     const tabId = sender.tab?.id;
-    if (tabId !== undefined) tabIdByVideoId.set(message.videoId, tabId);
+    if (tabId !== undefined) tabRegistry.remember(message.videoId, tabId);
 
     ensureOffscreenDocument()
       .then(() => chrome.runtime.sendMessage(message))
@@ -112,7 +112,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender) => {
   if (isTrackPipelineOutboundMessage(message)) {
     relayToTabForVideo(message.videoId, message);
     if (message.type === "blk-track-done" || message.type === "blk-track-error") {
-      tabIdByVideoId.delete(message.videoId);
+      tabRegistry.forgetVideo(message.videoId);
     }
   }
 });
