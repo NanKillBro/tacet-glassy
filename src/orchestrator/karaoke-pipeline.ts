@@ -12,11 +12,13 @@
 import {
   type CaptureStandDownMessage,
   type RequestCapturedAudioMessage,
+  type RequestNextPrefetchMessage,
   type RequestPrefetchMessage,
   isCaptureReadyMessage,
   isCapturedAudioMessage,
   isCapturedAudioUnavailableMessage,
   isDownloadProgressMessage,
+  isNextTrackMessage,
 } from "@/capture/bridge-protocol";
 import {
   BETTER_LYRICS_PLAYER_EVENT,
@@ -80,6 +82,9 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   // starting at the real one made a page load look like no change at all.
   let state: KaraokeState = initialKaraokeState("");
   let pendingMixLevel = NEUTRAL_MIX_LEVEL;
+  // The queue item being warmed ahead of the listener. It never touches the
+  // state machine, which belongs to the track actually playing.
+  let prefetchVideoId: string | null = null;
   let vocalsAssembler: ChunkAssembler | null = null;
   let instrumentalAssembler: ChunkAssembler | null = null;
   let doneReceived = false;
@@ -109,7 +114,8 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       | LoadStemsMessage
       | StopStemsMessage
       | CaptureStandDownMessage
-      | RequestPrefetchMessage,
+      | RequestPrefetchMessage
+      | RequestNextPrefetchMessage,
     transfer?: Transferable[]
   ): void {
     window.postMessage(message, window.location.origin, transfer);
@@ -134,6 +140,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     }
 
     resetStemAssembly();
+    prefetchVideoId = null;
     dispatch({ type: "track-changed", videoId });
     // Acquisition waits for the answer. Starting both at once raced the lookup,
     // and a cold offscreen document loses that race and re-downloads a track
@@ -162,7 +169,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     log(`sending captured audio for ${videoId}: ${bytes.byteLength} bytes as ${chunks.length} chunk(s)`);
 
     for (let index = 0; index < chunks.length; index++) {
-      if (videoId !== state.videoId) return; // superseded by a track change mid-send
+      if (videoId !== state.videoId && videoId !== prefetchVideoId) return; // superseded mid-send
       const message: CaptureChunkMessage = {
         type: "blk-capture-chunk",
         videoId,
@@ -187,7 +194,21 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       return;
     }
 
+    if (isNextTrackMessage(data)) {
+      if (data.videoId === state.videoId) return;
+      prefetchVideoId = data.videoId;
+      log(`next up is ${data.videoId}, checking whether it needs separating`);
+      probeCacheFor(data.videoId);
+      return;
+    }
+
     if (isCaptureReadyMessage(data)) {
+      if (data.videoId === prefetchVideoId) {
+        log(`next track ${data.videoId} acquired, separating it ahead of time`);
+        const request: RequestCapturedAudioMessage = { type: "blk-request-captured-audio", videoId: data.videoId };
+        window.postMessage(request, window.location.origin);
+        return;
+      }
       log(`capture ready for ${data.videoId}`);
       dispatch({ type: "capture-ready", videoId: data.videoId });
       maybeAutoEngage(data.videoId);
@@ -267,6 +288,10 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
         dispatch({ type: "stems-loaded", videoId });
         postToPageWorld({ type: "blk-set-mix-level", mixLevel: pendingMixLevel });
         log(`karaoke engaged for ${videoId}`);
+        // Only now: a separation for the next track would otherwise take the
+        // offscreen document's single job away from the one being waited on.
+        const nextRequest: RequestNextPrefetchMessage = { type: "blk-request-next-prefetch", videoId };
+        postToPageWorld(nextRequest);
       })
       .catch(error => {
         logError("failed to decode stems", error);
@@ -276,6 +301,11 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
 
   function onRuntimeMessage(message: unknown): void {
     if (isCacheHitMessage(message)) {
+      if (message.videoId === prefetchVideoId) {
+        log(`next track ${message.videoId} is already separated`);
+        prefetchVideoId = null;
+        return;
+      }
       log(`cached stems found for ${message.videoId}, capture is not needed`);
       dispatch({ type: "cache-hit", videoId: message.videoId });
       postToPageWorld({ type: "blk-capture-stand-down", videoId: message.videoId });
@@ -285,6 +315,11 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       return;
     }
     if (isCacheMissMessage(message)) {
+      if (message.videoId === prefetchVideoId) {
+        log(`next track ${message.videoId} is not separated yet, warming it`);
+        postToPageWorld({ type: "blk-request-prefetch", videoId: message.videoId, ahead: true });
+        return;
+      }
       if (message.videoId !== state.videoId) return;
       log(`no cached stems for ${message.videoId}, acquiring`);
       // From here, not the capture script: this module only exists when the

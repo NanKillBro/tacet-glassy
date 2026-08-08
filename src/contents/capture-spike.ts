@@ -6,10 +6,12 @@ import type {
   CapturedAudioMessage,
   CapturedAudioUnavailableMessage,
   DownloadProgressMessage,
+  NextTrackMessage,
 } from "@/capture/bridge-protocol";
 import {
   isCaptureStandDownMessage,
   isRequestCapturedAudioMessage,
+  isRequestNextPrefetchMessage,
   isRequestPrefetchMessage,
 } from "@/capture/bridge-protocol";
 import { computeBufferedFraction } from "@/capture/buffered-fraction";
@@ -23,6 +25,7 @@ import { runSliceCapture } from "@/capture/slice-runner";
 import { DEFAULT_WORKER_COUNT, planSlices, planWholeTrack } from "@/capture/slice-plan";
 import { decidePrefetch } from "@/capture/prefetch-gate";
 import { installSourceBufferCapture } from "@/capture/sourcebuffer-patch";
+import { nextVideoIdInQueue, readQueueItems } from "@/capture/next-track";
 import { getVideoIdFromSearch } from "@/capture/video-id";
 import { readWorkerAssignment } from "@/capture/worker-frame";
 import { selectPlaybackElement } from "@/pageworld/select-media-element";
@@ -241,13 +244,7 @@ function hiddenPlayerProgress(): number {
   }
 }
 
-function prefetchTrackInSlices(workerCount = DEFAULT_WORKER_COUNT): Promise<CapturedSlice[]> {
-  const videoId = getVideoIdFromSearch(window.location.search);
-  if (!videoId) {
-    log("sliced prefetch skipped: no videoId yet");
-    return Promise.resolve([]);
-  }
-
+function prefetchTrackInSlices(videoId: string, workerCount = DEFAULT_WORKER_COUNT): Promise<CapturedSlice[]> {
   const decision = decidePrefetch(slicedPrefetchVideoId, videoId);
   if (decision === "reuse" && slicedPrefetch) return slicedPrefetch;
   if (decision === "refuse") {
@@ -282,7 +279,13 @@ function prefetchTrackInSlices(workerCount = DEFAULT_WORKER_COUNT): Promise<Capt
 // Riding the listener's playback only completes if they sit through the whole
 // track, since YouTube buffers a limited window ahead of the playhead.
 
-function startPrefetchFor(videoId: string): void {
+function startPrefetchFor(videoId: string, { ahead = false } = {}): void {
+  // Already acquired: the pipeline resets its state on every track change, so
+  // it needs telling again rather than relying on the earlier announcement.
+  if (prefetchStateByVideoId.get(videoId) === "done" && prefetchedByVideoId.has(videoId)) {
+    if (!stoodDownVideoIds.has(videoId)) announceCaptureReady(videoId);
+    return;
+  }
   if (prefetchStateByVideoId.has(videoId) || stoodDownVideoIds.has(videoId)) return;
   prefetchStateByVideoId.set(videoId, "running");
 
@@ -293,13 +296,15 @@ function startPrefetchFor(videoId: string): void {
       prefetchStateByVideoId.set(videoId, "done");
       return;
     }
-    if (getVideoIdFromSearch(window.location.search) !== videoId) {
+    // A track being warmed ahead of the listener is deliberately not the one in
+    // the address bar, so only a prefetch for the current track checks.
+    if (!ahead && getVideoIdFromSearch(window.location.search) !== videoId) {
       prefetchStateByVideoId.set(videoId, "unavailable");
       return;
     }
 
-    log(`prefetching videoId=${videoId} in a hidden player`);
-    void prefetchTrackInSlices(PRODUCTION_WORKER_COUNT)
+    log(`prefetching videoId=${videoId} in a hidden player${ahead ? ", ahead of the listener" : ""}`);
+    void prefetchTrackInSlices(videoId, PRODUCTION_WORKER_COUNT)
       .then(slices => {
         const captured = slices[0];
         if (!captured || captured.bytes.byteLength === 0) {
@@ -382,7 +387,19 @@ window.addEventListener("message", event => {
   if (event.source !== window || event.origin !== window.location.origin) return;
   const data: unknown = event.data;
   if (isRequestCapturedAudioMessage(data)) respondToCapturedAudioRequest(data.videoId);
-  if (isRequestPrefetchMessage(data) && runsOrchestration) startPrefetchFor(data.videoId);
+  if (isRequestPrefetchMessage(data) && runsOrchestration) {
+    startPrefetchFor(data.videoId, { ahead: data.ahead === true });
+  }
+
+  if (isRequestNextPrefetchMessage(data) && runsOrchestration) {
+    const next = nextVideoIdInQueue(readQueueItems(document), data.videoId);
+    if (!next) {
+      log(`no next track in the queue after ${data.videoId}`);
+      return;
+    }
+    const message: NextTrackMessage = { type: "blk-next-track", videoId: next };
+    window.postMessage(message, window.location.origin);
+  }
   if (isCaptureStandDownMessage(data)) standDownFor(data.videoId);
 });
 
@@ -396,7 +413,9 @@ declare global {
 
 window.blkPrefetchTrackInSlices = async (workerCount?: number) => {
   const started = performance.now();
-  const slices = await prefetchTrackInSlices(workerCount);
+  const videoId = getVideoIdFromSearch(window.location.search);
+  if (!videoId) return { slices: [], elapsedMs: 0 };
+  const slices = await prefetchTrackInSlices(videoId, workerCount);
   return {
     slices: slices.map(slice => ({
       index: slice.index,

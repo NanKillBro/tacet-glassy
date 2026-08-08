@@ -36,10 +36,21 @@ export interface CaptureReadyMessage {
 export interface RequestPrefetchMessage {
   type: "blk-request-prefetch";
   videoId: string;
+  ahead?: boolean;
 }
 
 // This track's stems came from the cache. Capture cannot stop the player
 // fetching, but it can stop retaining and announcing.
+export interface RequestNextPrefetchMessage {
+  type: "blk-request-next-prefetch";
+  videoId: string;
+}
+
+export interface NextTrackMessage {
+  type: "blk-next-track";
+  videoId: string;
+}
+
 export interface CaptureStandDownMessage {
   type: "blk-capture-stand-down";
   videoId: string;
@@ -112,6 +123,24 @@ export function isRequestPrefetchMessage(data: unknown): data is RequestPrefetch
     typeof data === "object" &&
     data !== null &&
     (data as { type?: unknown }).type === "blk-request-prefetch" &&
+    typeof (data as { videoId?: unknown }).videoId === "string"
+  );
+}
+
+export function isRequestNextPrefetchMessage(data: unknown): data is RequestNextPrefetchMessage {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: unknown }).type === "blk-request-next-prefetch" &&
+    typeof (data as { videoId?: unknown }).videoId === "string"
+  );
+}
+
+export function isNextTrackMessage(data: unknown): data is NextTrackMessage {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: unknown }).type === "blk-next-track" &&
     typeof (data as { videoId?: unknown }).videoId === "string"
   );
 }
