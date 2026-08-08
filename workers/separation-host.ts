@@ -1,4 +1,5 @@
 import { fetchAndCacheModel, readCachedModel } from "../src/cache/model-cache.js";
+import { MODEL_SHA256 } from "../src/cache/model-url.js";
 import {
   type SeparateInitCommand,
   type SeparateProcessCommand,
@@ -113,7 +114,8 @@ class SeparationHost {
         modelBytes = await fetchAndCacheModel(
           opts.modelUrl,
           this.downloadAbortController.signal,
-          opts.onDownloadProgress ?? (() => {})
+          opts.onDownloadProgress ?? (() => {}),
+          MODEL_SHA256
         );
       } finally {
         this.downloadAbortController = null;

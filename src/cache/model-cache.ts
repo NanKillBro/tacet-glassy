@@ -1,4 +1,5 @@
 import { MODEL_STORE_NAME, openDB } from "@/cache/idb";
+import { digestsMatch, sha256Hex } from "@/cache/model-digest";
 
 // Ported from composer src/audio/separation/model-cache.ts. Composer keys the
 // cache on a ModelDescriptor and stores bytes via the Cache API; there is no
@@ -53,6 +54,14 @@ async function getCachedModelSize(url: string): Promise<number | null> {
 
 // -- Writes -----------------------------------------------------------------
 
+async function verifyAndWriteModel(url: string, bytes: Uint8Array<ArrayBuffer>, expectedSha256: string): Promise<void> {
+  const digest = await sha256Hex(bytes);
+  if (!digestsMatch(digest, expectedSha256)) {
+    throw new Error(`model-cache: ${bytes.byteLength} bytes hashed to ${digest}, expected ${expectedSha256}`);
+  }
+  await writeModelRecord(url, bytes);
+}
+
 async function writeModelRecord(url: string, bytes: Uint8Array<ArrayBuffer>): Promise<void> {
   const record: ModelCacheRecord = {
     bytes: new Blob([bytes]),
@@ -75,7 +84,8 @@ async function writeModelRecord(url: string, bytes: Uint8Array<ArrayBuffer>): Pr
 async function fetchAndCacheModel(
   url: string,
   signal: AbortSignal,
-  onProgress: DownloadProgress
+  onProgress: DownloadProgress,
+  expectedSha256: string
 ): Promise<ArrayBuffer> {
   const response = await fetch(url, { signal });
   if (!response.ok) {
@@ -89,7 +99,7 @@ async function fetchAndCacheModel(
   if (!reader) {
     const buf = new Uint8Array(await response.arrayBuffer());
     onProgress(buf.byteLength, buf.byteLength);
-    await writeModelRecord(url, buf);
+    await verifyAndWriteModel(url, buf, expectedSha256);
     return buf.buffer;
   }
 
@@ -116,7 +126,7 @@ async function fetchAndCacheModel(
     offset += chunk.byteLength;
   }
 
-  await writeModelRecord(url, merged);
+  await verifyAndWriteModel(url, merged, expectedSha256);
   return merged.buffer;
 }
 

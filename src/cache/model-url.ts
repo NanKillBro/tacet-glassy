@@ -13,6 +13,10 @@
 // invalidation needed.
 const MODEL_FILENAME = "htdemucs_fp32.v1.onnx";
 
+// Verified against the hosted object. A truncated download keeps every tensor
+// shape valid and only shows up as garbled audio, the way fp16 did.
+const MODEL_SHA256 = "47a8c4169cbc08550c7ac1aa6e525b480ccd091efdbd21ffbb88f5f60566d3bd";
+
 // Must stay in sync with host_permissions in package.json. Plasmo does not strip
 // an unresolved "$VAR/*" host permission when the variable is unset, and Chrome
 // then ignores the malformed entry silently, so the fetch fails with no
@@ -26,4 +30,4 @@ function getModelUrl(): string {
   return `${base}/${MODEL_FILENAME}`;
 }
 
-export { DEFAULT_MODEL_BASE_URL, getModelUrl, MODEL_FILENAME };
+export { DEFAULT_MODEL_BASE_URL, getModelUrl, MODEL_FILENAME, MODEL_SHA256 };

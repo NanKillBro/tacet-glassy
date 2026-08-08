@@ -7,6 +7,7 @@ import {
   hasCachedModel,
   readCachedModel,
 } from "@/cache/model-cache";
+import { sha256Hex } from "@/cache/model-digest";
 import { IDBFactory } from "fake-indexeddb";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -75,7 +76,7 @@ describe("hasCachedModel / readCachedModel", () => {
       vi.fn(async () => streamingResponse(bytes, 200))
     );
 
-    await fetchAndCacheModel(MODEL_URL, new AbortController().signal, () => {});
+    await fetchAndCacheModel(MODEL_URL, new AbortController().signal, () => {}, await sha256Hex(bytes));
 
     expect(await hasCachedModel(MODEL_URL)).toBe(true);
     const cached = await readCachedModel(MODEL_URL);
@@ -101,9 +102,14 @@ describe("fetchAndCacheModel", () => {
     );
 
     const progressCalls: Array<[number, number]> = [];
-    const result = await fetchAndCacheModel(MODEL_URL, new AbortController().signal, (loaded, total) => {
-      progressCalls.push([loaded, total]);
-    });
+    const result = await fetchAndCacheModel(
+      MODEL_URL,
+      new AbortController().signal,
+      (loaded, total) => {
+        progressCalls.push([loaded, total]);
+      },
+      await sha256Hex(bytes)
+    );
 
     expect(new Uint8Array(result)).toEqual(bytes);
     expect(progressCalls.length).toBeGreaterThan(0);
@@ -122,7 +128,7 @@ describe("fetchAndCacheModel", () => {
       })
     );
 
-    const result = await fetchAndCacheModel(MODEL_URL, new AbortController().signal, () => {});
+    const result = await fetchAndCacheModel(MODEL_URL, new AbortController().signal, () => {}, await sha256Hex(bytes));
     expect(new Uint8Array(result)).toEqual(bytes);
   });
 
@@ -132,7 +138,9 @@ describe("fetchAndCacheModel", () => {
       vi.fn(async () => new Response(null, { status: 404, statusText: "Not Found" }))
     );
 
-    await expect(fetchAndCacheModel(MODEL_URL, new AbortController().signal, () => {})).rejects.toThrow(/404/);
+    await expect(fetchAndCacheModel(MODEL_URL, new AbortController().signal, () => {}, "unused")).rejects.toThrow(
+      /404/
+    );
   });
 
   it("aborts mid-download when the signal fires", async () => {
@@ -144,10 +152,15 @@ describe("fetchAndCacheModel", () => {
 
     const controller = new AbortController();
     let calls = 0;
-    const promise = fetchAndCacheModel(MODEL_URL, controller.signal, () => {
-      calls++;
-      if (calls === 2) controller.abort();
-    });
+    const promise = fetchAndCacheModel(
+      MODEL_URL,
+      controller.signal,
+      () => {
+        calls++;
+        if (calls === 2) controller.abort();
+      },
+      await sha256Hex(bytes)
+    );
 
     await expect(promise).rejects.toMatchObject({ name: "AbortError" });
     expect(await hasCachedModel(MODEL_URL)).toBe(false);
@@ -161,9 +174,14 @@ describe("fetchAndCacheModel", () => {
     );
 
     const progressCalls: Array<[number, number]> = [];
-    await fetchAndCacheModel(MODEL_URL, new AbortController().signal, (loaded, total) => {
-      progressCalls.push([loaded, total]);
-    });
+    await fetchAndCacheModel(
+      MODEL_URL,
+      new AbortController().signal,
+      (loaded, total) => {
+        progressCalls.push([loaded, total]);
+      },
+      await sha256Hex(bytes)
+    );
 
     expect(progressCalls.every(([, total]) => total > 0)).toBe(true);
   });
@@ -174,14 +192,14 @@ describe("fetchAndCacheModel", () => {
       "fetch",
       vi.fn(async () => streamingResponse(first, 50))
     );
-    await fetchAndCacheModel(MODEL_URL, new AbortController().signal, () => {});
+    await fetchAndCacheModel(MODEL_URL, new AbortController().signal, () => {}, await sha256Hex(first));
 
     const second = makeBytes(200, 2);
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => streamingResponse(second, 50))
     );
-    await fetchAndCacheModel(MODEL_URL, new AbortController().signal, () => {});
+    await fetchAndCacheModel(MODEL_URL, new AbortController().signal, () => {}, await sha256Hex(second));
 
     const cached = await readCachedModel(MODEL_URL);
     expect(new Uint8Array(cached as ArrayBuffer)).toEqual(second);
@@ -197,7 +215,12 @@ describe("edge cases", () => {
       vi.fn(async () => streamingResponse(new Uint8Array(0), 100))
     );
 
-    const result = await fetchAndCacheModel(MODEL_URL, new AbortController().signal, () => {});
+    const result = await fetchAndCacheModel(
+      MODEL_URL,
+      new AbortController().signal,
+      () => {},
+      await sha256Hex(new Uint8Array(0))
+    );
     expect(result.byteLength).toBe(0);
     expect(await hasCachedModel(MODEL_URL)).toBe(true);
   });
@@ -212,8 +235,13 @@ describe("edge cases", () => {
       )
     );
 
-    await fetchAndCacheModel(MODEL_URL, new AbortController().signal, () => {});
-    await fetchAndCacheModel("https://models.example.com/other.onnx", new AbortController().signal, () => {});
+    await fetchAndCacheModel(MODEL_URL, new AbortController().signal, () => {}, await sha256Hex(bytesA));
+    await fetchAndCacheModel(
+      "https://models.example.com/other.onnx",
+      new AbortController().signal,
+      () => {},
+      await sha256Hex(bytesB)
+    );
 
     expect(new Uint8Array((await readCachedModel(MODEL_URL)) as ArrayBuffer)).toEqual(bytesA);
     expect(new Uint8Array((await readCachedModel("https://models.example.com/other.onnx")) as ArrayBuffer)).toEqual(
@@ -235,7 +263,7 @@ describe("getCachedModelSize", () => {
       "fetch",
       vi.fn(async () => streamingResponse(bytes, 200))
     );
-    await fetchAndCacheModel(MODEL_URL, new AbortController().signal, () => {});
+    await fetchAndCacheModel(MODEL_URL, new AbortController().signal, () => {}, await sha256Hex(bytes));
     expect(await getCachedModelSize(MODEL_URL)).toBe(1234);
   });
 
@@ -254,7 +282,7 @@ describe("clearCachedModel", () => {
       "fetch",
       vi.fn(async () => streamingResponse(bytes, 50))
     );
-    await fetchAndCacheModel(MODEL_URL, new AbortController().signal, () => {});
+    await fetchAndCacheModel(MODEL_URL, new AbortController().signal, () => {}, await sha256Hex(bytes));
     expect(await hasCachedModel(MODEL_URL)).toBe(true);
 
     await clearCachedModel(MODEL_URL);
@@ -276,12 +304,46 @@ describe("clearCachedModel", () => {
         input === MODEL_URL ? streamingResponse(bytesA, 5) : streamingResponse(bytesB, 5)
       )
     );
-    await fetchAndCacheModel(MODEL_URL, new AbortController().signal, () => {});
-    await fetchAndCacheModel("https://models.example.com/other.onnx", new AbortController().signal, () => {});
+    await fetchAndCacheModel(MODEL_URL, new AbortController().signal, () => {}, await sha256Hex(bytesA));
+    await fetchAndCacheModel(
+      "https://models.example.com/other.onnx",
+      new AbortController().signal,
+      () => {},
+      await sha256Hex(bytesB)
+    );
 
     await clearCachedModel(MODEL_URL);
 
     expect(await hasCachedModel(MODEL_URL)).toBe(false);
     expect(await hasCachedModel("https://models.example.com/other.onnx")).toBe(true);
+  });
+});
+
+describe("digest verification", () => {
+  it("refuses bytes that do not hash to the expected digest", async () => {
+    const bytes = makeBytes(1000);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => streamingResponse(bytes, 200))
+    );
+
+    await expect(
+      fetchAndCacheModel(MODEL_URL, new AbortController().signal, () => {}, await sha256Hex(makeBytes(999)))
+    ).rejects.toThrow(/hashed to/);
+    expect(await hasCachedModel(MODEL_URL)).toBe(false);
+  });
+
+  it("regression: refuses a truncated download rather than caching it", async () => {
+    const whole = makeBytes(1000);
+    const truncated = whole.subarray(0, 600);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => streamingResponse(truncated, 200))
+    );
+
+    await expect(
+      fetchAndCacheModel(MODEL_URL, new AbortController().signal, () => {}, await sha256Hex(whole))
+    ).rejects.toThrow(/hashed to/);
+    expect(await hasCachedModel(MODEL_URL)).toBe(false);
   });
 });
