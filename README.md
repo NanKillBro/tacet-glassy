@@ -45,14 +45,15 @@ npm run build
 Open `chrome://extensions/`, turn on developer mode, click "Load unpacked" and
 choose `build/chrome-mv3-prod`.
 
-Sing-along starts switched off. Turn it on from the popup, and the first track
-will fetch the separation model, which is a 170 MB one time download.
+The first track fetches the separation model, which is a 170 MB one time
+download. Sing-along can be switched off from the popup, which takes effect on
+the next page load.
 
 ## Settings
 
 | Setting | Default | What it does |
 |---|---|---|
-| Sing-along | off | The master switch |
+| Sing-along | on | The master switch |
 | Separate automatically | on | Gets each track ready before you touch the fader |
 | Cache budget | 250 MB | How many separated songs to keep |
 

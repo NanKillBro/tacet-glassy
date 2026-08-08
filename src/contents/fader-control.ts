@@ -112,10 +112,10 @@ function renderKaraokeState(control: FaderControl, tooltip: Tooltip, state: Kara
 
 // -- Master switch gate ----------------------------------------------------
 //
-// singAlongEnabled defaults to off (src/settings/settings.ts). Off means
-// none of this runs at all: the control never mounts, the pipeline is never
-// created, and nothing below it (an AudioContext, a claim on the media
-// element) is ever constructed.
+// Off means none of this runs at all: the control never mounts, the pipeline
+// is never created, and nothing below it (an AudioContext, a claim on the
+// media element) is ever constructed. Read once, so a change takes effect on
+// the next page load.
 
 async function mountFaderIfEnabled(): Promise<void> {
   const settings = await loadSettingsFrom(chrome.storage.sync);

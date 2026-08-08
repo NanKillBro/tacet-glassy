@@ -13,8 +13,8 @@ import {
 // -- defaults -----------------------------------------------------------------
 
 describe("DEFAULT_SETTINGS", () => {
-  it("sing-along starts disabled", () => {
-    expect(DEFAULT_SETTINGS.singAlongEnabled).toBe(false);
+  it("sing-along starts enabled", () => {
+    expect(DEFAULT_SETTINGS.singAlongEnabled).toBe(true);
   });
 
   it("auto separate starts enabled", () => {

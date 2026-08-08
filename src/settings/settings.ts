@@ -27,7 +27,7 @@ interface Settings {
 }
 
 const DEFAULT_SETTINGS: Settings = {
-  singAlongEnabled: false,
+  singAlongEnabled: true,
   autoSeparateEnabled: true,
   cacheBudgetBytes: DEFAULT_BUDGET_BYTES,
 };
