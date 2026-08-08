@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { decideEngagement } from "@/pageworld/engagement";
-import type { EngagementInput } from "@/pageworld/engagement";
+import { RECONFIRM_DURATION_TOLERANCE_S, decideEngagement, reconfirmAfterEmptied } from "@/pageworld/engagement";
+import type { EngagementInput, ReconfirmInput } from "@/pageworld/engagement";
 
 function input(overrides: Partial<EngagementInput> = {}): EngagementInput {
   return {
@@ -124,6 +124,75 @@ describe("decideEngagement", () => {
     it("always rebinds off an element that has been removed", () => {
       for (const target of ["none", "same", "other"] as const) {
         expect(decideEngagement(input({ graph: "bound", boundElementConnected: false, target }))).toBe("rebind");
+      }
+    });
+  });
+});
+
+describe("reconfirmAfterEmptied", () => {
+  const input = (overrides: Partial<ReconfirmInput> = {}): ReconfirmInput => ({
+    playerVideoId: "DJCB1ZlseJ8",
+    stemsVideoId: "DJCB1ZlseJ8",
+    elementDurationSeconds: 215.1,
+    stemDurationSeconds: 215.1,
+    ...overrides,
+  });
+
+  it("confirms the same track reloaded at the same length", () => {
+    expect(reconfirmAfterEmptied(input())).toBe("confirmed");
+  });
+
+  it("refuses a track the player has moved off", () => {
+    expect(reconfirmAfterEmptied(input({ playerVideoId: "lYBUbBu4W08" }))).toBe("unconfirmed");
+  });
+
+  describe("regressions", () => {
+    // Measured: one emptied on the playing track left lastAction at "release"
+    // for as long as it was watched, with the stems loaded and the player
+    // naming their own track, because nothing could ever clear the doubt.
+    it("regression: lets the current track's stems come back", () => {
+      expect(reconfirmAfterEmptied(input())).toBe("confirmed");
+    });
+
+    // A preroll keeps the page's videoId, so only the length separates them.
+    it("regression: refuses an ad running under the track's own id", () => {
+      for (const adSeconds of [6, 20, 90, 133]) {
+        expect(reconfirmAfterEmptied(input({ elementDurationSeconds: adSeconds }))).toBe("unconfirmed");
+      }
+    });
+
+    // For the first moments of a change the player still names the old track
+    // while the element has already loaded the next one.
+    it("regression: refuses the next track while the player still names the last", () => {
+      expect(reconfirmAfterEmptied(input({ elementDurationSeconds: 213 }))).toBe("unconfirmed");
+    });
+  });
+
+  describe("edge cases", () => {
+    it("refuses a player that names nothing yet", () => {
+      expect(reconfirmAfterEmptied(input({ playerVideoId: null }))).toBe("unconfirmed");
+    });
+
+    it("refuses an element that has not loaded metadata", () => {
+      expect(reconfirmAfterEmptied(input({ elementDurationSeconds: Number.NaN }))).toBe("unconfirmed");
+      expect(reconfirmAfterEmptied(input({ elementDurationSeconds: 0 }))).toBe("unconfirmed");
+      expect(reconfirmAfterEmptied(input({ elementDurationSeconds: Number.POSITIVE_INFINITY }))).toBe("unconfirmed");
+    });
+
+    it("allows the drift a re-decode introduces, either way", () => {
+      const edge = RECONFIRM_DURATION_TOLERANCE_S;
+      expect(reconfirmAfterEmptied(input({ elementDurationSeconds: 215.1 + edge }))).toBe("confirmed");
+      expect(reconfirmAfterEmptied(input({ elementDurationSeconds: 215.1 - edge }))).toBe("confirmed");
+      expect(reconfirmAfterEmptied(input({ elementDurationSeconds: 215.1 + edge + 0.01 }))).toBe("unconfirmed");
+    });
+  });
+
+  describe("invariants", () => {
+    it("never confirms a track the player is not on, whatever the length", () => {
+      for (const duration of [0, 1, 215.1, 1000]) {
+        expect(reconfirmAfterEmptied(input({ playerVideoId: "other", elementDurationSeconds: duration }))).toBe(
+          "unconfirmed"
+        );
       }
     });
   });

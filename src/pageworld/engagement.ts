@@ -50,5 +50,37 @@ function decideEngagement(input: EngagementInput): EngagementAction {
   return "engage";
 }
 
-export { decideEngagement };
-export type { EngagementAction, EngagementInput, GraphPresence, TargetPosition };
+// -- Recovering from an emptied element --------------------------------------
+//
+// "emptied" says the media went away, never whether the track did, so it can
+// only put the stems in doubt, not condemn them. Treating it as a verdict
+// deadlocked: stemsAreStale is tested before load, and the flag only cleared
+// once stems were applied, so a single emptied on the track being played left
+// sing-along off until the listener moved on. Measured: 12 s of "release" with
+// the stems loaded and the player naming their own track throughout.
+//
+// The duration test is what the videoId cannot do alone. A preroll keeps the
+// page's videoId, and for the first moments of a track change the player still
+// names the old track while the element has already loaded the new one. Both
+// read as a match on id and neither matches on length.
+
+const RECONFIRM_DURATION_TOLERANCE_S = 2;
+
+type Reconfirmation = "confirmed" | "unconfirmed";
+
+interface ReconfirmInput {
+  playerVideoId: string | null;
+  stemsVideoId: string;
+  elementDurationSeconds: number;
+  stemDurationSeconds: number;
+}
+
+function reconfirmAfterEmptied(input: ReconfirmInput): Reconfirmation {
+  if (input.playerVideoId === null || input.playerVideoId !== input.stemsVideoId) return "unconfirmed";
+  if (!Number.isFinite(input.elementDurationSeconds) || input.elementDurationSeconds <= 0) return "unconfirmed";
+  const drift = Math.abs(input.elementDurationSeconds - input.stemDurationSeconds);
+  return drift <= RECONFIRM_DURATION_TOLERANCE_S ? "confirmed" : "unconfirmed";
+}
+
+export { decideEngagement, reconfirmAfterEmptied, RECONFIRM_DURATION_TOLERANCE_S };
+export type { EngagementAction, EngagementInput, GraphPresence, TargetPosition, Reconfirmation, ReconfirmInput };

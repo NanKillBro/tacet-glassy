@@ -1,6 +1,6 @@
 import type { PlasmoCSConfig } from "plasmo";
 import { acquireAudioBus } from "@/pageworld/audio-bus";
-import { decideEngagement } from "@/pageworld/engagement";
+import { decideEngagement, reconfirmAfterEmptied } from "@/pageworld/engagement";
 import type { EngagementAction, TargetPosition } from "@/pageworld/engagement";
 import { startPlayerBridge } from "@/pageworld/player-bridge";
 import { createPlaybackGraph } from "@/pageworld/playback-graph";
@@ -72,11 +72,25 @@ function playerOnOtherTrack(stems: LoadedStems): boolean {
 }
 
 // The player names no track at all for the first half second of a change, so
-// the element being emptied is the earlier and equally certain signal.
-let elementEmptiedSinceEngage = false;
+// the element being emptied is the earlier signal. It raises a doubt rather
+// than settling one: reconfirmAfterEmptied resolves it either way.
+let awaitingReconfirmation = false;
+
+function reconfirmIfPossible(stems: LoadedStems): void {
+  if (!awaitingReconfirmation) return;
+  const snapshot = currentPlayerSnapshot(document);
+  const element = playerVideoElement(document);
+  const decision = reconfirmAfterEmptied({
+    playerVideoId: snapshot?.videoId ?? null,
+    stemsVideoId: stems.videoId,
+    elementDurationSeconds: element?.duration ?? Number.NaN,
+    stemDurationSeconds: stems.durationSeconds,
+  });
+  if (decision === "confirmed") awaitingReconfirmation = false;
+}
 
 function stemsAreStale(stems: LoadedStems): boolean {
-  return elementEmptiedSinceEngage || playerOnOtherTrack(stems);
+  return awaitingReconfirmation || playerOnOtherTrack(stems);
 }
 
 declare global {
@@ -118,7 +132,7 @@ function applyStems(graph: PlaybackGraph, stems: LoadedStems): void {
   graph.loadStems(stems.vocals, stems.instrumental, stems.sampleRate);
   graph.setMixLevel(pendingMixLevel);
   engagedStems = stems;
-  elementEmptiedSinceEngage = false;
+  awaitingReconfirmation = false;
   logger.log(`stems playing for videoId=${stems.videoId}, mix level ${pendingMixLevel}`);
 }
 
@@ -165,6 +179,8 @@ function targetPosition(stems: LoadedStems): TargetPosition {
 function reconcile(): void {
   const stems = pendingStems;
   if (!stems) return;
+
+  reconfirmIfPossible(stems);
 
   const action = decideEngagement({
     hasStems: true,
@@ -227,7 +243,7 @@ startPlayerBridge();
 document.addEventListener(
   "emptied",
   () => {
-    elementEmptiedSinceEngage = true;
+    awaitingReconfirmation = true;
     reconcile();
   },
   true
