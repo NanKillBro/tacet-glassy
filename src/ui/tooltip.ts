@@ -41,16 +41,19 @@ function percentText(percent: number): string {
   return `${Math.round(Math.min(1, Math.max(0, percent)) * 100)}%`;
 }
 
+function fillLine(line: HTMLSpanElement, content: TooltipContent): void {
+  line.textContent = content.percent === null ? `${content.label}…` : `${content.label}… `;
+  if (content.percent === null) return;
+  const percent = document.createElement("span");
+  percent.className = PERCENT_CLASS;
+  percent.textContent = percentText(content.percent);
+  line.appendChild(percent);
+}
+
 function buildLine(content: TooltipContent): HTMLSpanElement {
   const line = document.createElement("span");
   line.className = `${LINE_CLASS} is-entering`;
-  line.textContent = content.percent === null ? `${content.label}…` : `${content.label}… `;
-  if (content.percent !== null) {
-    const percent = document.createElement("span");
-    percent.className = PERCENT_CLASS;
-    percent.textContent = percentText(content.percent);
-    line.appendChild(percent);
-  }
+  fillLine(line, content);
   // Entering and leaving carry the same specificity, so a line still marked as
   // entering re-runs that animation instead of leaving, and the two overlap.
   line.addEventListener("animationend", () => line.classList.remove("is-entering"), { once: true });
@@ -65,8 +68,6 @@ function createTooltip(trigger: HTMLElement): Tooltip {
   stack.className = "blyrics-mix-tip__stack";
   card.appendChild(stack);
 
-  // Width does not transition from auto, so the next label is measured here and
-  // written to the card as pixels before the swap starts.
   const ruler = document.createElement("span");
   ruler.className = "blyrics-mix-tip__ruler";
   card.appendChild(ruler);
@@ -74,6 +75,7 @@ function createTooltip(trigger: HTMLElement): Tooltip {
   document.body.appendChild(card);
 
   let content: TooltipContent | null = null;
+  let cardWidth = 0;
   let open = false;
   let openTimer: ReturnType<typeof setTimeout> | null = null;
   let closeTimer: ReturnType<typeof setTimeout> | null = null;
@@ -85,13 +87,27 @@ function createTooltip(trigger: HTMLElement): Tooltip {
     closeTimer = null;
   }
 
+  // Width does not transition from auto, so the line is measured here and
+  // written to the card as pixels. The ruler is built by the same function as
+  // the line and carries the card's padding, so it measures the card's outer
+  // width: as flat text it came out 2px short, because the digits are tabular
+  // in the line and proportional in the ruler. Rounded up for the same reason,
+  // since an integer offsetWidth also shaves the last glyph. A card
+  // mid-transition still reports its old width, so placement reads this rather
+  // than the element.
+  function fitTo(next: TooltipContent): void {
+    fillLine(ruler, next);
+    cardWidth = Math.ceil(ruler.getBoundingClientRect().width);
+    card.style.width = `${cardWidth}px`;
+  }
+
   function place(): void {
     const triggerRect = trigger.getBoundingClientRect();
     const dock = trigger.closest<HTMLElement>("[data-position]");
     const position = computeCardPosition(
       { left: triggerRect.left, width: triggerRect.width },
       { top: triggerRect.top, bottom: triggerRect.bottom },
-      { width: card.offsetWidth, height: card.offsetHeight },
+      { width: cardWidth, height: card.offsetHeight },
       { width: window.innerWidth, height: window.innerHeight },
       dock?.dataset.position ?? null,
       TOOLTIP_GAP_PX
@@ -120,21 +136,22 @@ function createTooltip(trigger: HTMLElement): Tooltip {
       return;
     }
 
+    fitTo(next);
+
     const previous = stack.querySelector<HTMLSpanElement>(`.${LINE_CLASS}:not(.is-leaving)`);
 
     // The same step with a new number: the line stays put and only its digits
-    // change, or the card strobes for the length of the separation.
+    // change, or the card strobes for the length of the separation. The card
+    // still resizes, since 0% and 100% are not the same width.
     if (previous && sameStep(content, next) && next.percent !== null) {
       const percent = previous.querySelector(`.${PERCENT_CLASS}`);
       if (percent) {
         percent.textContent = percentText(next.percent);
         content = next;
+        if (open) place();
         return;
       }
     }
-
-    ruler.textContent = next.percent === null ? `${next.label}…` : `${next.label}… ${percentText(next.percent)}`;
-    card.style.width = `${ruler.offsetWidth}px`;
 
     if (previous) {
       previous.classList.remove("is-entering");
