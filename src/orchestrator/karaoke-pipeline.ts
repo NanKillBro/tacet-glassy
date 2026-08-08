@@ -18,7 +18,11 @@ import {
   isCapturedAudioUnavailableMessage,
   isDownloadProgressMessage,
 } from "@/capture/bridge-protocol";
-import { getVideoIdFromSearch } from "@/capture/video-id";
+import {
+  BETTER_LYRICS_PLAYER_EVENT,
+  playerStateFromBetterLyrics,
+  playerStateFromOwnBridge,
+} from "@/orchestrator/player-source";
 import { createLogger } from "@/shared/logger";
 import { decodeOpusToPcm } from "@/cache/opus-codec";
 import { initialKaraokeState, reduceKaraokeState } from "@/orchestrator/karaoke-state";
@@ -42,7 +46,6 @@ import {
   isTrackStageMessage,
 } from "../../workers/protocol2";
 
-const TRACK_POLL_MS = 1000;
 const CAPTURE_REQUEST_TIMEOUT_MS = 8000;
 
 // k = 1 is the original mix untouched (see src/pageworld/gain-law.ts).
@@ -69,10 +72,6 @@ interface KaraokePipelineOptions {
 interface KaraokePipeline {
   engage(mixLevel: number): void;
   destroy(): void;
-}
-
-function currentVideoId(): string | null {
-  return getVideoIdFromSearch(window.location.search);
 }
 
 function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline {
@@ -117,9 +116,11 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
 
   // -- Track change polling -----------------------------------------------
 
-  function checkTrackChange(): void {
-    const videoId = currentVideoId();
-    if (!videoId || videoId === state.videoId) return;
+  // Driven by whichever bridge is publishing, never by the URL: the player
+  // reaches the next track before location.search is read again, and that gap is
+  // what let a previous track's stems stay engaged over the new one.
+  function onTrackObserved(videoId: string): void {
+    if (videoId === state.videoId) return;
 
     log(`track changed ${state.videoId || "(none)"} -> ${videoId}`);
 
@@ -146,8 +147,11 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     chrome.runtime.sendMessage(probe).catch(error => logError("failed to send cache probe", error));
   }
 
-  const pollTimer = setInterval(checkTrackChange, TRACK_POLL_MS);
-  checkTrackChange();
+  function onBetterLyricsPlayerState(event: Event): void {
+    const observed = playerStateFromBetterLyrics((event as CustomEvent).detail);
+    if (observed) onTrackObserved(observed.videoId);
+  }
+  document.addEventListener(BETTER_LYRICS_PLAYER_EVENT, onBetterLyricsPlayerState);
 
   // -- MAIN world: capture-spike.ts ---------------------------------------
 
@@ -175,6 +179,12 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   function onWindowMessage(event: MessageEvent): void {
     if (event.source !== window || event.origin !== window.location.origin) return;
     const data: unknown = event.data;
+
+    const observed = playerStateFromOwnBridge(data);
+    if (observed) {
+      onTrackObserved(observed.videoId);
+      return;
+    }
 
     if (isCaptureReadyMessage(data)) {
       log(`capture ready for ${data.videoId}`);
@@ -348,7 +358,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   }
 
   function destroy(): void {
-    clearInterval(pollTimer);
+    document.removeEventListener(BETTER_LYRICS_PLAYER_EVENT, onBetterLyricsPlayerState);
     window.removeEventListener("message", onWindowMessage);
     chrome.runtime.onMessage.removeListener(onRuntimeMessage);
   }

@@ -2,6 +2,7 @@ import type { PlasmoCSConfig } from "plasmo";
 import { acquireAudioBus } from "@/pageworld/audio-bus";
 import { decideEngagement } from "@/pageworld/engagement";
 import type { EngagementAction, TargetPosition } from "@/pageworld/engagement";
+import { startPlayerBridge } from "@/pageworld/player-bridge";
 import { createPlaybackGraph } from "@/pageworld/playback-graph";
 import type { PlaybackGraph } from "@/pageworld/playback-graph";
 import { currentPlayerSnapshot, playerVideoElement } from "@/pageworld/player-state";
@@ -210,6 +211,7 @@ function reconcile(): void {
 }
 
 setInterval(reconcile, RECONCILE_INTERVAL_MS);
+startPlayerBridge();
 
 // Media events do not bubble, so this listens in the capture phase. A track
 // change fires them immediately, which closes the gap the timer alone leaves.
