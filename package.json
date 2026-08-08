@@ -2,7 +2,7 @@
   "name": "tacet",
   "displayName": "Tacet for YouTube Music",
   "version": "0.0.2",
-  "description": "Separate vocals from YouTube Music playback and fade between them",
+  "description": "Vocal Separation for YouTube Music",
   "author": "Boidu",
   "scripts": {
     "build:worker": "tsc -p workers/tsconfig.json && tsc-alias -p workers/tsconfig.json -f",

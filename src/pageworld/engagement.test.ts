@@ -75,9 +75,7 @@ describe("decideEngagement", () => {
     // this one with the original at gain zero.
     it("releases stems the moment the player names a different track", () => {
       expect(
-        decideEngagement(
-          input({ graph: "bound", boundElementConnected: true, target: "none", stemsAreStale: true })
-        )
+        decideEngagement(input({ graph: "bound", boundElementConnected: true, target: "none", stemsAreStale: true }))
       ).toBe("release");
     });
 
