@@ -3,6 +3,7 @@ import { createRegionAccumulator } from "../src/orchestrator/region-accumulator.
 import { base64ToBytes, bytesToBase64 } from "../src/relay/base64.js";
 import { type ChunkAssembler, createChunkAssembler, splitIntoChunks } from "../src/relay/chunk-transfer.js";
 import { computeContentKey, getContentKeyForVideoId, setVideoIdAlias } from "../src/cache/keys.js";
+import { hasCachedModel } from "../src/cache/model-cache.js";
 import { encodePcmToOpus } from "../src/cache/opus-codec.js";
 import { getStemRecord, putStemRecord } from "../src/cache/stem-store.js";
 import type { StemRecord } from "../src/cache/stem-store.js";
@@ -237,13 +238,14 @@ class TrackPipeline {
   }
 
   private async separate(videoId: string, contentKey: string, decoded: DecodedTrack): Promise<void> {
-    this.sendStage(videoId, "downloading-model");
     const modelUrl = await fetchModelUrl();
     if (this.isStale(videoId)) return;
     if (!modelUrl) {
       this.sendError(videoId, "no-base-url", "No separation model URL is configured.");
       return;
     }
+
+    this.sendStage(videoId, (await hasCachedModel(modelUrl)) ? "loading-model" : "downloading-model");
 
     await this.separationHost.init({ modelUrl });
     if (this.isStale(videoId)) return;

@@ -106,7 +106,16 @@ export function isCancelSeparationCommand(data: unknown): data is CancelSeparati
 // background can target a specific tab) for stage, progress, stem chunks,
 // completion and error.
 
-export type TrackStage = "checking-cache" | "decoding" | "downloading-model" | "separating" | "encoding";
+// loading-model and downloading-model are separate because they cost minutes
+// apart: the model is 170 MB over the network, and an extension reload throws
+// away the session but not the cached bytes, so the common case is a local read.
+export type TrackStage =
+  | "checking-cache"
+  | "decoding"
+  | "downloading-model"
+  | "loading-model"
+  | "separating"
+  | "encoding";
 
 export type StemName = "vocals" | "instrumental";
 

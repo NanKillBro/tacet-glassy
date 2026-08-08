@@ -73,7 +73,9 @@ function describeStage(state: KaraokeState): TooltipContent {
     case "decoding":
       return { label: "Decoding the captured track", percent: null };
     case "downloading-model":
-      return { label: "Preparing the separation model", percent: null };
+      return { label: "Downloading the separation model", percent: null };
+    case "loading-model":
+      return { label: "Loading the separation model", percent: null };
     case "separating":
       return { label: "Separating vocals", percent: state.total > 0 ? state.processed / state.total : null };
     case "encoding":
