@@ -9,13 +9,15 @@
 // amplitude 1e-3, 100% at amplitude 1.0), identically on the WebGPU and the
 // WASM providers. NaN passes every shape check and only becomes visible once
 // the Opus encoder has turned it into silence.
-const MODEL_FILENAME = "htdemucs_fp32.onnx";
+// Versioned, so the object can be cached immutably and a rename is the only
+// invalidation needed.
+const MODEL_FILENAME = "htdemucs_fp32.v1.onnx";
 
 // Must stay in sync with host_permissions in package.json. Plasmo does not strip
 // an unresolved "$VAR/*" host permission when the variable is unset, and Chrome
 // then ignores the malformed entry silently, so the fetch fails with no
 // diagnostic. A static default keeps the permission and the URL agreeing.
-const DEFAULT_MODEL_BASE_URL = "https://models.composer.dacubeking.com";
+const DEFAULT_MODEL_BASE_URL = "https://models.betterlyrics.org/tacet";
 
 function getModelUrl(): string {
   const raw = process.env.PLASMO_PUBLIC_MODEL_BASE_URL;
