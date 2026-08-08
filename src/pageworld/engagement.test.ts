@@ -10,6 +10,7 @@ function input(overrides: Partial<EngagementInput> = {}): EngagementInput {
     target: "same",
     acquiring: false,
     stemsEngaged: true,
+    playerOnOtherTrack: false,
     ...overrides,
   };
 }
@@ -66,6 +67,38 @@ describe("decideEngagement", () => {
       expect(
         decideEngagement(input({ graph: "bound", boundElementConnected: true, target: "none", stemsEngaged: false }))
       ).toBe("hold");
+    });
+
+    // Measured: for about a second after a skip the player is on the next track
+    // while the previous track's stems are still engaged, and syncToElement
+    // restarts them at the new track's position, so the song before plays over
+    // this one with the original at gain zero.
+    it("releases stems the moment the player names a different track", () => {
+      expect(
+        decideEngagement(
+          input({ graph: "bound", boundElementConnected: true, target: "none", playerOnOtherTrack: true })
+        )
+      ).toBe("release");
+    });
+
+    it("releases even while the stems it holds are the engaged ones", () => {
+      expect(
+        decideEngagement(
+          input({ graph: "bound", boundElementConnected: true, stemsEngaged: true, playerOnOtherTrack: true })
+        )
+      ).toBe("release");
+    });
+
+    // A disconnected element can never be recovered, so that outranks it.
+    it("still rebinds off a removed element rather than releasing", () => {
+      expect(decideEngagement(input({ graph: "bound", boundElementConnected: false, playerOnOtherTrack: true }))).toBe(
+        "rebind"
+      );
+    });
+
+    // Nothing to release when no graph exists, and the element is unknown.
+    it("does not release when no graph is bound", () => {
+      expect(decideEngagement(input({ graph: "none", target: "none", playerOnOtherTrack: true }))).toBe("hold");
     });
   });
 

@@ -58,6 +58,15 @@ function elementForStems(stems: LoadedStems): HTMLMediaElement | null {
   return element?.isConnected ? element : null;
 }
 
+// Measured: the player reaches the next track about a second before the message
+// to stop does, and syncToElement restarts the old stems at the new track's
+// position in the meantime, so the previous song plays over this one with the
+// original silenced.
+function playerOnOtherTrack(stems: LoadedStems): boolean {
+  const snapshot = currentPlayerSnapshot(document);
+  return snapshot !== null && snapshot.videoId !== stems.videoId;
+}
+
 declare global {
   interface Window {
     blkKaraokeProbe: () => unknown;
@@ -153,10 +162,17 @@ function reconcile(): void {
     target: targetPosition(stems),
     acquiring: acquiring !== null,
     stemsEngaged: engagedStems === stems,
+    playerOnOtherTrack: playerOnOtherTrack(stems),
   });
   lastAction = action;
 
   if (action === "idle" || action === "hold") return;
+
+  if (action === "release") {
+    cachedGraph?.stopStems();
+    engagedStems = null;
+    return;
+  }
 
   // A track change keeps the element, so the graph is reused rather than torn
   // down and rebuilt: rebuilding would re-claim an element that can only ever
@@ -193,6 +209,12 @@ function reconcile(): void {
 }
 
 setInterval(reconcile, RECONCILE_INTERVAL_MS);
+
+// Media events do not bubble, so this listens in the capture phase. A track
+// change fires them immediately, which closes the gap the timer alone leaves.
+for (const event of ["emptied", "loadstart", "play", "playing"]) {
+  document.addEventListener(event, reconcile, true);
+}
 
 window.addEventListener("message", event => {
   if (event.source !== window || event.origin !== window.location.origin) return;
