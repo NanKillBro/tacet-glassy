@@ -14,6 +14,8 @@ import { isSliceCapturedMessage } from "@/capture/bridge-protocol";
 interface CapturedSlice {
   index: number;
   startSeconds: number;
+  reachedSeconds: number;
+  trackDurationSeconds: number;
   mimeType: string;
   bytes: ArrayBuffer;
 }
@@ -85,6 +87,8 @@ function captureTrackInSlices(options: SliceCaptureOptions): Promise<CapturedSli
       collected.set(data.index, {
         index: data.index,
         startSeconds: data.startSeconds,
+        reachedSeconds: data.reachedSeconds,
+        trackDurationSeconds: data.trackDurationSeconds,
         mimeType: data.mimeType,
         bytes: data.bytes,
       });

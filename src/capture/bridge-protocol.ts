@@ -71,6 +71,11 @@ export interface SliceCapturedMessage {
   videoId: string;
   index: number;
   startSeconds: number;
+  // How far the capture actually got, against how long the track is. A worker
+  // reports these whether it finished or a stall cut it short, so the opener
+  // can refuse a partial capture rather than separating and caching it.
+  reachedSeconds: number;
+  trackDurationSeconds: number;
   mimeType: string;
   bytes: ArrayBuffer;
 }
@@ -83,6 +88,8 @@ export function isSliceCapturedMessage(data: unknown): data is SliceCapturedMess
     typeof (data as { videoId?: unknown }).videoId === "string" &&
     Number.isInteger((data as { index?: unknown }).index) &&
     typeof (data as { startSeconds?: unknown }).startSeconds === "number" &&
+    typeof (data as { reachedSeconds?: unknown }).reachedSeconds === "number" &&
+    typeof (data as { trackDurationSeconds?: unknown }).trackDurationSeconds === "number" &&
     typeof (data as { mimeType?: unknown }).mimeType === "string" &&
     (data as { bytes?: unknown }).bytes instanceof ArrayBuffer
   );

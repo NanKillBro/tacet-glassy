@@ -15,6 +15,8 @@ import {
   isRequestPrefetchMessage,
 } from "@/capture/bridge-protocol";
 import { computeBufferedFraction } from "@/capture/buffered-fraction";
+import { decideRetry, judgeCapture, missingSeconds } from "@/capture/capture-coverage";
+import { bufferedRangeEnd } from "@/capture/edge-hopper";
 import type { DownloadSource } from "@/orchestrator/download-tooltip";
 import { concatenateChunks, countInitSegments, planFirstPlusMedia } from "@/capture/decode-plan";
 import { runCaptureDecodeExperiment } from "@/capture/decode-experiment";
@@ -160,7 +162,7 @@ function announceIfCaptureComplete(element: HTMLVideoElement): void {
 function isFullyBuffered(element: HTMLVideoElement): boolean {
   if (!Number.isFinite(element.duration) || element.duration <= 0) return false;
   if (element.buffered.length === 0) return false;
-  return element.buffered.end(element.buffered.length - 1) >= element.duration - FULLY_BUFFERED_EPSILON_S;
+  return bufferedRangeEnd(element.buffered, 0) >= element.duration - FULLY_BUFFERED_EPSILON_S;
 }
 
 function bufferedEndSeconds(element: HTMLVideoElement): number {
@@ -279,6 +281,24 @@ function prefetchTrackInSlices(videoId: string, workerCount = DEFAULT_WORKER_COU
 // Riding the listener's playback only completes if they sit through the whole
 // track, since YouTube buffers a limited window ahead of the playhead.
 
+const PREFETCH_RETRY_DELAY_MS = 3000;
+const prefetchAttemptsByVideoId = new Map<string, number>();
+
+function abandonPrefetch(videoId: string, ahead: boolean, reason: string): void {
+  const attempts = (prefetchAttemptsByVideoId.get(videoId) ?? 0) + 1;
+  prefetchAttemptsByVideoId.set(videoId, attempts);
+
+  if (decideRetry(attempts) === "give-up") {
+    prefetchStateByVideoId.set(videoId, "unavailable");
+    log(`prefetch for videoId=${videoId} gave up after ${attempts} attempt(s): ${reason}`);
+    return;
+  }
+
+  prefetchStateByVideoId.delete(videoId);
+  log(`prefetch for videoId=${videoId} attempt ${attempts} ${reason}, retrying`);
+  window.setTimeout(() => startPrefetchFor(videoId, { ahead }), PREFETCH_RETRY_DELAY_MS);
+}
+
 function startPrefetchFor(videoId: string, { ahead = false } = {}): void {
   // Already acquired: the pipeline resets its state on every track change, so
   // it needs telling again rather than relying on the earlier announcement.
@@ -299,7 +319,7 @@ function startPrefetchFor(videoId: string, { ahead = false } = {}): void {
     // A track being warmed ahead of the listener is deliberately not the one in
     // the address bar, so only a prefetch for the current track checks.
     if (!ahead && getVideoIdFromSearch(window.location.search) !== videoId) {
-      prefetchStateByVideoId.set(videoId, "unavailable");
+      prefetchStateByVideoId.delete(videoId);
       return;
     }
 
@@ -307,23 +327,37 @@ function startPrefetchFor(videoId: string, { ahead = false } = {}): void {
     void prefetchTrackInSlices(videoId, PRODUCTION_WORKER_COUNT)
       .then(slices => {
         const captured = slices[0];
-        if (!captured || captured.bytes.byteLength === 0) {
-          log(`prefetch for videoId=${videoId} captured nothing, falling back to the listener's own playback`);
-          prefetchStateByVideoId.set(videoId, "unavailable");
+        const coverage = {
+          reachedSeconds: captured?.reachedSeconds ?? Number.NaN,
+          trackDurationSeconds: captured?.trackDurationSeconds ?? Number.NaN,
+          byteLength: captured?.bytes.byteLength ?? 0,
+        };
+        const verdict = judgeCapture(coverage);
+
+        if (verdict !== "complete" || !captured) {
+          const short = verdict === "short";
+          abandonPrefetch(
+            videoId,
+            ahead,
+            short ? `stopped ${missingSeconds(coverage).toFixed(1)}s short of the track` : "captured nothing usable"
+          );
           return;
         }
+
         prefetchedByVideoId.set(videoId, {
           mimeType: captured.mimeType,
           bytes: new Uint8Array(captured.bytes),
         });
         prefetchStateByVideoId.set(videoId, "done");
-        log(`prefetch complete for videoId=${videoId}, ${captured.bytes.byteLength} bytes`);
+        log(
+          `prefetch complete for videoId=${videoId}, ${captured.bytes.byteLength} bytes covering ${captured.trackDurationSeconds.toFixed(1)}s`
+        );
         if (stoodDownVideoIds.has(videoId)) return;
         announceCaptureReady(videoId);
       })
       .catch(error => {
-        prefetchStateByVideoId.set(videoId, "unavailable");
         logError(`prefetch failed for videoId=${videoId}`, error);
+        abandonPrefetch(videoId, ahead, "threw");
       });
   }, PREFETCH_DELAY_MS);
 }

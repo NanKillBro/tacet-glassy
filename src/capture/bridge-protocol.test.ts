@@ -6,6 +6,7 @@ import {
   isCapturedAudioMessage,
   isCapturedAudioUnavailableMessage,
   isRequestCapturedAudioMessage,
+  isSliceCapturedMessage,
 } from "@/capture/bridge-protocol";
 import type {
   CaptureReadyMessage,
@@ -14,7 +15,22 @@ import type {
   CapturedAudioMessage,
   CapturedAudioUnavailableMessage,
   RequestCapturedAudioMessage,
+  SliceCapturedMessage,
 } from "@/capture/bridge-protocol";
+
+function sliceCaptured(overrides: Partial<SliceCapturedMessage> = {}): Record<string, unknown> {
+  return {
+    type: "blk-slice-captured",
+    videoId: "abc123",
+    index: 0,
+    startSeconds: 0,
+    reachedSeconds: 215.1,
+    trackDurationSeconds: 215.1,
+    mimeType: "audio/webm",
+    bytes: new Uint8Array([1, 2, 3, 4]).buffer,
+    ...overrides,
+  };
+}
 
 describe("capture bridge protocol", () => {
   it("round-trips blk-request-captured-audio through structured clone", () => {
@@ -103,6 +119,30 @@ describe("capture bridge protocol", () => {
       expect(isRequestCapturedAudioMessage(readyMessage)).toBe(false);
       expect(isCapturedAudioMessage(readyMessage)).toBe(false);
       expect(isCapturedAudioUnavailableMessage(readyMessage)).toBe(false);
+      expect(isSliceCapturedMessage(readyMessage)).toBe(false);
+    });
+  });
+
+  describe("blk-slice-captured", () => {
+    it("round-trips through structured clone", () => {
+      expect(isSliceCapturedMessage(structuredClone(sliceCaptured()))).toBe(true);
+    });
+
+    it("accepts a slice that stopped short, since refusing it is the opener's job", () => {
+      expect(isSliceCapturedMessage(sliceCaptured({ reachedSeconds: 55 }))).toBe(true);
+    });
+
+    it("rejects a slice that does not say how far it reached", () => {
+      const { reachedSeconds: _reached, ...withoutReach } = sliceCaptured();
+      expect(isSliceCapturedMessage(withoutReach)).toBe(false);
+
+      const { trackDurationSeconds: _duration, ...withoutDuration } = sliceCaptured();
+      expect(isSliceCapturedMessage(withoutDuration)).toBe(false);
+    });
+
+    it("rejects coverage numbers that are not numbers", () => {
+      expect(isSliceCapturedMessage(sliceCaptured({ reachedSeconds: "215" as unknown as number }))).toBe(false);
+      expect(isSliceCapturedMessage(sliceCaptured({ trackDurationSeconds: null as unknown as number }))).toBe(false);
     });
   });
 });

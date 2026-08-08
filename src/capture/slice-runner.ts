@@ -145,6 +145,10 @@ async function runSliceCapture(
   const startSeconds = bufferedRangeStart(video.buffered, assignment.fromSeconds);
   let cursor = assignment.fromSeconds;
   let stalls = 0;
+  // A high-water mark rather than the cursor: a preroll restart puts the cursor
+  // back to the slice's start, and the loop breaks from four places, two of
+  // which are a stall and a lost frame.
+  let reached = assignment.fromSeconds;
 
   while (true) {
     await sleep(POLL_MS);
@@ -168,6 +172,7 @@ async function runSliceCapture(
       duration = video.duration;
       sliceEnd = Math.min(assignment.toSeconds, duration);
       cursor = assignment.fromSeconds;
+      reached = assignment.fromSeconds;
       stalls = 0;
       continue;
     }
@@ -176,6 +181,7 @@ async function runSliceCapture(
     // bytes this worker pulled. Reading all of video.buffered instead declared
     // slices done having captured 65 KB against a 1.17 MB sibling.
     const reach = Math.max(cursor, bufferedRangeEnd(video.buffered, video.currentTime));
+    reached = Math.max(reached, reach);
     const decision = decideHop({
       bufferedEnd: reach,
       cursor,
@@ -210,6 +216,11 @@ async function runSliceCapture(
     await sleep(TAIL_SETTLE_MS);
   }
 
+  // Read after the settle, which is where the tail arrives. Without this the
+  // opener cannot tell a whole track from one a stall or a navigation cut
+  // short, and a partial capture was separated and cached as authoritative.
+  const reachedSeconds = Math.max(reached, bufferedRangeEnd(video.buffered, video.currentTime));
+
   // Always report, even empty: a silent worker holds the pool to its timeout.
   const chunks = accumulator.getChunks();
   if (chunks.length === 0) logError(`worker slice ${assignment.index} captured nothing`, new Error("no chunks"));
@@ -226,13 +237,17 @@ async function runSliceCapture(
     videoId,
     index: assignment.index,
     startSeconds,
+    reachedSeconds,
+    trackDurationSeconds: duration,
     mimeType: accumulator.getStats().mimeTypes[0] ?? "audio/webm",
     bytes: bytes.buffer,
   };
   // Read the size before posting: the transfer detaches the buffer.
   const byteLength = bytes.byteLength;
   window.parent.postMessage(message, window.location.origin, [bytes.buffer]);
-  log(`worker slice ${assignment.index} sent ${byteLength} bytes starting at ${startSeconds.toFixed(1)}s`);
+  log(
+    `worker slice ${assignment.index} sent ${byteLength} bytes, ${startSeconds.toFixed(1)}s to ${reachedSeconds.toFixed(1)}s of ${duration.toFixed(1)}s`
+  );
 }
 
 export { runSliceCapture };
