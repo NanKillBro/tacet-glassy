@@ -1,22 +1,62 @@
 import { decidePrefetch } from "@/capture/prefetch-gate";
+import type { PrefetchRequest } from "@/capture/prefetch-gate";
 import { describe, expect, it } from "vitest";
+
+function request(overrides: Partial<PrefetchRequest> = {}): PrefetchRequest {
+  return {
+    inFlightVideoId: null,
+    inFlightIsAhead: false,
+    requestedVideoId: "current",
+    requestedIsAhead: false,
+    ...overrides,
+  };
+}
 
 describe("decidePrefetch", () => {
   it("starts when nothing is in flight", () => {
-    expect(decidePrefetch(null, "abc123")).toBe("start");
+    expect(decidePrefetch(request())).toBe("start");
   });
 
   it("reuses the capture already running for this track", () => {
-    expect(decidePrefetch("abc123", "abc123")).toBe("reuse");
+    expect(decidePrefetch(request({ inFlightVideoId: "current" }))).toBe("reuse");
+  });
+
+  it("reuses a warm-ahead the listener has since arrived at", () => {
+    expect(decidePrefetch(request({ inFlightVideoId: "current", inFlightIsAhead: true }))).toBe("reuse");
   });
 
   describe("regressions", () => {
-    // The in-flight promise carried no identity, so skipping mid-capture handed
-    // the previous track's audio to the new one, which separated it and cached
-    // the result under the new track's key. The listener heard the previous
-    // song's instrumental over the current song.
-    it("refuses a different track rather than handing over the running capture", () => {
-      expect(decidePrefetch("previous", "current")).toBe("refuse");
+    it("regression: does not hand a running capture to a different track", () => {
+      expect(decidePrefetch(request({ inFlightVideoId: "previous" }))).not.toBe("reuse");
+    });
+
+    it("regression: takes the slot for the track the listener skipped to", () => {
+      expect(decidePrefetch(request({ inFlightVideoId: "previous" }))).toBe("supersede");
+    });
+
+    it("regression: drops a stale warm-ahead for the track being played now", () => {
+      expect(decidePrefetch(request({ inFlightVideoId: "next", inFlightIsAhead: true }))).toBe("supersede");
+    });
+  });
+
+  describe("warming ahead", () => {
+    it("yields to a capture serving the track being listened to", () => {
+      const decision = decidePrefetch(
+        request({ inFlightVideoId: "current", requestedVideoId: "next", requestedIsAhead: true })
+      );
+      expect(decision).toBe("refuse");
+    });
+
+    it("replaces an earlier warm-ahead for a track no longer next", () => {
+      const decision = decidePrefetch(
+        request({
+          inFlightVideoId: "stale-next",
+          inFlightIsAhead: true,
+          requestedVideoId: "next",
+          requestedIsAhead: true,
+        })
+      );
+      expect(decision).toBe("supersede");
     });
   });
 
@@ -28,13 +68,30 @@ describe("decidePrefetch", () => {
         ["", "a"],
         ["a", ""],
       ]) {
-        expect(decidePrefetch(inFlight, requested)).not.toBe("reuse");
+        for (const inFlightIsAhead of [true, false]) {
+          for (const requestedIsAhead of [true, false]) {
+            const decision = decidePrefetch(
+              request({ inFlightVideoId: inFlight, inFlightIsAhead, requestedVideoId: requested, requestedIsAhead })
+            );
+            expect(decision).not.toBe("reuse");
+          }
+        }
       }
     });
 
-    it("is decided entirely by the two ids", () => {
-      expect(decidePrefetch("a", "a")).toBe(decidePrefetch("a", "a"));
-      expect(decidePrefetch(null, "a")).toBe(decidePrefetch(null, "zzz"));
+    it("never leaves the listener's own track waiting on another capture", () => {
+      for (const inFlightIsAhead of [true, false]) {
+        expect(decidePrefetch(request({ inFlightVideoId: "previous", inFlightIsAhead }))).not.toBe("refuse");
+      }
+    });
+
+    it("only ever refuses a warm-ahead", () => {
+      for (const inFlightIsAhead of [true, false]) {
+        for (const requestedIsAhead of [true, false]) {
+          const decision = decidePrefetch(request({ inFlightVideoId: "other", inFlightIsAhead, requestedIsAhead }));
+          if (decision === "refuse") expect(requestedIsAhead).toBe(true);
+        }
+      }
     });
   });
 });

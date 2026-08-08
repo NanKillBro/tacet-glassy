@@ -209,6 +209,8 @@ let slicedPrefetch: Promise<CapturedSlice[]> | null = null;
 // Which track the in-flight capture belongs to. Without it the promise was
 // handed to whichever track asked next.
 let slicedPrefetchVideoId: string | null = null;
+let slicedPrefetchIsAhead = false;
+let slicedPrefetchAbort: AbortController | null = null;
 
 // One worker, not four: every worker that seeks mid-track stalls within
 // seconds, while one starting at zero never seeks and takes the whole track in
@@ -246,12 +248,26 @@ function hiddenPlayerProgress(): number {
   }
 }
 
-function prefetchTrackInSlices(videoId: string, workerCount = DEFAULT_WORKER_COUNT): Promise<CapturedSlice[]> {
-  const decision = decidePrefetch(slicedPrefetchVideoId, videoId);
+function prefetchTrackInSlices(
+  videoId: string,
+  workerCount = DEFAULT_WORKER_COUNT,
+  ahead = false
+): Promise<CapturedSlice[]> {
+  const decision = decidePrefetch({
+    inFlightVideoId: slicedPrefetchVideoId,
+    inFlightIsAhead: slicedPrefetchIsAhead,
+    requestedVideoId: videoId,
+    requestedIsAhead: ahead,
+  });
   if (decision === "reuse" && slicedPrefetch) return slicedPrefetch;
   if (decision === "refuse") {
     log(`sliced prefetch for videoId=${videoId} refused: still capturing ${slicedPrefetchVideoId}`);
     return Promise.resolve([]);
+  }
+  if (decision === "supersede" && slicedPrefetchVideoId) {
+    log(`sliced prefetch for videoId=${videoId} takes over from ${slicedPrefetchVideoId}`);
+    prefetchStateByVideoId.delete(slicedPrefetchVideoId);
+    slicedPrefetchAbort?.abort();
   }
 
   // One worker needs no duration at all, which is what makes it immune to a
@@ -266,14 +282,20 @@ function prefetchTrackInSlices(videoId: string, workerCount = DEFAULT_WORKER_COU
   }
   log(`sliced prefetch: ${slices.length} worker(s) for videoId=${videoId}`);
 
+  const abort = new AbortController();
   slicedPrefetchVideoId = videoId;
+  slicedPrefetchIsAhead = ahead;
+  slicedPrefetchAbort = abort;
   slicedPrefetch = captureTrackInSlices({
     videoId,
     slices,
+    signal: abort.signal,
     onSliceDone: (done, total) => log(`sliced prefetch progress ${done}/${total}`),
   }).finally(() => {
+    if (slicedPrefetchAbort !== abort) return;
     slicedPrefetch = null;
     slicedPrefetchVideoId = null;
+    slicedPrefetchAbort = null;
   });
   return slicedPrefetch;
 }
@@ -324,8 +346,12 @@ function startPrefetchFor(videoId: string, { ahead = false } = {}): void {
     }
 
     log(`prefetching videoId=${videoId} in a hidden player${ahead ? ", ahead of the listener" : ""}`);
-    void prefetchTrackInSlices(videoId, PRODUCTION_WORKER_COUNT)
+    void prefetchTrackInSlices(videoId, PRODUCTION_WORKER_COUNT, ahead)
       .then(slices => {
+        if (prefetchStateByVideoId.get(videoId) !== "running") {
+          log(`prefetch for videoId=${videoId} was superseded, dropping what it captured`);
+          return;
+        }
         const captured = slices[0];
         const coverage = {
           reachedSeconds: captured?.reachedSeconds ?? Number.NaN,
@@ -356,6 +382,7 @@ function startPrefetchFor(videoId: string, { ahead = false } = {}): void {
         announceCaptureReady(videoId);
       })
       .catch(error => {
+        if (prefetchStateByVideoId.get(videoId) !== "running") return;
         logError(`prefetch failed for videoId=${videoId}`, error);
         abandonPrefetch(videoId, ahead, "threw");
       });
