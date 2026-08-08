@@ -58,3 +58,7 @@ assets/src/
 # manifest.key; this is the private half and must never be committed.
 .keys/
 *.pem
+
+# Manual stress harness. Drives a real browser against real YouTube Music, so
+# it cannot run in CI and is kept out of the tree deliberately.
+scripts/stress/
