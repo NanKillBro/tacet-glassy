@@ -26,6 +26,7 @@ import { FRAME_ID_PREFIX, type CapturedSlice, captureTrackInSlices } from "@/cap
 import { installForcedSilence, silenceMediaIn } from "@/capture/silence-frame";
 import { runSliceCapture } from "@/capture/slice-runner";
 import { DEFAULT_WORKER_COUNT, planSlices, planWholeTrack } from "@/capture/slice-plan";
+import { decidePrefetch } from "@/capture/prefetch-gate";
 import { installSourceBufferCapture } from "@/capture/sourcebuffer-patch";
 import { getVideoIdFromSearch } from "@/capture/video-id";
 import { readWorkerAssignment } from "@/capture/worker-frame";
@@ -214,6 +215,9 @@ if (runsOrchestration) setInterval(pollCaptureCompletion, ENDED_LISTENER_POLL_MS
 // the listener's own playback.
 
 let slicedPrefetch: Promise<CapturedSlice[]> | null = null;
+// Which track the in-flight capture belongs to. Without it the promise was
+// handed to whichever track asked next.
+let slicedPrefetchVideoId: string | null = null;
 
 // One worker, not four: every worker that seeks mid-track stalls within
 // seconds, while one starting at zero never seeks and takes the whole track in
@@ -251,11 +255,16 @@ function hiddenPlayerProgress(): number {
 }
 
 function prefetchTrackInSlices(workerCount = DEFAULT_WORKER_COUNT): Promise<CapturedSlice[]> {
-  if (slicedPrefetch) return slicedPrefetch;
-
   const videoId = getVideoIdFromSearch(window.location.search);
   if (!videoId) {
     log("sliced prefetch skipped: no videoId yet");
+    return Promise.resolve([]);
+  }
+
+  const decision = decidePrefetch(slicedPrefetchVideoId, videoId);
+  if (decision === "reuse" && slicedPrefetch) return slicedPrefetch;
+  if (decision === "refuse") {
+    log(`sliced prefetch for videoId=${videoId} refused: still capturing ${slicedPrefetchVideoId}`);
     return Promise.resolve([]);
   }
 
@@ -271,12 +280,14 @@ function prefetchTrackInSlices(workerCount = DEFAULT_WORKER_COUNT): Promise<Capt
   }
   log(`sliced prefetch: ${slices.length} worker(s) for videoId=${videoId}`);
 
+  slicedPrefetchVideoId = videoId;
   slicedPrefetch = captureTrackInSlices({
     videoId,
     slices,
     onSliceDone: (done, total) => log(`sliced prefetch progress ${done}/${total}`),
   }).finally(() => {
     slicedPrefetch = null;
+    slicedPrefetchVideoId = null;
   });
   return slicedPrefetch;
 }
