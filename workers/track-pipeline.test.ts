@@ -162,3 +162,38 @@ describe("TrackPipeline forgetTrack", () => {
     });
   });
 });
+
+describe("TrackPipeline answering a duplicate capture", () => {
+  const VIDEO_ID = "DJCB1ZlseJ8";
+
+  function stagesFor(videoId: string) {
+    return posted.flatMap(message =>
+      message.type === "blk-track-stage" && message.videoId === videoId ? [message.stage] : []
+    );
+  }
+
+  it("regression: tells a second asker where the running separation has got to", async () => {
+    const pipeline = new TrackPipeline(fakeSeparationHost(), () => 250 * 1024 * 1024);
+    pipeline.handleCaptureChunk(captureChunk(VIDEO_ID));
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    const before = stagesFor(VIDEO_ID).length;
+    expect(before).toBeGreaterThan(0);
+
+    pipeline.handleCaptureChunk(captureChunk(VIDEO_ID));
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    const after = stagesFor(VIDEO_ID);
+    expect(after.length).toBeGreaterThan(before);
+    expect(after[after.length - 1]).toBe(after[before - 1]);
+  });
+
+  it("does not start a second separation to answer", async () => {
+    const pipeline = new TrackPipeline(fakeSeparationHost(), () => 250 * 1024 * 1024);
+    pipeline.handleCaptureChunk(captureChunk(VIDEO_ID));
+    pipeline.handleCaptureChunk(captureChunk(VIDEO_ID));
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    expect(runsStartedFor(VIDEO_ID)).toBe(1);
+  });
+});

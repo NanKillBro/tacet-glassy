@@ -8,5 +8,11 @@ function decideSeparationStart(runningVideoId: string | null, requestedVideoId: 
   return runningVideoId === requestedVideoId ? "ignore" : "supersede";
 }
 
-export { decideSeparationStart };
+const OPENING_STAGE = "checking-cache";
+
+function shouldRepublishStage(stage: string | null): boolean {
+  return stage !== null && stage !== OPENING_STAGE;
+}
+
+export { decideSeparationStart, shouldRepublishStage, OPENING_STAGE };
 export type { SeparationStart };

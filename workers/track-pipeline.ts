@@ -1,5 +1,5 @@
 import { decideCacheLookup } from "../src/orchestrator/cache-lookup.js";
-import { decideSeparationStart } from "../src/orchestrator/separation-gate.js";
+import { decideSeparationStart, shouldRepublishStage } from "../src/orchestrator/separation-gate.js";
 import { createRegionAccumulator } from "../src/orchestrator/region-accumulator.js";
 import { base64ToBytes, bytesToBase64 } from "../src/relay/base64.js";
 import { type ChunkAssembler, createChunkAssembler, splitIntoChunks } from "../src/relay/chunk-transfer.js";
@@ -101,8 +101,19 @@ interface DecodedTrack {
 class TrackPipeline {
   private activeVideoId: string | null = null;
   private runningVideoId: string | null = null;
+  private currentStage: TrackStage | null = null;
+  private lastProgress: { processed: number; total: number } | null = null;
   private captureAssembler: ChunkAssembler | null = null;
   private captureMimeType = "";
+
+  private republishProgress(videoId: string): void {
+    if (shouldRepublishStage(this.currentStage)) {
+      post({ type: "blk-track-stage", videoId, stage: this.currentStage as TrackStage });
+    }
+    if (this.lastProgress !== null) {
+      post({ type: "blk-track-progress", videoId, ...this.lastProgress });
+    }
+  }
 
   // The SeparationHost is owned by the caller (one Worker for the whole
   // offscreen document's lifetime, shared with the existing cancel-command
@@ -122,6 +133,7 @@ class TrackPipeline {
 
   private sendStage(videoId: string, stage: TrackStage): void {
     if (this.isStale(videoId)) return;
+    this.currentStage = stage;
     post({ type: "blk-track-stage", videoId, stage });
   }
 
@@ -158,10 +170,17 @@ class TrackPipeline {
     const decision = decideSeparationStart(this.runningVideoId, message.videoId);
     if (decision === "ignore") {
       logger.log(`already separating ${message.videoId}, ignoring a second capture of it`);
+      // Answered, not merely ignored. A tab that arrives on a track already
+      // being separated ahead of time resets to a null stage, and a run deep in
+      // "separating" emits only progress, so it would wait out its timeout and
+      // report the track unavailable while the work was being done for it.
+      this.republishProgress(message.videoId);
       return;
     }
     if (decision === "supersede") this.separationHost.cancel();
 
+    this.currentStage = null;
+    this.lastProgress = null;
     this.runningVideoId = message.videoId;
     this.run(message.videoId, mimeType, base64ToBytes(base64))
       .catch(error => {
@@ -293,6 +312,7 @@ class TrackPipeline {
       totalFrames: decoded.numFrames,
       onProgress: (processed, total) => {
         if (this.isStale(videoId)) return;
+        this.lastProgress = { processed, total };
         post({ type: "blk-track-progress", videoId, processed, total });
       },
       onRegion: region => {
