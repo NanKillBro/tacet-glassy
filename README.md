@@ -41,9 +41,15 @@ your music never leaves your machine.
 
 ## Install
 
-Grab the zip from the [latest release](https://github.com/better-lyrics/tacet/releases/latest)
-and unzip it. Then open `chrome://extensions/`, turn on developer mode, click
-"Load unpacked" and choose the folder you unzipped.
+Download the zip from the [latest release](https://github.com/better-lyrics/tacet/releases/latest)
+and unzip it. Open `chrome://extensions/`, turn on developer mode, click "Load
+unpacked" and pick the `tacet` folder.
+
+> [!NOTE]
+> Loading unpacked is the only way in, and that is Chrome's doing rather than
+> ours. Chrome has disabled sideloaded `.crx` files on Windows and macOS since
+> 2014, and dropped `--load-extension` from stable builds in Chrome 137, so
+> every other route now needs enterprise policy.
 
 Or build it yourself:
 

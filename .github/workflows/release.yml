@@ -81,10 +81,12 @@ jobs:
           git tag -a "v${{ github.event.inputs.version }}" -m "Version ${{ github.event.inputs.version }}"
           git push origin "v${{ github.event.inputs.version }}"
 
+      # Zipped with a top-level folder, so unzipping produces one directory to
+      # point "Load unpacked" at rather than scattering 70 files into Downloads.
       - name: Zip the unpacked extension
         run: |
-          cd build/chrome-mv3-prod
-          zip -r ../../tacet-v${{ github.event.inputs.version }}-chrome.zip .
+          cp -r build/chrome-mv3-prod tacet
+          zip -rq tacet-v${{ github.event.inputs.version }}-chrome.zip tacet
 
       - name: Create GitHub Release
         uses: ncipollo/release-action@v1

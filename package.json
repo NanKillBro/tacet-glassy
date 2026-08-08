@@ -12,7 +12,7 @@
     "lint": "biome lint . && biome format .",
     "lint:fix": "biome lint --write . && biome format --write .",
     "test": "vitest run",
-    "sync:ort": "cp node_modules/onnxruntime-web/dist/ort.webgpu.bundle.min.mjs assets/ort/ && cp node_modules/onnxruntime-web/dist/ort-wasm*.mjs assets/ort/ && cp node_modules/onnxruntime-web/dist/ort-wasm*.wasm assets/ort/"
+    "sync:ort": "cp node_modules/onnxruntime-web/dist/ort.webgpu.bundle.min.mjs assets/ort/ && cp node_modules/onnxruntime-web/dist/ort-wasm*.mjs assets/ort/ && cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.wasm assets/ort/"
   },
   "dependencies": {
     "plasmo": "0.90.5"

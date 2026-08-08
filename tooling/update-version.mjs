@@ -14,9 +14,17 @@ if (!match) {
   console.error(`Invalid version: ${inputVersion}`);
   process.exit(1);
 }
+const version = match[0];
 
+// Rewriting the one line rather than reserialising: JSON.stringify expands the
+// short arrays biome keeps inline, which would fail the next release's lint.
 const packageJsonPath = join(process.cwd(), "package.json");
-const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf-8"));
-packageJson.version = match[0];
-writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
-console.log(`Bumped package.json version to ${match[0]}`);
+const source = readFileSync(packageJsonPath, "utf-8");
+const versionLine = /^(\s*"version":\s*)"[^"]*"/m;
+if (!versionLine.test(source)) {
+  console.error("No version field found in package.json");
+  process.exit(1);
+}
+
+writeFileSync(packageJsonPath, source.replace(versionLine, `$1"${version}"`));
+console.log(`Bumped package.json version to ${version}`);

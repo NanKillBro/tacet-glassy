@@ -12,10 +12,10 @@ npm install
 npm run sync:ort
 ```
 
-This pulls in every `ort-wasm-simd-threaded*` variant (default, `.jsep`, `.jspi`,
-`.asyncify`) plus their `.mjs` loaders and the WebGPU entry bundle. The worker only
-loads the `.asyncify` variant at runtime, but all four are copied so the wasmPaths
-prefix resolves regardless of which build ends up in use.
+This pulls in the `.asyncify` binary plus every `.mjs` loader and the WebGPU entry
+bundle. Only `.asyncify` is copied because it is the only binary the WebGPU bundle
+names, and shipping the other three cost 51 MB of the 76 MB build. Verified by a
+full cold separation with only this one present.
 
 The pinned version and the `.mjs` loaders committed here must move together: a
 mismatched `sync:ort` run produces loader/binary skew that ONNX Runtime reports as
