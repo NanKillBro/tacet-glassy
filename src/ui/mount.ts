@@ -17,6 +17,19 @@ const BETTER_LYRICS_STYLE_LINK_SELECTOR = 'link[id^="blyrics-style-"]';
 const DOCK_CONTROLS_SELECTOR = ".blyrics-dock__controls";
 const PLAYER_BAR_VOLUME_BUTTON_SELECTOR = "ytmusic-player-bar .right-controls-buttons yt-icon-button.volume";
 
+// Better Lyrics separates its own dock sections with these and styles them from
+// its own stylesheet, so this is the same element rather than a copy of the
+// rule. buildControlsSegment in its lyricsDock/controls.ts puts one between
+// sections and never before the first.
+const DOCK_DIVIDER_CLASS = "blyrics-dock__divider";
+
+// Following that rule for a control Better Lyrics does not know about: ours is
+// the first thing in an otherwise empty dock as readily as the last thing in a
+// full one, and a dock that opens with a divider looks broken.
+function needsDockDivider(dockChildren: readonly unknown[], ours: readonly unknown[]): boolean {
+  return dockChildren.some(child => !ours.includes(child));
+}
+
 // Better Lyrics injects <link id="blyrics-style-...​"> in injectHeadTags,
 // well before the dock exists, so presence is known immediately. Presence
 // and the mount point are two separate questions: the dock only appears
@@ -50,14 +63,22 @@ function attachFaderMount(control: FaderMountControl, options: AttachFaderMountO
     return document.querySelector<HTMLElement>(PLAYER_BAR_VOLUME_BUTTON_SELECTOR);
   }
 
+  const divider = document.createElement("span");
+  divider.className = DOCK_DIVIDER_CLASS;
+
   function mountTo(target: MountTarget): void {
     if (target === "dock") {
       const dock = dockControlsElement();
       if (!dock) return;
+      if (needsDockDivider(Array.from(dock.children), [control.button, divider])) dock.appendChild(divider);
+      else divider.remove();
       dock.appendChild(control.button);
     } else {
       const volumeButton = volumeButtonElement();
       if (!volumeButton) return;
+      // The player bar has no dividers of its own, and Better Lyrics may not
+      // even be installed to style one.
+      divider.remove();
       volumeButton.insertAdjacentElement("afterend", control.button);
     }
     control.setHost(target);
@@ -93,6 +114,7 @@ function attachFaderMount(control: FaderMountControl, options: AttachFaderMountO
     disconnect() {
       observer.disconnect();
       resolver.dispose();
+      divider.remove();
     },
   };
 }
@@ -100,8 +122,10 @@ function attachFaderMount(control: FaderMountControl, options: AttachFaderMountO
 export {
   BETTER_LYRICS_STYLE_LINK_SELECTOR,
   DOCK_CONTROLS_SELECTOR,
+  DOCK_DIVIDER_CLASS,
   PLAYER_BAR_VOLUME_BUTTON_SELECTOR,
   hasBetterLyrics,
+  needsDockDivider,
   attachFaderMount,
 };
 export type { FaderMountControl, AttachFaderMountOptions, FaderMountHandle };
