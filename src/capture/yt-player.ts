@@ -10,6 +10,9 @@
 
 import { MOVIE_PLAYER_ELEMENT_ID } from "@/capture/ad-guard";
 import type { PlayerVideoData } from "@/capture/ad-guard";
+import { createLogger } from "@/shared/logger";
+
+const logger = createLogger("capture");
 
 interface YtPlayer {
   getVideoData?: () => PlayerVideoData;
@@ -39,7 +42,7 @@ function callSafely(label: string, fn: (() => void) | undefined): boolean {
     fn();
     return true;
   } catch (error) {
-    console.warn(`[BLK-CAP] player.${label} failed`, error);
+    logger.warn(`player.${label} failed`, error);
     return false;
   }
 }

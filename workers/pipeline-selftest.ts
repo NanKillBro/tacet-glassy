@@ -2,6 +2,9 @@ import { decodeOpusToPcm, encodePcmToOpus } from "../src/cache/opus-codec.js";
 import { createRegionAccumulator } from "../src/orchestrator/region-accumulator.js";
 import { TARGET_SAMPLE_RATE } from "../src/separation/audio-codec.js";
 import type { SeparationHost } from "./separation-host.js";
+import { createLogger } from "../src/shared/logger.js";
+
+const logger = createLogger("selftest");
 
 // -- Synthetic end-to-end bisect ---------------------------------------------
 //
@@ -71,7 +74,7 @@ function judge(report: Omit<SelfTestReport, "verdict">): string {
 async function runPipelineSelfTest(host: SeparationHost, modelUrl: string, forceWasm = false): Promise<SelfTestReport> {
   const { channels, totalFrames } = buildTestSignal();
   const inputRms = rms(channels[0]);
-  console.log(`[BLK-SELFTEST] input: frames=${totalFrames}, rms=${inputRms.toExponential(3)}, forceWasm=${forceWasm}`);
+  logger.log(`input: frames=${totalFrames}, rms=${inputRms.toExponential(3)}, forceWasm=${forceWasm}`);
 
   await host.init({ modelUrl, forceWasm });
 
@@ -106,7 +109,7 @@ async function runPipelineSelfTest(host: SeparationHost, modelUrl: string, force
     roundTripInstrumentalRms: rms(roundTrip.channels[0]),
   };
   const report: SelfTestReport = { ...measured, verdict: judge(measured) };
-  console.log("[BLK-SELFTEST]", report);
+  logger.log(report);
   return report;
 }
 

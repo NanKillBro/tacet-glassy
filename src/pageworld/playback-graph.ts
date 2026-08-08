@@ -7,6 +7,9 @@
 
 import { createBypassController } from "@/pageworld/bypass";
 import { gainsForMixLevel } from "@/pageworld/gain-law";
+import { createLogger } from "@/shared/logger";
+
+const logger = createLogger("page");
 
 interface PlaybackGraphDeps {
   context: AudioContext;
@@ -146,7 +149,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   ): void {
     stopActiveSources();
     if (vocals.length === 0 || instrumental.length === 0) {
-      console.warn("[BLK-PAGE] load-stems carried no channels, staying on the original");
+      logger.warn("load-stems carried no channels, staying on the original");
       return;
     }
 

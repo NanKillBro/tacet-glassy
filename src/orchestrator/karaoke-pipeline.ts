@@ -19,6 +19,7 @@ import {
   isDownloadProgressMessage,
 } from "@/capture/bridge-protocol";
 import { getVideoIdFromSearch } from "@/capture/video-id";
+import { createLogger } from "@/shared/logger";
 import { decodeOpusToPcm } from "@/cache/opus-codec";
 import { initialKaraokeState, reduceKaraokeState } from "@/orchestrator/karaoke-state";
 import type { KaraokeState } from "@/orchestrator/karaoke-state";
@@ -47,14 +48,14 @@ const CAPTURE_REQUEST_TIMEOUT_MS = 8000;
 // k = 1 is the original mix untouched (see src/pageworld/gain-law.ts).
 const NEUTRAL_MIX_LEVEL = 1;
 
-const LOG_PREFIX = "[BLK]";
+const logger = createLogger("orchestrator");
 
 function log(message: string): void {
-  console.log(`${LOG_PREFIX} ${message}`);
+  logger.log(message);
 }
 
 function logError(message: string, error: unknown): void {
-  console.error(`${LOG_PREFIX} ${message}`, error);
+  logger.error(message, error);
 }
 
 function describeError(error: unknown): string {

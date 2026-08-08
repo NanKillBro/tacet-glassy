@@ -1,5 +1,6 @@
 import type { PlasmoCSConfig } from "plasmo";
 import { isLogMessage, isStepMessage, type StartPathBMessage } from "../../workers/protocol2";
+import { createLogger } from "@/shared/logger";
 
 export const config: PlasmoCSConfig = {
   matches: ["https://music.youtube.com/*"],
@@ -7,7 +8,7 @@ export const config: PlasmoCSConfig = {
   all_frames: false,
 };
 
-const LOG_PREFIX = "[BLK-SPIKE2]";
+const logger = createLogger("spike");
 const PATH_B_TIMEOUT_MS = 25000;
 
 const PATH_B_STEPS = [
@@ -24,7 +25,7 @@ const PATH_B_STEPS = [
 type StepValue = true | string;
 
 function log(message: string): void {
-  console.log(`${LOG_PREFIX} ${message}`);
+  logger.log(`${message}`);
 }
 
 function toStepValue(ok: boolean, error: string | undefined): StepValue {
@@ -89,9 +90,9 @@ function runPathB(): Promise<Record<string, StepValue>> {
 
 async function runSpike2(): Promise<void> {
   const pathB = await runPathB();
-  console.log(`${LOG_PREFIX} RESULT ${JSON.stringify({ pathB })}`);
+  console.log(`RESULT ${JSON.stringify({ pathB })}`);
 }
 
 runSpike2().catch(error => {
-  console.error(`${LOG_PREFIX} spike2 crashed`, error);
+  console.error(`spike2 crashed`, error);
 });

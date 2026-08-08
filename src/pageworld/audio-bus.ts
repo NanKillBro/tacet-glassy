@@ -5,6 +5,9 @@
 // context and source without either side knowing about the other's graph.
 
 import { decideAudioBusClaim } from "@/pageworld/audio-bus-claim";
+import { createLogger } from "@/shared/logger";
+
+const logger = createLogger("audio");
 
 const AUDIO_BUS_VERSION = 1;
 const AUDIO_BUS_KEY = "__blyricsAudio";
@@ -45,12 +48,12 @@ async function resumeOnGesture(context: AudioContext): Promise<boolean> {
     try {
       await Promise.race([context.resume(), new Promise(resolve => setTimeout(resolve, RESUME_TIMEOUT_MS))]);
     } catch (error) {
-      console.error("[BLK-AUDIO-BUS] context.resume() failed", error);
+      logger.error("context.resume() failed", error);
     }
   }
 
   if (context.state === "running") return true;
-  console.warn(`[BLK-AUDIO-BUS] context stuck in "${context.state}" after ${RESUME_TIMEOUT_MS}ms, not engaging yet`);
+  logger.warn(`context stuck in "${context.state}" after ${RESUME_TIMEOUT_MS}ms, not engaging yet`);
   return false;
 }
 
@@ -76,7 +79,7 @@ async function acquireAudioBus(element: HTMLMediaElement): Promise<BlyricsAudioB
     if (bus.element === element && bus.element.isConnected) {
       return (await resumeOnGesture(bus.context)) ? bus : null;
     }
-    console.warn("[BLK-AUDIO-BUS] the bus holds a different element, building one for this one");
+    logger.warn("the bus holds a different element, building one for this one");
   }
 
   // Already ours from an earlier graph: reuse rather than re-claim.
@@ -90,9 +93,7 @@ async function acquireAudioBus(element: HTMLMediaElement): Promise<BlyricsAudioB
   }
 
   if (claimedElements.has(element)) {
-    console.error(
-      "[BLK-AUDIO-BUS] this element was claimed by something else and can never be routed. Reload the page."
-    );
+    logger.error("this element was claimed by something else and can never be routed. Reload the page.");
     return null;
   }
 
@@ -115,10 +116,7 @@ async function acquireAudioBus(element: HTMLMediaElement): Promise<BlyricsAudioB
     // Permanently unroutable now. Remember it so no later attempt wastes
     // another AudioContext, of which Chrome allows only a handful per page.
     claimedElements.add(element);
-    console.error(
-      "[BLK-AUDIO-BUS] cannot capture the audible element, its audio will keep playing untouched. Reload the page.",
-      error
-    );
+    logger.error("cannot capture the audible element, its audio will keep playing untouched. Reload the page.", error);
     await context.close();
     return null;
   }

@@ -7,7 +7,7 @@
 
 import type { CaptureAccumulator } from "@/capture/accumulator";
 import { concatenateChunks, countInitSegments, planFirstPlusMedia, planNaiveConcat } from "@/capture/decode-plan";
-import { LOG_PREFIX, log } from "@/capture/log";
+import { log } from "@/capture/log";
 
 interface CaptureCounters {
   videoId: string | null;
@@ -154,7 +154,7 @@ async function runCaptureDecodeExperiment(
     multipleInitSegments,
   };
 
-  console.log(`${LOG_PREFIX} RESULT ${JSON.stringify(result)}`);
+  log(`RESULT ${JSON.stringify(result)}`);
   return result;
 }
 

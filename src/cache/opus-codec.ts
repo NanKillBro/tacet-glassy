@@ -20,10 +20,11 @@ import {
   interleave,
 } from "@/cache/pcm-utils";
 import type { DecoderConfig, EncodedPacket } from "@/cache/pcm-utils";
+import { createLogger } from "@/shared/logger";
 
 const OPUS_CODEC = "opus";
 const OPUS_BITRATE = 96_000;
-const LOG_PREFIX = "[OpusCodec]";
+const logger = createLogger("opus");
 
 function toDecoderConfig(config: AudioDecoderConfig): DecoderConfig {
   const source = config.description;
@@ -50,7 +51,7 @@ async function encodePcmToOpus(channels: Float32Array[], sampleRate: number): Pr
       chunk.copyTo(data);
       packets.push({ data, timestampUs: chunk.timestamp, durationUs: chunk.duration ?? 0 });
     },
-    error: error => console.warn(`${LOG_PREFIX} encoder error`, error),
+    error: error => logger.warn(`encoder error`, error),
   });
 
   encoder.configure({
@@ -78,7 +79,7 @@ async function encodePcmToOpus(channels: Float32Array[], sampleRate: number): Pr
   encoder.close();
 
   if (numberOfFrames > 0 && !decoderConfig) {
-    throw new Error(`${LOG_PREFIX} encoder produced packets but never emitted a decoder config`);
+    throw new Error(`encoder produced packets but never emitted a decoder config`);
   }
 
   const resolvedDecoderConfig: DecoderConfig = decoderConfig ?? {
@@ -121,7 +122,7 @@ async function decodeOpusToPcm(blob: Blob): Promise<DecodedOpus> {
       decodedChunks.push(deinterleave(interleaved, audioData.numberOfChannels));
       audioData.close();
     },
-    error: error => console.warn(`${LOG_PREFIX} decoder error`, error),
+    error: error => logger.warn(`decoder error`, error),
   });
 
   decoder.configure({

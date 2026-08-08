@@ -22,6 +22,9 @@ import {
 } from "./protocol2.js";
 import { SeparationHost } from "./separation-host.js";
 import { TrackPipeline, fetchModelUrl } from "./track-pipeline.js";
+import { createLogger } from "../src/shared/logger.js";
+
+const logger = createLogger("offscreen");
 
 // -- Path B: offscreen document ----------------------------------------------
 //
@@ -41,14 +44,14 @@ function sendStep(step: string, ok: boolean, error?: string): void {
   const message: StepMessage = { type: "blk-spike2-step", path: "B", step, ok };
   if (error !== undefined) message.error = error;
   chrome.runtime.sendMessage(message).catch(err => {
-    console.error("[BLK-SPIKE2-OFFSCREEN] failed to send step", err);
+    logger.error("failed to send step", err);
   });
 }
 
 function sendLog(line: string): void {
   const message: LogMessage = { type: "blk-spike2-log", path: "B", line };
   chrome.runtime.sendMessage(message).catch(err => {
-    console.error("[BLK-SPIKE2-OFFSCREEN] failed to send log", err);
+    logger.error("failed to send log", err);
   });
 }
 
@@ -211,7 +214,7 @@ function purgeStaleSeparations(): void {
   try {
     previous = localStorage.getItem(SEPARATION_VERSION_KEY);
   } catch (error) {
-    console.warn("[BLK-OFFSCREEN] could not read the separation version", error);
+    logger.warn("could not read the separation version", error);
     return;
   }
   if (previous === SEPARATION_VERSION) return;
@@ -219,10 +222,10 @@ function purgeStaleSeparations(): void {
   Promise.all([clearAllStemRecords(), clearAllAliases()])
     .then(() => {
       localStorage.setItem(SEPARATION_VERSION_KEY, SEPARATION_VERSION);
-      console.log(`[BLK-OFFSCREEN] cleared stems from a previous separation version (${previous ?? "none"})`);
+      logger.log(`cleared stems from a previous separation version (${previous ?? "none"})`);
     })
     .catch(error => {
-      console.error("[BLK-OFFSCREEN] failed to purge stale separations", error);
+      logger.error("failed to purge stale separations", error);
     });
 }
 
@@ -263,7 +266,7 @@ chrome.runtime
     if (isSettingsMessage(response)) applySettings(response.settings);
   })
   .catch(error => {
-    console.error("[BLK-OFFSCREEN] failed to load settings", error);
+    logger.error("failed to load settings", error);
   });
 
 function getCacheBudgetBytes(): number {
@@ -301,7 +304,7 @@ chrome.runtime.onMessage.addListener(message => {
   if (isSettingsChangedMessage(message)) {
     applySettings(message.settings);
     reactToBudgetChange(message.settings.cacheBudgetBytes).catch(error => {
-      console.error("[BLK-OFFSCREEN] failed to react to a settings change", error);
+      logger.error("failed to react to a settings change", error);
     });
   }
 });
@@ -348,7 +351,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     fetchCacheStatus()
       .then(sendResponse)
       .catch(error => {
-        console.error("[BLK-OFFSCREEN] failed to read cache status", error);
+        logger.error("failed to read cache status", error);
       });
     return true;
   }
@@ -357,7 +360,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     clearStemCache()
       .then(sendResponse)
       .catch(error => {
-        console.error("[BLK-OFFSCREEN] failed to clear the stem cache", error);
+        logger.error("failed to clear the stem cache", error);
       });
     return true;
   }
@@ -366,7 +369,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     clearModelCache()
       .then(sendResponse)
       .catch(error => {
-        console.error("[BLK-OFFSCREEN] failed to clear the model cache", error);
+        logger.error("failed to clear the model cache", error);
       });
     return true;
   }
@@ -472,7 +475,7 @@ async function analyseCachedStems(): Promise<StemAnalysis[]> {
 chrome.runtime.onMessage.addListener(message => {
   if (!isProbeCacheCommand(message)) return undefined;
   trackPipeline.probeCache(message.videoId).catch(error => {
-    console.error("[BLK-OFFSCREEN] cache probe failed", error);
+    logger.error("cache probe failed", error);
   });
   return undefined;
 });

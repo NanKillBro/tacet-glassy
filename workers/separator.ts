@@ -13,6 +13,9 @@ import {
   isSeparateInitCommand,
   isSeparateProcessCommand,
 } from "./protocol.js";
+import { createLogger } from "../src/shared/logger.js";
+
+const logger = createLogger("separator");
 
 // -- ORT surface used here ---------------------------------------
 
@@ -257,9 +260,9 @@ async function probeWithZeros(runtime: SeparationOrt, session: SeparationOrtSess
         [WAVEFORM_INPUT_NAME]: new runtime.Tensor("float32", waveformData, [1, 2, SEGMENT_SAMPLES]),
         [MAGSPEC_INPUT_NAME]: new runtime.Tensor("float32", magspecData, MAGSPEC_DIMS),
       });
-      console.log(`[BLK-PROBE] amp=${amplitude}`, probe(TIME_OUTPUT_NAME, result[TIME_OUTPUT_NAME].data));
+      logger.log(`amp=${amplitude}`, probe(TIME_OUTPUT_NAME, result[TIME_OUTPUT_NAME].data));
     } catch (error) {
-      console.log(`[BLK-PROBE] amp=${amplitude} run failed`, toErrorMessage(error));
+      logger.log(`amp=${amplitude} run failed`, toErrorMessage(error));
     }
   }
 }
@@ -278,9 +281,9 @@ async function handleSeparateInit(
       graphOptimizationLevel: "all",
     });
     separationOrt = runtime;
-    console.log(`[BLK-PROBE] model bytes=${modelBytes.byteLength}`);
-    console.log(
-      `[BLK-PROBE] session inputs=${JSON.stringify(separationSession.inputNames)} outputs=${JSON.stringify(
+    logger.log(`model bytes=${modelBytes.byteLength}`);
+    logger.log(
+      `session inputs=${JSON.stringify(separationSession.inputNames)} outputs=${JSON.stringify(
         separationSession.outputNames
       )}`
     );
@@ -394,12 +397,12 @@ async function handleSeparateProcess(channels: Float32Array[], totalFrames: numb
     const vocalsChunk: Chunk = { start: chunk.start, end: chunk.end, data: extractVocalsStem(timeTensor, freqTensor) };
 
     if (chunkIndex === 0) {
-      console.log("[BLK-PROBE]", probe("normalized input L", chunk.data[0]));
-      console.log("[BLK-PROBE]", probe("waveform tensor", waveformTensor.data));
-      console.log("[BLK-PROBE]", probe("magspec tensor", magspecTensor.data));
-      console.log("[BLK-PROBE]", probe("model time output", timeTensor.data));
-      console.log("[BLK-PROBE]", probe("model freq output", freqTensor.data));
-      console.log("[BLK-PROBE]", probe("extracted vocals L", vocalsChunk.data[0]));
+      logger.log(probe("normalized input L", chunk.data[0]));
+      logger.log(probe("waveform tensor", waveformTensor.data));
+      logger.log(probe("magspec tensor", magspecTensor.data));
+      logger.log(probe("model time output", timeTensor.data));
+      logger.log(probe("model freq output", freqTensor.data));
+      logger.log(probe("extracted vocals L", vocalsChunk.data[0]));
     }
 
     chunkIndex++;
@@ -421,7 +424,7 @@ async function handleSeparateProcess(channels: Float32Array[], totalFrames: numb
   try {
     await separationSession.release?.();
   } catch (error) {
-    console.warn("[BLK-SEPARATOR] failed to release ORT session", error);
+    logger.warn("failed to release ORT session", error);
   }
   separationSession = null;
 

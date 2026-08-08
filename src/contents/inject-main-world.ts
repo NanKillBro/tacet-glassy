@@ -6,6 +6,9 @@ import { createPlaybackGraph } from "@/pageworld/playback-graph";
 import type { PlaybackGraph } from "@/pageworld/playback-graph";
 import { currentPlayerSnapshot, playerVideoElement } from "@/pageworld/player-state";
 import { isLoadStemsMessage, isSetMixLevelMessage, isStopStemsMessage } from "@/pageworld/protocol";
+import { createLogger } from "@/shared/logger";
+
+const logger = createLogger("page");
 
 // -- Page-world audio graph --------------------------------------------------
 //
@@ -43,7 +46,7 @@ let engagedStems: LoadedStems | null = null;
 // from outside, and "holding" versus "trying and failing" is the whole diagnosis.
 let lastAction: EngagementAction = "idle";
 
-console.log("[BLK-PAGE] karaoke page world ready, build 0.0.3");
+logger.log("karaoke page world ready, build 0.0.3");
 
 function decodedBytes(element: HTMLMediaElement): number {
   return (element as HTMLMediaElement & { webkitAudioDecodedByteCount?: number }).webkitAudioDecodedByteCount ?? 0;
@@ -106,18 +109,16 @@ function applyStems(graph: PlaybackGraph, stems: LoadedStems): void {
   graph.loadStems(stems.vocals, stems.instrumental, stems.sampleRate);
   graph.setMixLevel(pendingMixLevel);
   engagedStems = stems;
-  console.log(`[BLK-PAGE] stems playing for videoId=${stems.videoId}, mix level ${pendingMixLevel}`);
+  logger.log(`stems playing for videoId=${stems.videoId}, mix level ${pendingMixLevel}`);
 }
 
 function buildGraph(element: HTMLMediaElement): Promise<PlaybackGraph | null> {
   return acquireAudioBus(element).then(bus => {
     if (!bus) {
-      console.warn("[BLK-PAGE] could not acquire the audio bus, playback is unchanged");
+      logger.warn("could not acquire the audio bus, playback is unchanged");
       return null;
     }
-    console.log(
-      `[BLK-PAGE] audio bus acquired, context=${bus.context.state}, element decoded bytes=${decodedBytes(bus.element)}`
-    );
+    logger.log(`audio bus acquired, context=${bus.context.state}, element decoded bytes=${decodedBytes(bus.element)}`);
 
     const graph = createPlaybackGraph({ context: bus.context, source: bus.source });
     cachedElement = bus.element;
@@ -129,13 +130,13 @@ function buildGraph(element: HTMLMediaElement): Promise<PlaybackGraph | null> {
       if (bus.context.state === "running") return;
       bus.context
         .resume()
-        .catch(error => console.warn("[BLK-PAGE] context resume failed", error))
+        .catch(error => logger.warn("context resume failed", error))
         .finally(() => {
           if (bus.context.state === "running") {
-            console.log("[BLK-PAGE] context recovered, stems still engaged");
+            logger.log("context recovered, stems still engaged");
             return;
           }
-          console.warn(`[BLK-PAGE] context stuck in "${bus.context.state}", bypassing to the original`);
+          logger.warn(`context stuck in "${bus.context.state}", bypassing to the original`);
           graph.stopStems();
         });
     });
@@ -183,7 +184,7 @@ function reconcile(): void {
   }
 
   if (action === "rebind") {
-    console.warn("[BLK-PAGE] the element these stems belong to changed, tearing the graph down");
+    logger.warn("the element these stems belong to changed, tearing the graph down");
     discardGraph();
     return;
   }
@@ -200,7 +201,7 @@ function reconcile(): void {
     // Binding the wrong element is permanent, so only a positively identified
     // other element counts: "none" is the just-claimed blind spot again.
     if (targetPosition(stems) === "other") {
-      console.warn("[BLK-PAGE] the audio bus bound a different element than the stems match, leaving it disengaged");
+      logger.warn("the audio bus bound a different element than the stems match, leaving it disengaged");
       discardGraph();
       return;
     }
@@ -228,8 +229,8 @@ window.addEventListener("message", event => {
 
   if (isLoadStemsMessage(data)) {
     const durationSeconds = (data.vocals[0]?.length ?? 0) / data.sampleRate;
-    console.log(
-      `[BLK-PAGE] load-stems received for videoId=${data.videoId}, sampleRate=${data.sampleRate}, channels=${data.vocals.length}, duration=${durationSeconds.toFixed(1)}s`
+    logger.log(
+      `load-stems received for videoId=${data.videoId}, sampleRate=${data.sampleRate}, channels=${data.vocals.length}, duration=${durationSeconds.toFixed(1)}s`
     );
     pendingStems = {
       videoId: data.videoId,

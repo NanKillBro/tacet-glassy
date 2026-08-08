@@ -27,6 +27,9 @@ import {
   isModelUrlMessage,
 } from "./protocol2.js";
 import { SeparationHost } from "./separation-host.js";
+import { createLogger } from "../src/shared/logger.js";
+
+const logger = createLogger("pipeline");
 
 // -- Offscreen-side track pipeline -------------------------------------------
 //
@@ -53,7 +56,7 @@ function isAbortError(error: unknown): boolean {
 
 function post(message: TrackPipelineOutboundMessage): void {
   chrome.runtime.sendMessage(message).catch(error => {
-    console.error("[BLK-TRACK-PIPELINE] failed to send", message.type, error);
+    logger.error("failed to send", message.type, error);
   });
 }
 
@@ -81,7 +84,7 @@ async function sendStemChunks(videoId: string, stem: StemName, blob: Blob): Prom
       // assembler permanently incomplete, and blk-track-done would still
       // follow if this were ignored, so the pipeline would hang forever
       // with no visible error instead of surfacing one here.
-      console.error("[BLK-TRACK-PIPELINE] failed to send stem chunk", stem, index, error);
+      logger.error("failed to send stem chunk", stem, index, error);
       throw error instanceof Error ? error : new Error(toErrorMessage(error));
     }
   }
@@ -203,8 +206,8 @@ class TrackPipeline {
 
     this.sendStage(videoId, "decoding");
     const decoded = await decodeFileToFloat32(new Blob([bytes], { type: mimeType }));
-    console.log(
-      `[BLK-RMS] decoded input: frames=${decoded.numFrames}, rate=${decoded.sampleRate}, rms=${stageRms(decoded.channels[0])}`
+    logger.log(
+      `decoded input: frames=${decoded.numFrames}, rate=${decoded.sampleRate}, rms=${stageRms(decoded.channels[0])}`
     );
     if (this.isStale(videoId)) return;
 
@@ -259,8 +262,8 @@ class TrackPipeline {
       onRegion: region => {
         if (loggedRegions < 3) {
           loggedRegions++;
-          console.log(
-            `[BLK-RMS] region @${region.regionStart}: vocals=${stageRms(region.vocals[0])}, instrumental=${stageRms(
+          logger.log(
+            `region @${region.regionStart}: vocals=${stageRms(region.vocals[0])}, instrumental=${stageRms(
               region.instrumental[0]
             )}, frames=${region.vocals[0]?.length ?? 0}`
           );
@@ -271,10 +274,8 @@ class TrackPipeline {
     if (this.isStale(videoId)) return;
 
     this.sendStage(videoId, "encoding");
-    console.log(
-      `[BLK-RMS] accumulated: vocals=${stageRms(accumulator.vocals[0])}, instrumental=${stageRms(
-        accumulator.instrumental[0]
-      )}`
+    logger.log(
+      `accumulated: vocals=${stageRms(accumulator.vocals[0])}, instrumental=${stageRms(accumulator.instrumental[0])}`
     );
     const [vocalsBlob, instrumentalBlob] = await Promise.all([
       encodePcmToOpus(accumulator.vocals, decoded.sampleRate),

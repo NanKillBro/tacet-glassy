@@ -9,6 +9,9 @@ import type { FaderControl } from "@/ui/fader";
 import { attachFaderMount, hasBetterLyrics } from "@/ui/mount";
 import { createTooltip } from "@/ui/tooltip";
 import type { Tooltip, TooltipContent } from "@/ui/tooltip";
+import { createLogger } from "@/shared/logger";
+
+const logger = createLogger("orchestrator");
 
 // -- Fader UI wiring -----------------------------------------------------------
 //
@@ -137,5 +140,5 @@ async function mountFaderIfEnabled(): Promise<void> {
 }
 
 mountFaderIfEnabled().catch(error => {
-  console.error("[BLK] failed to check the sing-along setting", error);
+  logger.error("failed to check the sing-along setting", error);
 });

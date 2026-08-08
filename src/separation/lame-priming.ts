@@ -1,10 +1,11 @@
+import { createLogger } from "@/shared/logger";
 // Vendored from composer src/audio/lame-priming.ts @ 30f0e2e
 
 // -- Constants -----------------------------------------------------------------
 
 const DECODER_DELAY_SAMPLES = 528;
 const PRIMING_HARD_CAP = 8192;
-const LOG_PREFIX = "[LamePriming]";
+const logger = createLogger("priming");
 
 const MPEG1_SAMPLE_RATES: readonly number[] = [44_100, 48_000, 32_000];
 const MPEG2_SAMPLE_RATES: readonly number[] = [22_050, 24_000, 16_000];
@@ -87,7 +88,7 @@ function parseLamePriming(input: ArrayBufferLike | Uint8Array): LamePriming {
   const encoderDelay = (high << 4) | (mixed >> 4);
   const samples = encoderDelay + DECODER_DELAY_SAMPLES;
   if (samples > PRIMING_HARD_CAP) {
-    console.warn(`${LOG_PREFIX} LAME priming over cap:`, samples);
+    logger.warn(`LAME priming over cap:`, samples);
     return empty;
   }
   return { samples, sampleRate };
@@ -101,7 +102,7 @@ function stripLeading<T extends Float32Array>(channels: T[], n: number): T[] {
 function cropAudioBufferHead(audio: AudioBuffer, startSample: number, ctx: BaseAudioContext): AudioBuffer {
   if (startSample <= 0) return audio;
   if (startSample >= audio.length) {
-    console.warn(`${LOG_PREFIX} priming meets or exceeds buffer length; skipping crop:`, startSample, audio.length);
+    logger.warn(`priming meets or exceeds buffer length; skipping crop:`, startSample, audio.length);
     return audio;
   }
   const length = audio.length - startSample;

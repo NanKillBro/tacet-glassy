@@ -1,14 +1,15 @@
-// Every capture-spike log line is prefixed [BLK-CAP] so a human watching the
-// page console (the only console this spike is read from) can filter on it.
+import { createLogger } from "@/shared/logger";
 
-const LOG_PREFIX = "[BLK-CAP]";
+// The capture patch runs in the page world alongside YouTube's own noise, so it
+// keeps a named scope rather than printing under the bare prefix.
+const logger = createLogger("capture");
 
 function log(message: string): void {
-  console.log(`${LOG_PREFIX} ${message}`);
+  logger.log(message);
 }
 
 function logError(message: string, error: unknown): void {
-  console.error(`${LOG_PREFIX} ${message}`, error);
+  logger.error(message, error);
 }
 
-export { LOG_PREFIX, log, logError };
+export { log, logError };

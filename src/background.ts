@@ -24,6 +24,9 @@ import {
   isTrackProgressMessage,
   isTrackStageMessage,
 } from "../workers/protocol2";
+import { createLogger } from "@/shared/logger";
+
+const logger = createLogger("pipeline");
 
 // -- Path B offscreen document lifecycle and message relay ------------------
 //
@@ -74,7 +77,7 @@ async function sendRunCommand(): Promise<void> {
 function relayToActiveTab(message: unknown): void {
   if (activeTabId === null) return;
   chrome.tabs.sendMessage(activeTabId, message).catch(error => {
-    console.error("[BLK-SPIKE2-BG] relay failed", error);
+    logger.error("relay failed", error);
   });
 }
 
@@ -136,7 +139,7 @@ function relayToTabForVideo(videoId: string, message: unknown): void {
   const tabId = tabIdByVideoId.get(videoId);
   if (tabId === undefined) return;
   chrome.tabs.sendMessage(tabId, message).catch(error => {
-    console.error("[BLK-TRACK-PIPELINE-BG] relay failed", error);
+    logger.error("relay failed", error);
   });
 }
 
@@ -149,7 +152,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender) => {
     ensureOffscreenDocument()
       .then(() => chrome.runtime.sendMessage(message))
       .catch(error => {
-        console.error("[BLK-BACKGROUND] failed to relay a cache probe", error);
+        logger.error("failed to relay a cache probe", error);
       });
     return undefined;
   }
@@ -207,7 +210,7 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
   sendToOffscreenWithRetry(message)
     .then(sendResponse)
     .catch(error => {
-      console.error("[BLK-BG] cache command failed", error);
+      logger.error("cache command failed", error);
     });
   return true;
 });
@@ -230,7 +233,7 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
       sendResponse(response);
     })
     .catch(error => {
-      console.error("[BLK-BG] failed to load settings", error);
+      logger.error("failed to load settings", error);
     });
   return true;
 });
@@ -250,6 +253,6 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
       await chrome.runtime.sendMessage(message);
     })
     .catch(error => {
-      console.error("[BLK-BG] failed to broadcast a settings change", error);
+      logger.error("failed to broadcast a settings change", error);
     });
 });
