@@ -182,6 +182,7 @@ async function clearAllStemRecords(): Promise<void> {
 export {
   getStemRecord,
   putStemRecord,
+  deleteEntries,
   DEFAULT_BUDGET_BYTES,
   evictUntilWithinBudget,
   getTotalStemBytes,

@@ -11,6 +11,7 @@ import {
   isCaptureChunkMessage,
   isClearModelCacheCommand,
   isClearStemCacheCommand,
+  isForgetTrackCommand,
   isGetCacheStatusCommand,
   isProbeCacheCommand,
   isSettingsChangedMessage,
@@ -290,6 +291,12 @@ async function analyseCachedStems(): Promise<StemAnalysis[]> {
 }
 
 chrome.runtime.onMessage.addListener(message => {
+  if (isForgetTrackCommand(message)) {
+    trackPipeline.forgetTrack(message.videoId).catch(error => {
+      logger.error("could not forget a track", error);
+    });
+    return undefined;
+  }
   if (!isProbeCacheCommand(message)) return undefined;
   trackPipeline.probeCache(message.videoId).catch(error => {
     logger.error("cache probe failed", error);

@@ -5,6 +5,8 @@ import { bytesToBase64 } from "../src/relay/base64.js";
 import type { CaptureChunkMessage, TrackPipelineOutboundMessage } from "./protocol2.js";
 import type { SeparationHost } from "./separation-host.js";
 import { TrackPipeline } from "./track-pipeline.js";
+import { getContentKeyForVideoId, setVideoIdAlias } from "../src/cache/keys.js";
+import { getStemRecord, putStemRecord } from "../src/cache/stem-store.js";
 
 const posted: TrackPipelineOutboundMessage[] = [];
 let cancelCount = 0;
@@ -98,6 +100,65 @@ describe("TrackPipeline separation gating", () => {
       await Promise.resolve();
 
       expect(runsStartedFor("DJCB1ZlseJ8")).toBe(1);
+    });
+  });
+});
+
+describe("TrackPipeline forgetTrack", () => {
+  const VIDEO_ID = "DJCB1ZlseJ8";
+  const CONTENT_KEY = "4d3f9c0a1b2e";
+
+  async function seedCachedStems(): Promise<void> {
+    await putStemRecord(CONTENT_KEY, {
+      vocals: new Blob([new Uint8Array([1, 2, 3])]),
+      instrumental: new Blob([new Uint8Array([4, 5, 6])]),
+      framesDone: 2_425_000,
+      totalFrames: 2_425_000,
+    });
+    await setVideoIdAlias(VIDEO_ID, CONTENT_KEY);
+  }
+
+  function missesFor(videoId: string): number {
+    return posted.filter(message => message.type === "blk-cache-miss" && message.videoId === videoId).length;
+  }
+
+  it("drops the stems and the alias", async () => {
+    await seedCachedStems();
+    expect(await getContentKeyForVideoId(VIDEO_ID)).toBe(CONTENT_KEY);
+    expect(await getStemRecord(CONTENT_KEY)).not.toBeNull();
+
+    await new TrackPipeline(fakeSeparationHost(), () => 250 * 1024 * 1024).forgetTrack(VIDEO_ID);
+
+    expect(await getContentKeyForVideoId(VIDEO_ID)).toBeNull();
+    expect(await getStemRecord(CONTENT_KEY)).toBeNull();
+  });
+
+  it("leaves the next probe missing, so the track is acquired again", async () => {
+    await seedCachedStems();
+    const pipeline = new TrackPipeline(fakeSeparationHost(), () => 250 * 1024 * 1024);
+
+    expect(await pipeline.probeCache(VIDEO_ID)).toBe(true);
+    posted.length = 0;
+
+    await pipeline.forgetTrack(VIDEO_ID);
+
+    expect(await pipeline.probeCache(VIDEO_ID)).toBe(false);
+    expect(missesFor(VIDEO_ID)).toBe(1);
+  });
+
+  describe("edge cases", () => {
+    it("is safe for a track that was never cached", async () => {
+      const pipeline = new TrackPipeline(fakeSeparationHost(), () => 250 * 1024 * 1024);
+      await expect(pipeline.forgetTrack("lYBUbBu4W08")).resolves.toBeUndefined();
+    });
+
+    it("leaves another track's stems alone", async () => {
+      await seedCachedStems();
+      await setVideoIdAlias("lYBUbBu4W08", "someOtherKey");
+
+      await new TrackPipeline(fakeSeparationHost(), () => 250 * 1024 * 1024).forgetTrack(VIDEO_ID);
+
+      expect(await getContentKeyForVideoId("lYBUbBu4W08")).toBe("someOtherKey");
     });
   });
 });

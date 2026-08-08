@@ -3,10 +3,10 @@ import { decideSeparationStart } from "../src/orchestrator/separation-gate.js";
 import { createRegionAccumulator } from "../src/orchestrator/region-accumulator.js";
 import { base64ToBytes, bytesToBase64 } from "../src/relay/base64.js";
 import { type ChunkAssembler, createChunkAssembler, splitIntoChunks } from "../src/relay/chunk-transfer.js";
-import { computeContentKey, getContentKeyForVideoId, setVideoIdAlias } from "../src/cache/keys.js";
+import { computeContentKey, deleteVideoIdAlias, getContentKeyForVideoId, setVideoIdAlias } from "../src/cache/keys.js";
 import { hasCachedModel } from "../src/cache/model-cache.js";
 import { encodePcmToOpus } from "../src/cache/opus-codec.js";
-import { getStemRecord, putStemRecord } from "../src/cache/stem-store.js";
+import { deleteEntries, getStemRecord, putStemRecord } from "../src/cache/stem-store.js";
 import type { StemRecord } from "../src/cache/stem-store.js";
 import { decodeFileToFloat32 } from "../src/separation/audio-codec.js";
 
@@ -180,6 +180,15 @@ class TrackPipeline {
   // where SeparationHost.cancel() alone has nothing to abort.
   // Answers "are there already stems for this videoId" without needing the
   // audio. The alias lookup is keyed by videoId alone, so it costs one
+  // Drops a track's stems and its alias, so the next probe misses and the track
+  // is acquired again.
+  async forgetTrack(videoId: string): Promise<void> {
+    const contentKey = await getContentKeyForVideoId(videoId);
+    await deleteVideoIdAlias(videoId);
+    if (contentKey) await deleteEntries([contentKey]);
+    logger.log(`forgot ${videoId}${contentKey ? ` and its stems under ${contentKey.slice(0, 12)}` : ""}`);
+  }
+
   // IndexedDB read and can run the moment a track starts, long before any
   // capture exists. Returns true when stems were delivered.
   async probeCache(videoId: string): Promise<boolean> {

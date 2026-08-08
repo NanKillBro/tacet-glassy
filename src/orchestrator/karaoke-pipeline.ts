@@ -29,6 +29,8 @@ import { createLogger } from "@/shared/logger";
 import { decodeOpusToPcm } from "@/cache/opus-codec";
 import { initialKaraokeState, reduceKaraokeState } from "@/orchestrator/karaoke-state";
 import type { KaraokeState } from "@/orchestrator/karaoke-state";
+import { judgeStemCoverage, stemDurationSeconds } from "@/orchestrator/stem-coverage";
+import { playerVideoElement } from "@/pageworld/player-state";
 import type { LoadStemsMessage, SetMixLevelMessage, StopStemsMessage } from "@/pageworld/protocol";
 import { loadSettingsFrom } from "@/settings/storage";
 import { base64ToBytes, bytesToBase64 } from "@/relay/base64";
@@ -36,6 +38,7 @@ import { type ChunkAssembler, createChunkAssembler, splitIntoChunks } from "@/re
 import type {
   CancelSeparationCommand,
   CaptureChunkMessage,
+  ForgetTrackCommand,
   ProbeCacheCommand,
   StemChunkMessage,
 } from "../../workers/protocol2";
@@ -153,6 +156,22 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   function probeCacheFor(videoId: string): void {
     const probe: ProbeCacheCommand = { type: "blk-probe-cache", videoId };
     chrome.runtime.sendMessage(probe).catch(error => logError("failed to send cache probe", error));
+  }
+
+  function trackDurationSeconds(): number {
+    const element = playerVideoElement(document);
+    return element && Number.isFinite(element.duration) ? element.duration : Number.NaN;
+  }
+
+  function forgetAndReacquire(videoId: string): void {
+    const forget: ForgetTrackCommand = { type: "blk-forget-track", videoId };
+    chrome.runtime
+      .sendMessage(forget)
+      .catch(error => logError("failed to send a forget-track command", error))
+      .finally(() => {
+        if (videoId !== state.videoId) return;
+        postToPageWorld({ type: "blk-request-prefetch", videoId });
+      });
   }
 
   function onBetterLyricsPlayerState(event: Event): void {
@@ -275,6 +294,17 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     Promise.all([decodeOpusToPcm(vocalsBlob), decodeOpusToPcm(instrumentalBlob)])
       .then(([vocals, instrumental]) => {
         if (videoId !== state.videoId) return;
+
+        const stemSeconds = stemDurationSeconds(vocals.channels[0]?.length ?? 0, vocals.sampleRate);
+        if (judgeStemCoverage(stemSeconds, trackDurationSeconds()) === "short") {
+          logError(
+            "stems are shorter than the track, dropping them and acquiring it again",
+            new Error(`${stemSeconds.toFixed(1)}s of stems against a ${trackDurationSeconds().toFixed(1)}s track`)
+          );
+          forgetAndReacquire(videoId);
+          return;
+        }
+
         log(`stems decoded for ${videoId}, loading into the playback graph`);
         const transfer = [...vocals.channels, ...instrumental.channels].map(channel => channel.buffer);
         const message: LoadStemsMessage = {

@@ -10,6 +10,7 @@ import {
   isProbeCacheCommand,
   isClearModelCacheCommand,
   isClearStemCacheCommand,
+  isForgetTrackCommand,
   isGetCacheStatusCommand,
   isGetModelUrlCommand,
   isGetSettingsCommand,
@@ -87,6 +88,15 @@ chrome.runtime.onMessage.addListener((message: unknown, sender) => {
       .then(() => chrome.runtime.sendMessage(message))
       .catch(error => {
         logger.error("failed to relay a cache probe", error);
+      });
+    return undefined;
+  }
+
+  if (isForgetTrackCommand(message)) {
+    ensureOffscreenDocument()
+      .then(() => chrome.runtime.sendMessage(message))
+      .catch(error => {
+        logger.error("failed to relay a forget-track command", error);
       });
     return undefined;
   }

@@ -55,6 +55,19 @@ async function setVideoIdAlias(videoId: string, contentKey: string): Promise<voi
   });
 }
 
+async function deleteVideoIdAlias(videoId: string): Promise<void> {
+  const db = await openDB();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(ALIASES_STORE_NAME, "readwrite");
+    tx.objectStore(ALIASES_STORE_NAME).delete(videoId);
+    tx.onerror = () => reject(tx.error ?? new Error(`keys: delete failed for ${videoId}`));
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+  });
+}
+
 // -- Clearing (settings UI) -----------------------------------------------------
 
 async function clearAllAliases(): Promise<void> {
@@ -70,4 +83,11 @@ async function clearAllAliases(): Promise<void> {
   });
 }
 
-export { SEPARATION_VERSION, computeContentKey, getContentKeyForVideoId, setVideoIdAlias, clearAllAliases };
+export {
+  SEPARATION_VERSION,
+  computeContentKey,
+  getContentKeyForVideoId,
+  setVideoIdAlias,
+  deleteVideoIdAlias,
+  clearAllAliases,
+};

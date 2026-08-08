@@ -312,6 +312,22 @@ export function isProbeCacheCommand(data: unknown): data is ProbeCacheCommand {
   );
 }
 
+// -- Forgetting a track -------------------------------------------------------
+
+export interface ForgetTrackCommand {
+  type: "blk-forget-track";
+  videoId: string;
+}
+
+export function isForgetTrackCommand(data: unknown): data is ForgetTrackCommand {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: unknown }).type === "blk-forget-track" &&
+    typeof (data as { videoId?: unknown }).videoId === "string"
+  );
+}
+
 // The probe's answer, sent before the stems it found. The tab is waiting for a
 // capture, and stem chunks alone do not move it off that.
 export interface CacheHitMessage {
