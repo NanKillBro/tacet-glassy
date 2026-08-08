@@ -2,7 +2,14 @@ import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
 import { beforeEach, describe, expect, it } from "vitest";
 import { ALIASES_STORE_NAME, openDB } from "@/cache/idb";
-import { clearAllAliases, computeContentKey, getContentKeyForVideoId, setVideoIdAlias } from "@/cache/keys";
+import {
+  SEPARATION_VERSION,
+  clearAllAliases,
+  computeContentKey,
+  getContentKeyForVideoId,
+  setVideoIdAlias,
+} from "@/cache/keys";
+import { MODEL_FILENAME } from "@/cache/model-url";
 
 // -- Test helpers -----------------------------------------------------------------
 
@@ -132,5 +139,24 @@ describe("clearAllAliases", () => {
     await clearAllAliases();
     await setVideoIdAlias("video-2", "content-hash-2");
     expect(await getContentKeyForVideoId("video-2")).toBe("content-hash-2");
+  });
+});
+
+describe("separation version", () => {
+  // Renaming the model object for CDN cache busting used to change this, which
+  // purged every cached stem and re-downloaded a file whose bytes were
+  // identical. The version names the model, not the file it is served from.
+  it("does not depend on the model's filename", () => {
+    expect(SEPARATION_VERSION).not.toContain(MODEL_FILENAME);
+    expect(SEPARATION_VERSION).not.toContain(".onnx");
+  });
+
+  it("still identifies the model and a revision", () => {
+    expect(SEPARATION_VERSION).toMatch(/^htdemucs-fp32:v\d+$/);
+  });
+
+  it("is what the content key is salted with", async () => {
+    const audio = new Uint8Array([1, 2, 3, 4]);
+    expect(await computeContentKey(audio)).toBe(await computeContentKey(audio));
   });
 });

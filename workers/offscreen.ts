@@ -219,11 +219,11 @@ function purgeStaleSeparations(): void {
   }
   if (previous === SEPARATION_VERSION) return;
 
+  // Marked before the clear, not after: an offscreen document closed mid-clear
+  // would otherwise never record that it ran, and purge again on every startup.
+  localStorage.setItem(SEPARATION_VERSION_KEY, SEPARATION_VERSION);
   Promise.all([clearAllStemRecords(), clearAllAliases()])
-    .then(() => {
-      localStorage.setItem(SEPARATION_VERSION_KEY, SEPARATION_VERSION);
-      logger.log(`cleared stems from a previous separation version (${previous ?? "none"})`);
-    })
+    .then(() => logger.log(`cleared stems from a previous separation version (${previous ?? "none"})`))
     .catch(error => {
       logger.error("failed to purge stale separations", error);
     });

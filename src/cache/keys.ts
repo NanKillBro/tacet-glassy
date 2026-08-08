@@ -1,5 +1,4 @@
 import { ALIASES_STORE_NAME, openDB } from "@/cache/idb";
-import { MODEL_FILENAME } from "@/cache/model-url";
 
 // -- Content hashing -----------------------------------------------------------------
 //
@@ -9,7 +8,11 @@ import { MODEL_FILENAME } from "@/cache/model-url";
 // separation but left silent NaN-derived stems cached under keys the fixed build
 // still hit, so tracks kept playing silence long after the bug was gone.
 
-const SEPARATION_VERSION = `${MODEL_FILENAME}:v1`;
+// Names the model, deliberately not the file it is served from. Deriving this
+// from MODEL_FILENAME meant renaming the object for CDN cache busting threw away
+// every cached stem, for a file whose bytes had not changed at all. Bump this
+// only when the weights or the pipeline actually change.
+const SEPARATION_VERSION = "htdemucs-fp32:v1";
 
 async function computeContentKey(bytes: BufferSource): Promise<string> {
   const audioDigest = await crypto.subtle.digest("SHA-256", bytes);
