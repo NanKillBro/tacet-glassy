@@ -26,10 +26,6 @@ describe("isTrackPipelineOutboundMessage", () => {
   }
 
   describe("regressions", () => {
-    // The guard was hand-written in background.ts and omitted this one. The
-    // orchestrator waits for it before acquiring a track, so dropping it in
-    // transit meant no track was ever acquired and every separation ran on
-    // whatever the listener had happened to buffer.
     it("regression: relays blk-cache-miss", () => {
       expect(isTrackPipelineOutboundMessage({ type: "blk-cache-miss", videoId: "DJCB1ZlseJ8" })).toBe(true);
     });

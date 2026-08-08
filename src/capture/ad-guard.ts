@@ -1,13 +1,6 @@
-// Ad detection signals, taking elements rather than looking them up so they
-// stay testable without a DOM. src/capture/ad-state.ts composes them.
-//
-// Measured over 517 samples on music.youtube.com, 87 during ads and 429 during
-// a track: `ad-showing` on #movie_player fired 87/87 with no false positive,
-// `is-advertisement` on the player bar 86/87 with no false positive, and the
-// `ytp-ad-playing` class this used to read fired 0/87, as did
-// getVideoData().isAd, which stayed null throughout. Both live signals are
-// kept, since the bar attribute lags the class by one sample at a creative
-// change.
+// Signals chosen by measurement over 517 samples: ad-showing fired 87/87 during
+// ads, is-advertisement 86/87, both with no false positive over 429 track
+// samples. ytp-ad-playing and getVideoData().isAd fired 0/87.
 
 const MOVIE_PLAYER_ELEMENT_ID = "movie_player";
 const AD_SHOWING_CLASS = "ad-showing";
@@ -35,10 +28,6 @@ function playerBarShowsAd(playerBar: ElementWithAttributes | null): boolean {
 }
 
 // -- What the player says it is playing --------------------------------------
-//
-// Whatever plays under a different id is not the track we asked for. This
-// catches a preroll that swaps the id, which both DOM signals miss for the
-// first sample of a creative change.
 
 interface PlayerVideoData {
   video_id?: unknown;

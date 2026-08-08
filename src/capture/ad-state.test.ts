@@ -44,8 +44,6 @@ describe("isAdPlaying", () => {
   });
 
   describe("regressions", () => {
-    // The bar attribute lagged the class by one sample at every creative
-    // change, so either signal alone leaves a window where an ad is captured.
     it("regression: catches the sample where only the class has flipped", () => {
       const doc = fakeDocument({ player: { classes: ["ad-showing"], videoData: { video_id: "track" } } });
       expect(isAdPlaying(doc)).toBe(true);

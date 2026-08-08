@@ -41,11 +41,6 @@ describe("decideEngagement", () => {
   });
 
   describe("regressions", () => {
-    // An element reports zero decoded bytes for a moment after being claimed,
-    // so the target is regularly unidentifiable for one tick. Treating that as
-    // a mismatch tore the graph down, rebuilt it, produced another such moment,
-    // and looped: measured as a rebuild every second with YouTube Music's
-    // playback frozen 2.11 seconds into the track.
     it("holds an engaged graph while the target cannot be identified", () => {
       expect(decideEngagement(input({ graph: "bound", boundElementConnected: true, target: "none" }))).toBe("hold");
     });
@@ -54,9 +49,6 @@ describe("decideEngagement", () => {
       expect(decideEngagement(input({ graph: "none", target: "none" }))).toBe("hold");
     });
 
-    // A track change keeps the element and the graph and swaps only the stems.
-    // Treating a bound graph as finished meant the first track of a session was
-    // the only one that ever engaged, and pausing was the only way out of it.
     it("loads new stems into the graph already bound to their element", () => {
       expect(
         decideEngagement(input({ graph: "bound", boundElementConnected: true, target: "same", stemsEngaged: false }))
@@ -69,10 +61,6 @@ describe("decideEngagement", () => {
       ).toBe("hold");
     });
 
-    // Measured: for about a second after a skip the player is on the next track
-    // while the previous track's stems are still engaged, and syncToElement
-    // restarts them at the new track's position, so the song before plays over
-    // this one with the original at gain zero.
     it("releases stems the moment the player names a different track", () => {
       expect(
         decideEngagement(input({ graph: "bound", boundElementConnected: true, target: "none", stemsAreStale: true }))
@@ -87,14 +75,12 @@ describe("decideEngagement", () => {
       ).toBe("release");
     });
 
-    // A disconnected element can never be recovered, so that outranks it.
     it("still rebinds off a removed element rather than releasing", () => {
       expect(decideEngagement(input({ graph: "bound", boundElementConnected: false, stemsAreStale: true }))).toBe(
         "rebind"
       );
     });
 
-    // Nothing to release when no graph exists, and the element is unknown.
     it("does not release when no graph is bound", () => {
       expect(decideEngagement(input({ graph: "none", target: "none", stemsAreStale: true }))).toBe("hold");
     });
@@ -119,8 +105,6 @@ describe("decideEngagement", () => {
       }
     });
 
-    // A disconnected element can never be recovered, so the decision cannot
-    // depend on where the target is.
     it("always rebinds off an element that has been removed", () => {
       for (const target of ["none", "same", "other"] as const) {
         expect(decideEngagement(input({ graph: "bound", boundElementConnected: false, target }))).toBe("rebind");
@@ -147,22 +131,16 @@ describe("reconfirmAfterEmptied", () => {
   });
 
   describe("regressions", () => {
-    // Measured: one emptied on the playing track left lastAction at "release"
-    // for as long as it was watched, with the stems loaded and the player
-    // naming their own track, because nothing could ever clear the doubt.
     it("regression: lets the current track's stems come back", () => {
       expect(reconfirmAfterEmptied(input())).toBe("confirmed");
     });
 
-    // A preroll keeps the page's videoId, so only the length separates them.
     it("regression: refuses an ad running under the track's own id", () => {
       for (const adSeconds of [6, 20, 90, 133]) {
         expect(reconfirmAfterEmptied(input({ elementDurationSeconds: adSeconds }))).toBe("unconfirmed");
       }
     });
 
-    // For the first moments of a change the player still names the old track
-    // while the element has already loaded the next one.
     it("regression: refuses the next track while the player still names the last", () => {
       expect(reconfirmAfterEmptied(input({ elementDurationSeconds: 213 }))).toBe("unconfirmed");
     });

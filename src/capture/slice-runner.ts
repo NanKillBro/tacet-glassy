@@ -20,10 +20,8 @@ import { callSafely, getYtPlayer, suppressAutoAdvance } from "@/capture/yt-playe
 import type { WorkerAssignment } from "@/capture/worker-frame";
 
 const POLL_MS = 300;
-// How long the player itself may take to arrive. Ad time does not count
-// against it: measured a 60 s unbroken ad block in a worker frame, which spent
-// the whole budget and gave up on a track that was about to play fine. The cap
-// is the backstop, so a signal stuck on cannot wait forever.
+// Ad time does not count against this: a measured 60 s ad block spent the whole
+// budget and gave up on a track that was about to play fine.
 const PLAYER_READY_TIMEOUT_MS = 60_000;
 const PLAYER_READY_CAP_MS = 300_000;
 const PLAYER_POLL_MS = 500;

@@ -1,10 +1,5 @@
-// Whether a completed capture may start a separation right now.
-//
-// The WebGPU execution provider refuses to build a second inference session
-// while one is being created ("another WebGPU EP inference session is being
-// created"), so overlapping runs do not merely waste a GPU, they fail. Two
-// captures for the same track arriving back to back is the case the videoId
-// check alone never caught, since both name the same track.
+// The WebGPU execution provider fails outright on a second concurrent session,
+// and two captures for one track both name the same videoId.
 
 type SeparationStart = "start" | "ignore" | "supersede";
 

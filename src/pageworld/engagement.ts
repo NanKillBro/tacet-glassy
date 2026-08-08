@@ -52,17 +52,10 @@ function decideEngagement(input: EngagementInput): EngagementAction {
 
 // -- Recovering from an emptied element --------------------------------------
 //
-// "emptied" says the media went away, never whether the track did, so it can
-// only put the stems in doubt, not condemn them. Treating it as a verdict
-// deadlocked: stemsAreStale is tested before load, and the flag only cleared
-// once stems were applied, so a single emptied on the track being played left
-// sing-along off until the listener moved on. Measured: 12 s of "release" with
-// the stems loaded and the player naming their own track throughout.
-//
-// The duration test is what the videoId cannot do alone. A preroll keeps the
-// page's videoId, and for the first moments of a track change the player still
-// names the old track while the element has already loaded the new one. Both
-// read as a match on id and neither matches on length.
+// "emptied" says the media went away, never whether the track did, so it puts
+// the stems in doubt rather than condemning them. The duration test is what the
+// videoId cannot do alone: a preroll keeps the page's videoId, and a track
+// change briefly reports the old id against the new element.
 
 const RECONFIRM_DURATION_TOLERANCE_S = 2;
 

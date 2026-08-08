@@ -11,9 +11,6 @@ describe("decideSeparationStart", () => {
   });
 
   describe("regressions", () => {
-    // Measured: an ad announced a complete capture, then the track announced
-    // its own, both under the same videoId. The second call built a second
-    // session and the WebGPU EP failed the whole job.
     it("regression: ignores a second capture for the track already separating", () => {
       expect(decideSeparationStart("DJCB1ZlseJ8", "DJCB1ZlseJ8")).toBe("ignore");
     });

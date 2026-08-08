@@ -25,8 +25,6 @@ describe("moviePlayerShowsAd", () => {
   });
 
   describe("regressions", () => {
-    // Measured 0/87 during ads across 517 samples. It was the only DOM signal
-    // this module read, so a preroll was captured and separated as the track.
     it("regression: does not read the dead ytp-ad-playing class", () => {
       expect(AD_SHOWING_CLASS).not.toBe("ytp-ad-playing");
       expect(moviePlayerShowsAd(elementWithClasses(["ytp-ad-playing"]))).toBe(false);
@@ -88,8 +86,6 @@ describe("isPlayingSomethingElse", () => {
       expect(isPlayingSomethingElse({}, "track")).toBe(false);
     });
 
-    // Measured null throughout 517 samples, so this branch never fires on
-    // YouTube Music and the DOM signals carry the detection.
     it("treats a null isAd as no information rather than as a verdict", () => {
       expect(isPlayingSomethingElse({ isAd: null, video_id: "track" }, "track")).toBe(false);
       expect(isPlayingSomethingElse({ isAd: null, video_id: "other" }, "track")).toBe(true);

@@ -347,12 +347,8 @@ export function isCacheHitMessage(data: unknown): data is CacheHitMessage {
 
 // -- The relay's guard for everything the offscreen document sends out ---------
 //
-// Keyed by the union's own type strings so a message added to
-// TrackPipelineOutboundMessage without a guard here is a compile error. This
-// was hand-maintained in background.ts and silently lost blk-cache-miss, which
-// left acquisition waiting on an answer that was being dropped in transit, so
-// every track was separated from whatever the listener happened to have
-// buffered: a 215 s track came out 55 s long and was cached that way.
+// Keyed by the union's own type strings, so a message added without a guard is
+// a compile error. Hand-maintained, this silently lost blk-cache-miss.
 
 const TRACK_PIPELINE_OUTBOUND_GUARDS: Record<TrackPipelineOutboundMessage["type"], (data: unknown) => boolean> = {
   "blk-cache-hit": isCacheHitMessage,
