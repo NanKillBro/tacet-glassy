@@ -327,6 +327,18 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
 
   let dockCouplingState = initialDockCouplingState();
   let dockClassObserver: MutationObserver | null = null;
+  let pointerOnCard = false;
+
+  menu.addEventListener("pointerenter", () => {
+    pointerOnCard = true;
+  });
+  menu.addEventListener("pointerleave", () => {
+    pointerOnCard = false;
+    const inner = dockInnerElement();
+    if (inner && dockCouplingShouldCloseCard(open, inner.classList.contains(DOCK_EXPANDED_CLASS), false)) {
+      setOpen(false);
+    }
+  });
 
   function stopWatchingDockCollapse(): void {
     dockClassObserver?.disconnect();
@@ -337,7 +349,7 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
     stopWatchingDockCollapse();
     dockClassObserver = new MutationObserver(() => {
       const expanded = inner.classList.contains(DOCK_EXPANDED_CLASS);
-      if (dockCouplingShouldCloseCard(open, expanded)) setOpen(false);
+      if (dockCouplingShouldCloseCard(open, expanded, pointerOnCard)) setOpen(false);
     });
     dockClassObserver.observe(inner, { attributes: true, attributeFilter: ["class"] });
   }

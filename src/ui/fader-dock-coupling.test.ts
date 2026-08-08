@@ -85,3 +85,35 @@ describe("invariants", () => {
     expect(closed.removeExpandedClass).toBe(false);
   });
 });
+
+describe("pointer on the card", () => {
+  // Reaching for the card takes the pointer out of the dock, so the dock
+  // collapses and used to take the open card down with it mid-reach.
+  it("keeps the card open while the pointer is on it", () => {
+    expect(dockCouplingShouldCloseCard(true, false, true)).toBe(false);
+  });
+
+  it("closes once the pointer has left the card and the dock is collapsed", () => {
+    expect(dockCouplingShouldCloseCard(true, false, false)).toBe(true);
+  });
+
+  it("defaults to the old behaviour when the caller does not track the pointer", () => {
+    expect(dockCouplingShouldCloseCard(true, false)).toBe(true);
+  });
+
+  describe("invariants", () => {
+    it("never closes a card that is not open", () => {
+      for (const expanded of [true, false]) {
+        for (const onCard of [true, false]) {
+          expect(dockCouplingShouldCloseCard(false, expanded, onCard)).toBe(false);
+        }
+      }
+    });
+
+    it("never closes while the dock is expanded, pointer or not", () => {
+      for (const onCard of [true, false]) {
+        expect(dockCouplingShouldCloseCard(true, true, onCard)).toBe(false);
+      }
+    });
+  });
+});

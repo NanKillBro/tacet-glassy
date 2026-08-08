@@ -514,3 +514,17 @@
     animation-duration: 1ms;
   }
 }
+
+/* The corridor. The card is a fixed-position sibling of the dock, so the gap
+   between the two is neither, and crossing it read as leaving both: the dock
+   collapsed and took the open card with it. This extends the card's hit area
+   over that gap without moving anything visible. */
+.blyrics-mix::before {
+  content: "";
+  position: absolute;
+  left: -14px;
+  right: -14px;
+  top: -14px;
+  bottom: -14px;
+  z-index: -1;
+}
