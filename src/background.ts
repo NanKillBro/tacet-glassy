@@ -6,8 +6,6 @@ import {
   type RunPathBCommand,
   type SettingsChangedMessage,
   type SettingsMessage,
-  type TrackPipelineOutboundMessage,
-  isCacheHitMessage,
   isCaptureChunkMessage,
   isProbeCacheCommand,
   isClearModelCacheCommand,
@@ -17,12 +15,8 @@ import {
   isGetSettingsCommand,
   isLogMessage,
   isStartPathBMessage,
-  isStemChunkMessage,
   isStepMessage,
-  isTrackDoneMessage,
-  isTrackErrorMessage,
-  isTrackProgressMessage,
-  isTrackStageMessage,
+  isTrackPipelineOutboundMessage,
 } from "../workers/protocol2";
 import { createLogger } from "@/shared/logger";
 
@@ -123,17 +117,6 @@ chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) =>
 // never grows across a long browsing session.
 
 const tabIdByVideoId = new Map<string, number>();
-
-function isTrackPipelineOutboundMessage(message: unknown): message is TrackPipelineOutboundMessage {
-  return (
-    isCacheHitMessage(message) ||
-    isTrackStageMessage(message) ||
-    isTrackProgressMessage(message) ||
-    isStemChunkMessage(message) ||
-    isTrackDoneMessage(message) ||
-    isTrackErrorMessage(message)
-  );
-}
 
 function relayToTabForVideo(videoId: string, message: unknown): void {
   const tabId = tabIdByVideoId.get(videoId);
