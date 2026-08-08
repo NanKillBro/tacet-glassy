@@ -53,3 +53,8 @@ assets/ort/*.wasm
 # Built by build:worker, not Parcel
 assets/workers/
 assets/src/
+
+# Extension signing key. The public half is pinned in package.json as
+# manifest.key; this is the private half and must never be committed.
+.keys/
+*.pem
