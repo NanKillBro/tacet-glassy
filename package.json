@@ -1,7 +1,7 @@
 {
   "name": "tacet",
   "displayName": "Tacet for YouTube Music",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Vocal Separation for YouTube Music",
   "author": "Boidu",
   "scripts": {
