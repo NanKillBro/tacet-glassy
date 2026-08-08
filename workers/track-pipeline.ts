@@ -1,4 +1,5 @@
 import { decideCacheLookup } from "../src/orchestrator/cache-lookup.js";
+import { decideSeparationStart } from "../src/orchestrator/separation-gate.js";
 import { createRegionAccumulator } from "../src/orchestrator/region-accumulator.js";
 import { base64ToBytes, bytesToBase64 } from "../src/relay/base64.js";
 import { type ChunkAssembler, createChunkAssembler, splitIntoChunks } from "../src/relay/chunk-transfer.js";
@@ -99,6 +100,7 @@ interface DecodedTrack {
 
 class TrackPipeline {
   private activeVideoId: string | null = null;
+  private runningVideoId: string | null = null;
   private captureAssembler: ChunkAssembler | null = null;
   private captureMimeType = "";
 
@@ -153,10 +155,22 @@ class TrackPipeline {
     this.captureAssembler = null;
     this.captureMimeType = "";
 
-    this.run(message.videoId, mimeType, base64ToBytes(base64)).catch(error => {
-      if (isAbortError(error)) return;
-      this.sendError(message.videoId, "unknown", toErrorMessage(error));
-    });
+    const decision = decideSeparationStart(this.runningVideoId, message.videoId);
+    if (decision === "ignore") {
+      logger.log(`already separating ${message.videoId}, ignoring a second capture of it`);
+      return;
+    }
+    if (decision === "supersede") this.separationHost.cancel();
+
+    this.runningVideoId = message.videoId;
+    this.run(message.videoId, mimeType, base64ToBytes(base64))
+      .catch(error => {
+        if (isAbortError(error)) return;
+        this.sendError(message.videoId, "unknown", toErrorMessage(error));
+      })
+      .finally(() => {
+        if (this.runningVideoId === message.videoId) this.runningVideoId = null;
+      });
   }
 
   // Called for an explicit cancel command (track change while a job is in
@@ -198,6 +212,7 @@ class TrackPipeline {
   cancelActive(): void {
     this.separationHost.cancel();
     this.activeVideoId = null;
+    this.runningVideoId = null;
     this.captureAssembler = null;
     this.captureMimeType = "";
   }
