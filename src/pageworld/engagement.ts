@@ -18,9 +18,11 @@ interface EngagementInput {
   // Whether the graph already holds the stems in hand. A track change keeps the
   // element and the graph and replaces only these.
   stemsEngaged: boolean;
-  // The player positively named a different track. Evidence, unlike target
-  // "none", which only means the answer is unavailable this tick.
-  playerOnOtherTrack: boolean;
+  // Positive evidence that the loaded stems are no longer this track's: the
+  // player named a different one, or the element they were bound to was emptied
+  // and reloaded. Unlike target "none", which only means the answer is
+  // unavailable this tick, either of these is a fact.
+  stemsAreStale: boolean;
 }
 
 // hold covers both "correctly engaged" and "cannot act yet": the caller waits.
@@ -35,7 +37,10 @@ function decideEngagement(input: EngagementInput): EngagementAction {
     if (!input.boundElementConnected) return "rebind";
     // Ahead of every other test: stems for a track the player has left have to
     // stop being audible whether or not anything has arrived to replace them.
-    if (input.playerOnOtherTrack) return "release";
+    // Measured: the player reports no track at all for the first ~500ms of a
+    // change, so waiting for it to name the next one leaves the previous song
+    // audible over the start of this one.
+    if (input.stemsAreStale) return "release";
     if (input.target === "other") return "rebind";
     if (input.target === "none") return "hold";
     return input.stemsEngaged ? "hold" : "load";

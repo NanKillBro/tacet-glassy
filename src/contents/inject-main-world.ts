@@ -71,6 +71,14 @@ function playerOnOtherTrack(stems: LoadedStems): boolean {
   return snapshot !== null && snapshot.videoId !== stems.videoId;
 }
 
+// The player names no track at all for the first half second of a change, so
+// the element being emptied is the earlier and equally certain signal.
+let elementEmptiedSinceEngage = false;
+
+function stemsAreStale(stems: LoadedStems): boolean {
+  return elementEmptiedSinceEngage || playerOnOtherTrack(stems);
+}
+
 declare global {
   interface Window {
     blkKaraokeProbe: () => unknown;
@@ -110,6 +118,7 @@ function applyStems(graph: PlaybackGraph, stems: LoadedStems): void {
   graph.loadStems(stems.vocals, stems.instrumental, stems.sampleRate);
   graph.setMixLevel(pendingMixLevel);
   engagedStems = stems;
+  elementEmptiedSinceEngage = false;
   logger.log(`stems playing for videoId=${stems.videoId}, mix level ${pendingMixLevel}`);
 }
 
@@ -164,7 +173,7 @@ function reconcile(): void {
     target: targetPosition(stems),
     acquiring: acquiring !== null,
     stemsEngaged: engagedStems === stems,
-    playerOnOtherTrack: playerOnOtherTrack(stems),
+    stemsAreStale: stemsAreStale(stems),
   });
   lastAction = action;
 
@@ -215,7 +224,15 @@ startPlayerBridge();
 
 // Media events do not bubble, so this listens in the capture phase. A track
 // change fires them immediately, which closes the gap the timer alone leaves.
-for (const event of ["emptied", "loadstart", "play", "playing"]) {
+document.addEventListener(
+  "emptied",
+  () => {
+    elementEmptiedSinceEngage = true;
+    reconcile();
+  },
+  true
+);
+for (const event of ["loadstart", "play", "playing"]) {
   document.addEventListener(event, reconcile, true);
 }
 

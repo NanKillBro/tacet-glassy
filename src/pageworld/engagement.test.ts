@@ -10,7 +10,7 @@ function input(overrides: Partial<EngagementInput> = {}): EngagementInput {
     target: "same",
     acquiring: false,
     stemsEngaged: true,
-    playerOnOtherTrack: false,
+    stemsAreStale: false,
     ...overrides,
   };
 }
@@ -76,7 +76,7 @@ describe("decideEngagement", () => {
     it("releases stems the moment the player names a different track", () => {
       expect(
         decideEngagement(
-          input({ graph: "bound", boundElementConnected: true, target: "none", playerOnOtherTrack: true })
+          input({ graph: "bound", boundElementConnected: true, target: "none", stemsAreStale: true })
         )
       ).toBe("release");
     });
@@ -84,21 +84,21 @@ describe("decideEngagement", () => {
     it("releases even while the stems it holds are the engaged ones", () => {
       expect(
         decideEngagement(
-          input({ graph: "bound", boundElementConnected: true, stemsEngaged: true, playerOnOtherTrack: true })
+          input({ graph: "bound", boundElementConnected: true, stemsEngaged: true, stemsAreStale: true })
         )
       ).toBe("release");
     });
 
     // A disconnected element can never be recovered, so that outranks it.
     it("still rebinds off a removed element rather than releasing", () => {
-      expect(decideEngagement(input({ graph: "bound", boundElementConnected: false, playerOnOtherTrack: true }))).toBe(
+      expect(decideEngagement(input({ graph: "bound", boundElementConnected: false, stemsAreStale: true }))).toBe(
         "rebind"
       );
     });
 
     // Nothing to release when no graph exists, and the element is unknown.
     it("does not release when no graph is bound", () => {
-      expect(decideEngagement(input({ graph: "none", target: "none", playerOnOtherTrack: true }))).toBe("hold");
+      expect(decideEngagement(input({ graph: "none", target: "none", stemsAreStale: true }))).toBe("hold");
     });
   });
 
