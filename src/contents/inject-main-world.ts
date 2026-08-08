@@ -1,4 +1,5 @@
 import type { PlasmoCSConfig } from "plasmo";
+import { isAdPlaying } from "@/capture/ad-state";
 import { acquireAudioBus } from "@/pageworld/audio-bus";
 import { decideEngagement, reconfirmAfterEmptied } from "@/pageworld/engagement";
 import type { EngagementAction, TargetPosition } from "@/pageworld/engagement";
@@ -105,6 +106,7 @@ window.blkKaraokeProbe = () => {
   return {
     hasGraph: cachedGraph !== null,
     lastAction,
+    adPlaying: isAdPlaying(document),
     acquiring: acquiring !== null,
     targetPosition: pendingStems ? targetPosition(pendingStems) : null,
     stemsPending: pendingStems !== null,
@@ -189,15 +191,24 @@ function reconcile(): void {
     target: targetPosition(stems),
     acquiring: acquiring !== null,
     stemsEngaged: engagedStems === stems,
+    stemsAudible: cachedGraph?.isEngaged() ?? false,
+    adPlaying: isAdPlaying(document),
     stemsAreStale: stemsAreStale(stems),
   });
   lastAction = action;
 
   if (action === "idle" || action === "hold") return;
 
-  if (action === "release") {
+  // release gives the stems up, suspend keeps them: an ad ends with the same
+  // track still loaded, so the graph resumes rather than copying it again.
+  if (action === "release" || action === "suspend") {
     cachedGraph?.stopStems();
-    engagedStems = null;
+    if (action === "release") engagedStems = null;
+    return;
+  }
+
+  if (action === "resume") {
+    cachedGraph?.resumeStems();
     return;
   }
 

@@ -18,6 +18,10 @@ interface EngagementInput {
   // Whether the graph already holds the stems in hand. A track change keeps the
   // element and the graph and replaces only these.
   stemsEngaged: boolean;
+  // Held stems are not necessarily audible: an ad suspends them without giving
+  // them up, so "holds these stems" and "is playing them" are separate answers.
+  stemsAudible: boolean;
+  adPlaying: boolean;
   // Positive evidence that the loaded stems are no longer this track's: the
   // player named a different one, or the element they were bound to was emptied
   // and reloaded. Unlike target "none", which only means the answer is
@@ -28,13 +32,20 @@ interface EngagementInput {
 // hold covers both "correctly engaged" and "cannot act yet": the caller waits.
 // release hands the audio back but keeps the graph, because the element can
 // only ever be claimed once and tearing it down would forfeit that claim.
-type EngagementAction = "idle" | "hold" | "rebind" | "engage" | "load" | "release";
+// suspend and resume are release and re-engage for stems the graph keeps hold
+// of, so an ad break costs a gain change rather than another copy of the track.
+type EngagementAction = "idle" | "hold" | "rebind" | "engage" | "load" | "release" | "suspend" | "resume";
 
 function decideEngagement(input: EngagementInput): EngagementAction {
   if (!input.hasStems) return "idle";
 
   if (input.graph === "bound") {
     if (!input.boundElementConnected) return "rebind";
+    // Ahead of the staleness test, because an ad is exactly when the player
+    // stops being a reliable witness to which track is loaded. Whatever it is
+    // playing, these stems are not it, so they go quiet either way and the
+    // question of whether they are stale waits until the ad is over.
+    if (input.adPlaying) return input.stemsAudible ? "suspend" : "hold";
     // Ahead of every other test: stems for a track the player has left have to
     // stop being audible whether or not anything has arrived to replace them.
     // Measured: the player reports no track at all for the first ~500ms of a
@@ -43,10 +54,12 @@ function decideEngagement(input: EngagementInput): EngagementAction {
     if (input.stemsAreStale) return "release";
     if (input.target === "other") return "rebind";
     if (input.target === "none") return "hold";
-    return input.stemsEngaged ? "hold" : "load";
+    if (!input.stemsEngaged) return "load";
+    return input.stemsAudible ? "hold" : "resume";
   }
 
-  if (input.target === "none" || input.acquiring) return "hold";
+  // Claiming an element mid-ad binds the graph to whatever is playing the ad.
+  if (input.adPlaying || input.target === "none" || input.acquiring) return "hold";
   return "engage";
 }
 

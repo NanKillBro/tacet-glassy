@@ -33,6 +33,9 @@ interface PlaybackGraph {
   loadStems(vocals: Float32Array<ArrayBuffer>[], instrumental: Float32Array<ArrayBuffer>[], sampleRate: number): void;
   setMixLevel(mixLevel: number): void;
   stopStems(): void;
+  // For stems the graph still holds. Copying a track into an AudioBuffer costs
+  // tens of megabytes on the main thread, so an ad break must not pay for it.
+  resumeStems(): void;
   isEngaged(): boolean;
   // A graph discarded without this keeps its listeners on the element, and each
   // one restarts the stem sources: audible karaoke nothing can control.
@@ -161,6 +164,11 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
       durationSeconds: vocalsBuffer.duration,
     };
 
+    resumeStems();
+  }
+
+  function resumeStems(): void {
+    if (!loadedStems) return;
     originalGainNode.gain.value = 0;
     bypass.exitBypass();
     attachTransportListeners();
@@ -226,6 +234,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     loadStems,
     setMixLevel,
     stopStems,
+    resumeStems,
     isEngaged: () => !bypass.isBypassed(),
     dispose,
     describe,

@@ -28,8 +28,11 @@ function readDuration(player: YtPlayer): number {
   }
 }
 
-// null means "not a track": an ad, a player that has not loaded one yet, or a
-// player that will not answer. Never a guess.
+// null means "not a track": a player that has not loaded one yet, or one that
+// will not answer. Never a guess, and never an ad either, whatever the isAd
+// test below implies: it was measured firing 0 times across 87 ad samples, and
+// the player goes on naming the track it will return to for the whole break.
+// Ads are recognised by isAdPlaying; this is kept only as a free upper bound.
 function readPlayerSnapshot(player: YtPlayer | null): PlayerSnapshot | null {
   if (!player) return null;
 

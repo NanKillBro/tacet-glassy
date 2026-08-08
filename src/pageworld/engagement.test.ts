@@ -10,10 +10,14 @@ function input(overrides: Partial<EngagementInput> = {}): EngagementInput {
     target: "same",
     acquiring: false,
     stemsEngaged: true,
+    stemsAudible: true,
+    adPlaying: false,
     stemsAreStale: false,
     ...overrides,
   };
 }
+
+const bound = { graph: "bound", boundElementConnected: true } as const;
 
 describe("decideEngagement", () => {
   it("does nothing without stems", () => {
@@ -84,6 +88,42 @@ describe("decideEngagement", () => {
     it("does not release when no graph is bound", () => {
       expect(decideEngagement(input({ graph: "none", target: "none", stemsAreStale: true }))).toBe("hold");
     });
+
+    // The player goes on naming the track it will return to for the whole
+    // break, so nothing else here reads an ad as a reason to stop, and the
+    // stems used to play straight over one.
+    it("regression: suspends the stems for an ad the player does not admit to", () => {
+      for (const target of ["same", "none"] as const) {
+        expect(decideEngagement(input({ ...bound, target, adPlaying: true }))).toBe("suspend");
+      }
+    });
+
+    it("regression: resumes the same stems afterwards rather than reloading them", () => {
+      expect(decideEngagement(input({ ...bound, stemsAudible: false }))).toBe("resume");
+    });
+  });
+
+  describe("ad breaks", () => {
+    it("leaves suspended stems alone for the rest of the break", () => {
+      expect(decideEngagement(input({ ...bound, adPlaying: true, stemsAudible: false }))).toBe("hold");
+    });
+
+    it("does not claim an element while an ad is on it", () => {
+      expect(decideEngagement(input({ graph: "none", target: "same", adPlaying: true }))).toBe("hold");
+    });
+
+    it("waits out the ad before judging whether the stems went stale", () => {
+      expect(decideEngagement(input({ ...bound, adPlaying: true, stemsAreStale: true }))).toBe("suspend");
+      expect(decideEngagement(input({ ...bound, adPlaying: false, stemsAreStale: true }))).toBe("release");
+    });
+
+    it("still rebinds off a removed element mid-ad", () => {
+      expect(decideEngagement(input({ graph: "bound", boundElementConnected: false, adPlaying: true }))).toBe("rebind");
+    });
+
+    it("loads stems that arrived during the break once it ends", () => {
+      expect(decideEngagement(input({ ...bound, stemsEngaged: false, stemsAudible: false }))).toBe("load");
+    });
   });
 
   describe("invariants", () => {
@@ -108,6 +148,17 @@ describe("decideEngagement", () => {
     it("always rebinds off an element that has been removed", () => {
       for (const target of ["none", "same", "other"] as const) {
         expect(decideEngagement(input({ graph: "bound", boundElementConnected: false, target }))).toBe("rebind");
+      }
+    });
+
+    it("never leaves stems audible through an ad", () => {
+      for (const target of ["none", "same", "other"] as const) {
+        for (const stale of [true, false]) {
+          const action = decideEngagement(input({ ...bound, target, adPlaying: true, stemsAreStale: stale }));
+          expect(action).not.toBe("hold");
+          expect(action).not.toBe("resume");
+          expect(action).not.toBe("load");
+        }
       }
     });
   });
