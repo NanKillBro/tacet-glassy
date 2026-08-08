@@ -44,6 +44,7 @@
           "assets/src/orchestrator/*",
           "assets/src/relay/*",
           "assets/src/settings/*",
+          "assets/src/shared/*",
           "assets/offscreen.html"
         ],
         "matches": ["https://music.youtube.com/*"]
