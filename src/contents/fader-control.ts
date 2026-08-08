@@ -93,7 +93,11 @@ function renderKaraokeState(control: FaderControl, tooltip: Tooltip, state: Kara
   switch (state.status) {
     case "waiting-for-capture":
       markUnavailable(button);
-      tooltip.setContent(describeDownload(state.downloadFraction, state.downloadSource));
+      tooltip.setContent(
+        state.downloadSource === null
+          ? describeStage(state)
+          : describeDownload(state.downloadFraction, state.downloadSource)
+      );
       break;
     case "ready-to-engage":
     case "engaged":

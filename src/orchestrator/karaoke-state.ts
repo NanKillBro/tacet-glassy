@@ -24,7 +24,7 @@ interface KaraokeState {
   total: number;
   reason: string | null;
   downloadFraction: number;
-  downloadSource: DownloadSource;
+  downloadSource: DownloadSource | null;
 }
 
 type KaraokeEvent =
@@ -47,7 +47,7 @@ function initialKaraokeState(videoId: string): KaraokeState {
     total: 0,
     reason: null,
     downloadFraction: Number.NaN,
-    downloadSource: "listener-playback",
+    downloadSource: null,
   };
 }
 

@@ -12,8 +12,20 @@ describe("initialKaraokeState", () => {
       total: 0,
       reason: null,
       downloadFraction: Number.NaN,
-      downloadSource: "listener-playback",
+      downloadSource: null,
     });
+  });
+
+  it("regression: names no download source until one reports", () => {
+    expect(initialKaraokeState("video-1").downloadSource).toBeNull();
+
+    const reporting = reduceKaraokeState(initialKaraokeState("video-1"), {
+      type: "download-progress",
+      videoId: "video-1",
+      fraction: 0.4,
+      source: "hidden-player",
+    });
+    expect(reporting.downloadSource).toBe("hidden-player");
   });
 });
 

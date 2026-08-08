@@ -15,7 +15,7 @@ import {
   isRequestPrefetchMessage,
 } from "@/capture/bridge-protocol";
 import { computeBufferedFraction } from "@/capture/buffered-fraction";
-import { decideRetry, judgeCapture, missingSeconds } from "@/capture/capture-coverage";
+import { decideRetry, judgeCapture, missingSeconds, retryDelayMs } from "@/capture/capture-coverage";
 import { bufferedRangeEnd } from "@/capture/edge-hopper";
 import type { DownloadSource } from "@/orchestrator/download-tooltip";
 import { concatenateChunks, countInitSegments, planFirstPlusMedia } from "@/capture/decode-plan";
@@ -148,7 +148,7 @@ function announceIfCaptureComplete(element: HTMLVideoElement): void {
   if (stoodDownVideoIds.has(stats.videoId)) return;
   // A hidden player owns this track. Announcing here races it with whatever the
   // listener happened to play, which is partial and may not even decode.
-  if (prefetchStateByVideoId.get(stats.videoId) === "running") return;
+  if (hiddenPlayerOwns(stats.videoId)) return;
   if (isAdPlayingHere()) return;
   if (!Number.isFinite(element.duration)) return;
 
@@ -172,7 +172,8 @@ function bufferedEndSeconds(element: HTMLVideoElement): number {
 function announceDownloadProgress(element: HTMLVideoElement): void {
   const videoId = getVideoIdFromSearch(window.location.search);
   if (!videoId || stoodDownVideoIds.has(videoId) || isAdPlayingHere()) return;
-  const prefetching = prefetchStateByVideoId.get(videoId) === "running";
+  if (prefetchStateByVideoId.get(videoId) === "done") return;
+  const prefetching = hiddenPlayerOwns(videoId);
   const source: DownloadSource = prefetching ? "hidden-player" : "listener-playback";
   const fraction = prefetching
     ? hiddenPlayerProgress()
@@ -229,9 +230,12 @@ interface PrefetchedTrack {
 
 const prefetchedByVideoId = new Map<string, PrefetchedTrack>();
 
-// running: a hidden player owns acquisition and nothing else may announce.
-// unavailable: it produced nothing, so the listener's playback may announce.
-type PrefetchState = "running" | "done" | "unavailable";
+type PrefetchState = "running" | "retrying" | "done" | "unavailable";
+
+function hiddenPlayerOwns(videoId: string): boolean {
+  const state = prefetchStateByVideoId.get(videoId);
+  return state === "running" || state === "retrying";
+}
 const prefetchStateByVideoId = new Map<string, PrefetchState>();
 
 // Reported instead of the listener's buffered fraction while a prefetch owns
@@ -303,22 +307,26 @@ function prefetchTrackInSlices(
 // Riding the listener's playback only completes if they sit through the whole
 // track, since YouTube buffers a limited window ahead of the playhead.
 
-const PREFETCH_RETRY_DELAY_MS = 3000;
 const prefetchAttemptsByVideoId = new Map<string, number>();
 
 function abandonPrefetch(videoId: string, ahead: boolean, reason: string): void {
   const attempts = (prefetchAttemptsByVideoId.get(videoId) ?? 0) + 1;
   prefetchAttemptsByVideoId.set(videoId, attempts);
 
-  if (decideRetry(attempts) === "give-up") {
+  if (decideRetry(attempts, ahead) === "give-up") {
     prefetchStateByVideoId.set(videoId, "unavailable");
     log(`prefetch for videoId=${videoId} gave up after ${attempts} attempt(s): ${reason}`);
     return;
   }
 
-  prefetchStateByVideoId.delete(videoId);
-  log(`prefetch for videoId=${videoId} attempt ${attempts} ${reason}, retrying`);
-  window.setTimeout(() => startPrefetchFor(videoId, { ahead }), PREFETCH_RETRY_DELAY_MS);
+  const delay = retryDelayMs(attempts);
+  prefetchStateByVideoId.set(videoId, "retrying");
+  log(`prefetch for videoId=${videoId} attempt ${attempts} ${reason}, retrying in ${delay}ms`);
+  window.setTimeout(() => {
+    if (prefetchStateByVideoId.get(videoId) !== "retrying") return;
+    prefetchStateByVideoId.delete(videoId);
+    startPrefetchFor(videoId, { ahead });
+  }, delay);
 }
 
 function startPrefetchFor(videoId: string, { ahead = false } = {}): void {
@@ -327,6 +335,11 @@ function startPrefetchFor(videoId: string, { ahead = false } = {}): void {
   if (prefetchStateByVideoId.get(videoId) === "done" && prefetchedByVideoId.has(videoId)) {
     if (!stoodDownVideoIds.has(videoId)) announceCaptureReady(videoId);
     return;
+  }
+  const pending = prefetchStateByVideoId.get(videoId);
+  if (!ahead && (pending === "unavailable" || pending === "retrying")) {
+    prefetchStateByVideoId.delete(videoId);
+    prefetchAttemptsByVideoId.delete(videoId);
   }
   if (prefetchStateByVideoId.has(videoId) || stoodDownVideoIds.has(videoId)) return;
   prefetchStateByVideoId.set(videoId, "running");
@@ -469,8 +482,26 @@ declare global {
     blkRunCaptureDecodeExperiment: () => Promise<unknown>;
     blkDisableCapture: () => void;
     blkPrefetchTrackInSlices: (workerCount?: number) => Promise<unknown>;
+    blkCaptureProbe: () => unknown;
   }
 }
+
+window.blkCaptureProbe = () => {
+  const videoId = getVideoIdFromSearch(window.location.search);
+  return {
+    videoId,
+    prefetchState: videoId ? prefetchStateByVideoId.get(videoId) ?? null : null,
+    hiddenPlayerOwnsCurrent: videoId ? hiddenPlayerOwns(videoId) : false,
+    attempts: videoId ? prefetchAttemptsByVideoId.get(videoId) ?? 0 : 0,
+    capturedBytes: videoId ? prefetchedByVideoId.get(videoId)?.bytes.byteLength ?? 0 : 0,
+    inFlightVideoId: slicedPrefetchVideoId,
+    inFlightIsAhead: slicedPrefetchIsAhead,
+    workerFrames: Array.from(document.querySelectorAll<HTMLIFrameElement>(`iframe[id^="${FRAME_ID_PREFIX}"]`)).map(
+      frame => frame.id
+    ),
+    states: Object.fromEntries(prefetchStateByVideoId),
+  };
+};
 
 window.blkPrefetchTrackInSlices = async (workerCount?: number) => {
   const started = performance.now();

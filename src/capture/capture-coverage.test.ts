@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   COVERAGE_TOLERANCE_S,
-  MAX_CAPTURE_ATTEMPTS,
+  MAX_AHEAD_ATTEMPTS,
+  RETRY_BASE_DELAY_MS,
+  RETRY_MAX_DELAY_MS,
   decideRetry,
   judgeCapture,
   missingSeconds,
+  retryDelayMs,
 } from "@/capture/capture-coverage";
 import type { CaptureCoverage } from "@/capture/capture-coverage";
 
@@ -65,21 +68,61 @@ describe("judgeCapture", () => {
 });
 
 describe("decideRetry", () => {
-  it("retries a first failure", () => {
-    expect(decideRetry(1)).toBe("retry");
+  describe("a track the listener is on", () => {
+    it("never gives up, however many attempts have failed", () => {
+      for (const attempts of [1, 3, 10, 500]) {
+        expect(decideRetry(attempts, false)).toBe("retry");
+      }
+    });
   });
 
-  it("gives up once the attempts are spent", () => {
-    expect(decideRetry(MAX_CAPTURE_ATTEMPTS)).toBe("give-up");
-    expect(decideRetry(MAX_CAPTURE_ATTEMPTS + 1)).toBe("give-up");
+  describe("a track being warmed ahead", () => {
+    it("retries a first failure", () => {
+      expect(decideRetry(1, true)).toBe("retry");
+    });
+
+    it("gives up once the attempts are spent", () => {
+      expect(decideRetry(MAX_AHEAD_ATTEMPTS, true)).toBe("give-up");
+      expect(decideRetry(MAX_AHEAD_ATTEMPTS + 1, true)).toBe("give-up");
+    });
+
+    it("bounds the retries", () => {
+      let attempts = 0;
+      while (decideRetry(attempts, true) === "retry") {
+        attempts++;
+        expect(attempts).toBeLessThanOrEqual(MAX_AHEAD_ATTEMPTS);
+      }
+      expect(attempts).toBe(MAX_AHEAD_ATTEMPTS);
+    });
+  });
+});
+
+describe("retryDelayMs", () => {
+  it("backs off exponentially from the base delay", () => {
+    expect(retryDelayMs(1)).toBe(RETRY_BASE_DELAY_MS);
+    expect(retryDelayMs(2)).toBe(RETRY_BASE_DELAY_MS * 2);
+    expect(retryDelayMs(3)).toBe(RETRY_BASE_DELAY_MS * 4);
   });
 
-  it("bounds the retries", () => {
-    let attempts = 0;
-    while (decideRetry(attempts) === "retry") {
-      attempts++;
-      expect(attempts).toBeLessThanOrEqual(MAX_CAPTURE_ATTEMPTS);
-    }
-    expect(attempts).toBe(MAX_CAPTURE_ATTEMPTS);
+  it("caps, so an uncapturable track does not spin and does not stall forever", () => {
+    expect(retryDelayMs(100)).toBe(RETRY_MAX_DELAY_MS);
+  });
+
+  describe("invariants", () => {
+    it("never decreases and never exceeds the cap", () => {
+      let previous = 0;
+      for (let attempts = 1; attempts <= 40; attempts++) {
+        const delay = retryDelayMs(attempts);
+        expect(delay).toBeGreaterThanOrEqual(previous);
+        expect(delay).toBeLessThanOrEqual(RETRY_MAX_DELAY_MS);
+        previous = delay;
+      }
+    });
+
+    it("is always a usable positive delay", () => {
+      for (const attempts of [0, 1, 2, 9]) {
+        expect(retryDelayMs(attempts)).toBeGreaterThan(0);
+      }
+    });
   });
 });

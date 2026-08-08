@@ -24,13 +24,30 @@ function missingSeconds(coverage: CaptureCoverage): number {
 
 // -- Retrying a short capture ------------------------------------------------
 
-const MAX_CAPTURE_ATTEMPTS = 3;
+const MAX_AHEAD_ATTEMPTS = 3;
+const RETRY_BASE_DELAY_MS = 3000;
+const RETRY_MAX_DELAY_MS = 60_000;
 
 type CaptureNextStep = "retry" | "give-up";
 
-function decideRetry(attemptsSoFar: number): CaptureNextStep {
-  return attemptsSoFar < MAX_CAPTURE_ATTEMPTS ? "retry" : "give-up";
+function decideRetry(attemptsSoFar: number, isAhead: boolean): CaptureNextStep {
+  if (!isAhead) return "retry";
+  return attemptsSoFar < MAX_AHEAD_ATTEMPTS ? "retry" : "give-up";
 }
 
-export { judgeCapture, missingSeconds, decideRetry, COVERAGE_TOLERANCE_S, MAX_CAPTURE_ATTEMPTS };
+function retryDelayMs(attemptsSoFar: number): number {
+  const exponent = Math.max(0, attemptsSoFar - 1);
+  return Math.min(RETRY_MAX_DELAY_MS, RETRY_BASE_DELAY_MS * 2 ** exponent);
+}
+
+export {
+  judgeCapture,
+  missingSeconds,
+  decideRetry,
+  retryDelayMs,
+  COVERAGE_TOLERANCE_S,
+  MAX_AHEAD_ATTEMPTS,
+  RETRY_BASE_DELAY_MS,
+  RETRY_MAX_DELAY_MS,
+};
 export type { CaptureCoverage, CaptureVerdict, CaptureNextStep };
