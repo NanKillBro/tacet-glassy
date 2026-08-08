@@ -1,11 +1,6 @@
 import type { PlasmoCSConfig } from "plasmo";
 import { DEFAULT_MAX_RETAINED_BYTES, createCaptureAccumulator } from "@/capture/accumulator";
-import {
-  AD_PLAYING_CLASS,
-  MOVIE_PLAYER_ELEMENT_ID,
-  isAdPlayingElement,
-  isPlayingSomethingElse,
-} from "@/capture/ad-guard";
+import { isAdPlaying } from "@/capture/ad-state";
 import type {
   CaptureReadyMessage,
   CapturedAudioMessage,
@@ -30,7 +25,6 @@ import { decidePrefetch } from "@/capture/prefetch-gate";
 import { installSourceBufferCapture } from "@/capture/sourcebuffer-patch";
 import { getVideoIdFromSearch } from "@/capture/video-id";
 import { readWorkerAssignment } from "@/capture/worker-frame";
-import { getYtPlayer, readVideoData } from "@/capture/yt-player";
 import { selectPlaybackElement } from "@/pageworld/select-media-element";
 
 // -- Track capture (MAIN world) ----------------------------------------------
@@ -54,16 +48,6 @@ const FULLY_BUFFERED_EPSILON_S = 0.5;
 
 const accumulator = createCaptureAccumulator();
 
-// Ads have to be excluded on the player's own word, not on a CSS class. A
-// preroll that never set ytp-ad-playing was captured, announced as the track,
-// separated and cached under the track's videoId, which is how a 20 s "track"
-// ended up in the cache.
-function isAdPlaying(): boolean {
-  const player = getYtPlayer(document);
-  if (isPlayingSomethingElse(readVideoData(player), getVideoIdFromSearch(window.location.search))) return true;
-  return isAdPlayingElement(document.getElementById(MOVIE_PLAYER_ELEMENT_ID));
-}
-
 // Stems already cached: retaining bytes and announcing readiness would
 // re-upload and re-separate a track that is already done.
 const stoodDownVideoIds = new Set<string>();
@@ -84,7 +68,9 @@ function onAudioChunk(mimeType: string, bytes: Uint8Array): void {
   }
 }
 
-const capture = installSourceBufferCapture({ isAdPlaying, onAudioChunk });
+const isAdPlayingHere = (): boolean => isAdPlaying(document);
+
+const capture = installSourceBufferCapture({ isAdPlaying: isAdPlayingHere, onAudioChunk });
 
 // -- Worker frame mode -------------------------------------------------------
 //
@@ -158,7 +144,7 @@ function announceIfCaptureComplete(element: HTMLVideoElement): void {
   // A hidden player owns this track. Announcing here races it with whatever the
   // listener happened to play, which is partial and may not even decode.
   if (prefetchStateByVideoId.get(stats.videoId) === "running") return;
-  if (isAdPlaying()) return;
+  if (isAdPlayingHere()) return;
   if (!Number.isFinite(element.duration)) return;
 
   const key = announceKey(stats.videoId, element.duration);
@@ -180,7 +166,7 @@ function bufferedEndSeconds(element: HTMLVideoElement): number {
 
 function announceDownloadProgress(element: HTMLVideoElement): void {
   const videoId = getVideoIdFromSearch(window.location.search);
-  if (!videoId || stoodDownVideoIds.has(videoId) || isAdPlaying()) return;
+  if (!videoId || stoodDownVideoIds.has(videoId) || isAdPlayingHere()) return;
   const prefetching = prefetchStateByVideoId.get(videoId) === "running";
   const source: DownloadSource = prefetching ? "hidden-player" : "listener-playback";
   const fraction = prefetching
@@ -371,6 +357,8 @@ function respondToCapturedAudioRequest(videoId: string): void {
   const initSegments = countInitSegments(chunks);
   if (initSegments > 1) log(`capture saw ${initSegments} initializations for videoId=${videoId}, keeping the first`);
   const bytes = concatenateChunks(planFirstPlusMedia(chunks));
+  // Read before the transfer detaches the buffer, which otherwise logs 0.
+  const byteLength = bytes.byteLength;
   const message: CapturedAudioMessage = {
     type: "blk-captured-audio",
     videoId,
@@ -378,7 +366,7 @@ function respondToCapturedAudioRequest(videoId: string): void {
     bytes: bytes.buffer,
   };
   window.postMessage(message, window.location.origin, [bytes.buffer]);
-  log(`captured-audio sent for videoId=${videoId}, bytes=${bytes.byteLength}`);
+  log(`captured-audio sent for videoId=${videoId}, bytes=${byteLength}`);
 }
 
 function standDownFor(videoId: string): void {
@@ -427,6 +415,4 @@ window.blkDisableCapture = () => {
   log("capture disabled: appendBuffer and addSourceBuffer restored to their originals");
 };
 
-log(
-  `installed (ad-skip class=${AD_PLAYING_CLASS}); call window.blkRunCaptureDecodeExperiment() on demand, or let a track finish`
-);
+log("installed; call window.blkRunCaptureDecodeExperiment() on demand, or let a track finish");

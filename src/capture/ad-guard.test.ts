@@ -1,33 +1,61 @@
-import { AD_PLAYING_CLASS, isAdPlayingElement, isPlayingSomethingElse } from "@/capture/ad-guard";
+import {
+  AD_SHOWING_CLASS,
+  PLAYER_BAR_AD_ATTRIBUTE,
+  isPlayingSomethingElse,
+  moviePlayerShowsAd,
+  playerBarShowsAd,
+} from "@/capture/ad-guard";
 import { describe, expect, it } from "vitest";
 
 function elementWithClasses(classes: string[]): { classList: { contains(className: string): boolean } } {
   return { classList: { contains: className => classes.includes(className) } };
 }
 
-describe("isAdPlayingElement", () => {
-  it("is true when the movie player carries the ad-playing class", () => {
-    expect(isAdPlayingElement(elementWithClasses([AD_PLAYING_CLASS]))).toBe(true);
+function elementWithAttributes(attributes: string[]): { hasAttribute(name: string): boolean } {
+  return { hasAttribute: name => attributes.includes(name) };
+}
+
+describe("moviePlayerShowsAd", () => {
+  it("is true when the movie player carries the ad-showing class", () => {
+    expect(moviePlayerShowsAd(elementWithClasses([AD_SHOWING_CLASS]))).toBe(true);
   });
 
-  it("is false when the movie player has other classes but not ad-playing", () => {
-    expect(isAdPlayingElement(elementWithClasses(["ytp-large-play-button"]))).toBe(false);
+  it("is false during a track", () => {
+    expect(moviePlayerShowsAd(elementWithClasses(["playing-mode", "ytp-large-play-button"]))).toBe(false);
+  });
+
+  describe("regressions", () => {
+    // Measured 0/87 during ads across 517 samples. It was the only DOM signal
+    // this module read, so a preroll was captured and separated as the track.
+    it("regression: does not read the dead ytp-ad-playing class", () => {
+      expect(AD_SHOWING_CLASS).not.toBe("ytp-ad-playing");
+      expect(moviePlayerShowsAd(elementWithClasses(["ytp-ad-playing"]))).toBe(false);
+    });
   });
 
   describe("edge cases", () => {
-    it("is false when the movie player has no classes at all", () => {
-      expect(isAdPlayingElement(elementWithClasses([]))).toBe(false);
+    it("is false when the player has no classes at all", () => {
+      expect(moviePlayerShowsAd(elementWithClasses([]))).toBe(false);
     });
 
-    it("is false when the element is null, e.g. the player has not mounted yet", () => {
-      expect(isAdPlayingElement(null)).toBe(false);
+    it("is false before the player has mounted", () => {
+      expect(moviePlayerShowsAd(null)).toBe(false);
     });
   });
+});
 
-  describe("invariants", () => {
-    it("is a pure function: identical input produces identical output", () => {
-      const element = elementWithClasses([AD_PLAYING_CLASS]);
-      expect(isAdPlayingElement(element)).toBe(isAdPlayingElement(element));
+describe("playerBarShowsAd", () => {
+  it("is true when the player bar is marked as an advertisement", () => {
+    expect(playerBarShowsAd(elementWithAttributes([PLAYER_BAR_AD_ATTRIBUTE]))).toBe(true);
+  });
+
+  it("is false during a track", () => {
+    expect(playerBarShowsAd(elementWithAttributes(["player-page-open"]))).toBe(false);
+  });
+
+  describe("edge cases", () => {
+    it("is false before the bar has mounted", () => {
+      expect(playerBarShowsAd(null)).toBe(false);
     });
   });
 });
@@ -60,10 +88,11 @@ describe("isPlayingSomethingElse", () => {
       expect(isPlayingSomethingElse({}, "track")).toBe(false);
     });
 
-    // isAd is checked before video_id so a player that reports an ad without
-    // changing its id is still caught.
-    it("catches an ad that keeps the track's own id", () => {
-      expect(isPlayingSomethingElse({ isAd: true, video_id: "track" }, "track")).toBe(true);
+    // Measured null throughout 517 samples, so this branch never fires on
+    // YouTube Music and the DOM signals carry the detection.
+    it("treats a null isAd as no information rather than as a verdict", () => {
+      expect(isPlayingSomethingElse({ isAd: null, video_id: "track" }, "track")).toBe(false);
+      expect(isPlayingSomethingElse({ isAd: null, video_id: "other" }, "track")).toBe(true);
     });
   });
 });

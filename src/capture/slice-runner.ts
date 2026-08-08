@@ -10,17 +10,22 @@
 // frame to the autoplay queue. See edge-hopper.ts for stalls and completion.
 
 import type { CaptureAccumulator } from "@/capture/accumulator";
-import { isAdPlayingElement, isPlayingSomethingElse, MOVIE_PLAYER_ELEMENT_ID } from "@/capture/ad-guard";
+import { isAdPlaying } from "@/capture/ad-state";
 import type { SliceCapturedMessage } from "@/capture/bridge-protocol";
 import { concatenateChunks, countInitSegments, planFirstPlusMedia } from "@/capture/decode-plan";
 import { bufferedRangeEnd, bufferedRangeStart, decideHop } from "@/capture/edge-hopper";
 import { log, logError } from "@/capture/log";
 import { getVideoIdFromSearch } from "@/capture/video-id";
-import { callSafely, getYtPlayer, readVideoData, suppressAutoAdvance } from "@/capture/yt-player";
+import { callSafely, getYtPlayer, suppressAutoAdvance } from "@/capture/yt-player";
 import type { WorkerAssignment } from "@/capture/worker-frame";
 
 const POLL_MS = 300;
+// How long the player itself may take to arrive. Ad time does not count
+// against it: measured a 60 s unbroken ad block in a worker frame, which spent
+// the whole budget and gave up on a track that was about to play fine. The cap
+// is the backstop, so a signal stuck on cannot wait forever.
 const PLAYER_READY_TIMEOUT_MS = 60_000;
+const PLAYER_READY_CAP_MS = 300_000;
 const PLAYER_POLL_MS = 500;
 
 // Never seek into the final seconds; see the header for why.
@@ -43,12 +48,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function isAdPlaying(doc: Document): boolean {
-  const requested = getVideoIdFromSearch(doc.defaultView?.location.search ?? "");
-  if (isPlayingSomethingElse(readVideoData(getYtPlayer(doc)), requested)) return true;
-  return isAdPlayingElement(doc.getElementById(MOVIE_PLAYER_ELEMENT_ID));
-}
-
 // YouTube Music runs a second, silent <video> when Shaders' animated art is on.
 function audibleVideo(doc: Document): HTMLVideoElement | null {
   const candidates = Array.from(doc.querySelectorAll("video"));
@@ -64,10 +63,14 @@ function audibleVideo(doc: Document): HTMLVideoElement | null {
 }
 
 async function waitForPlayer(): Promise<HTMLVideoElement | null> {
-  const deadline = Date.now() + PLAYER_READY_TIMEOUT_MS;
-  while (Date.now() < deadline) {
+  const startedAt = Date.now();
+  let deadline = startedAt + PLAYER_READY_TIMEOUT_MS;
+  while (Date.now() < deadline && Date.now() - startedAt < PLAYER_READY_CAP_MS) {
     await sleep(PLAYER_POLL_MS);
-    if (isAdPlaying(document)) continue;
+    if (isAdPlaying(document)) {
+      deadline = Date.now() + PLAYER_READY_TIMEOUT_MS;
+      continue;
+    }
     const video = audibleVideo(document);
     if (video && Number.isFinite(video.duration) && video.duration > 0) return video;
   }

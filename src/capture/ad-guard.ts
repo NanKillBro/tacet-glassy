@@ -1,10 +1,18 @@
-// Ad detection, mirroring the reference capture extension: while
-// #movie_player carries ytp-ad-playing, appendBuffer calls are feeding an ad
-// creative, not the track, so the patch must skip them. Takes the element
-// rather than looking it up itself so this stays testable without a DOM.
+// Ad detection signals, taking elements rather than looking them up so they
+// stay testable without a DOM. src/capture/ad-state.ts composes them.
+//
+// Measured over 517 samples on music.youtube.com, 87 during ads and 429 during
+// a track: `ad-showing` on #movie_player fired 87/87 with no false positive,
+// `is-advertisement` on the player bar 86/87 with no false positive, and the
+// `ytp-ad-playing` class this used to read fired 0/87, as did
+// getVideoData().isAd, which stayed null throughout. Both live signals are
+// kept, since the bar attribute lags the class by one sample at a creative
+// change.
 
 const MOVIE_PLAYER_ELEMENT_ID = "movie_player";
-const AD_PLAYING_CLASS = "ytp-ad-playing";
+const AD_SHOWING_CLASS = "ad-showing";
+const PLAYER_BAR_SELECTOR = "ytmusic-player-bar";
+const PLAYER_BAR_AD_ATTRIBUTE = "is-advertisement";
 
 interface ClassListLike {
   contains(className: string): boolean;
@@ -14,15 +22,23 @@ interface ElementWithClassList {
   classList: ClassListLike;
 }
 
-function isAdPlayingElement(moviePlayer: ElementWithClassList | null): boolean {
-  return moviePlayer?.classList.contains(AD_PLAYING_CLASS) ?? false;
+interface ElementWithAttributes {
+  hasAttribute(name: string): boolean;
+}
+
+function moviePlayerShowsAd(moviePlayer: ElementWithClassList | null): boolean {
+  return moviePlayer?.classList.contains(AD_SHOWING_CLASS) ?? false;
+}
+
+function playerBarShowsAd(playerBar: ElementWithAttributes | null): boolean {
+  return playerBar?.hasAttribute(PLAYER_BAR_AD_ATTRIBUTE) ?? false;
 }
 
 // -- What the player says it is playing --------------------------------------
 //
-// The class alone is not enough: a preroll ran to completion with
-// #movie_player never carrying ytp-ad-playing, and the ad was cached as the
-// track. Whatever plays under a different id is not the track we asked for.
+// Whatever plays under a different id is not the track we asked for. This
+// catches a preroll that swaps the id, which both DOM signals miss for the
+// first sample of a creative change.
 
 interface PlayerVideoData {
   video_id?: unknown;
@@ -36,5 +52,13 @@ function isPlayingSomethingElse(videoData: PlayerVideoData | null, requestedVide
   return videoData.video_id !== requestedVideoId;
 }
 
-export { MOVIE_PLAYER_ELEMENT_ID, AD_PLAYING_CLASS, isAdPlayingElement, isPlayingSomethingElse };
-export type { ElementWithClassList, PlayerVideoData };
+export {
+  MOVIE_PLAYER_ELEMENT_ID,
+  AD_SHOWING_CLASS,
+  PLAYER_BAR_SELECTOR,
+  PLAYER_BAR_AD_ATTRIBUTE,
+  moviePlayerShowsAd,
+  playerBarShowsAd,
+  isPlayingSomethingElse,
+};
+export type { ElementWithClassList, ElementWithAttributes, PlayerVideoData };
