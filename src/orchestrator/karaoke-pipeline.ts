@@ -370,6 +370,14 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     document.removeEventListener(BETTER_LYRICS_PLAYER_EVENT, onBetterLyricsPlayerState);
     window.removeEventListener("message", onWindowMessage);
     chrome.runtime.onMessage.removeListener(onRuntimeMessage);
+
+    // The page world outlives this module, so stems left engaged would keep the
+    // original silenced with nothing able to switch it back.
+    postToPageWorld({ type: "blk-stop-stems" });
+    if (state.status === "processing") {
+      const cancel: CancelSeparationCommand = { type: "blk-cancel-separation" };
+      chrome.runtime.sendMessage(cancel).catch(error => logError("failed to send cancel", error));
+    }
   }
 
   return { engage, destroy };

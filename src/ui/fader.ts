@@ -533,6 +533,7 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
     clearHold();
     if (hideTimer !== null) clearTimeout(hideTimer);
     menu.remove();
+    button.remove();
   }
 
   return { button, menu, getHost: () => host, setHost, setBusy, destroy };

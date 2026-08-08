@@ -3,6 +3,7 @@ import type { PlasmoCSConfig } from "plasmo";
 import { describeDownload } from "@/orchestrator/download-tooltip";
 import { createKaraokePipeline } from "@/orchestrator/karaoke-pipeline";
 import type { KaraokeState } from "@/orchestrator/karaoke-state";
+import { SETTINGS_STORAGE_KEY, sanitizeSettings } from "@/settings/settings";
 import { loadSettingsFrom } from "@/settings/storage";
 import { createFaderControl } from "@/ui/fader";
 import type { FaderControl } from "@/ui/fader";
@@ -110,17 +111,13 @@ function renderKaraokeState(control: FaderControl, tooltip: Tooltip, state: Kara
   }
 }
 
-// -- Master switch gate ----------------------------------------------------
+// -- Master switch ---------------------------------------------------------
 //
-// Off means none of this runs at all: the control never mounts, the pipeline
-// is never created, and nothing below it (an AudioContext, a claim on the
-// media element) is ever constructed. Read once, so a change takes effect on
-// the next page load.
+// Off means none of this exists: no control, no pipeline, and nothing below
+// them (an AudioContext, a claim on the media element). Watched rather than
+// read once, so the popup's switch takes effect on the track already playing.
 
-async function mountFaderIfEnabled(): Promise<void> {
-  const settings = await loadSettingsFrom(chrome.storage.sync);
-  if (!settings.singAlongEnabled) return;
-
+function mountFader(): { destroy(): void } {
   injectStylesheet();
 
   // createFaderControl emits its initial value during construction, before the
@@ -138,9 +135,40 @@ async function mountFaderIfEnabled(): Promise<void> {
     onStateChange: state => renderKaraokeState(control, tooltip, state),
   });
 
-  attachFaderMount({ button: control.button, setHost: control.setHost });
+  const mount = attachFaderMount({ button: control.button, setHost: control.setHost });
+
+  return {
+    destroy() {
+      mount.disconnect();
+      // First, since it is what hands the audio back to the original.
+      pipeline?.destroy();
+      tooltip.destroy();
+      control.destroy();
+    },
+  };
 }
 
-mountFaderIfEnabled().catch(error => {
-  logger.error("failed to check the sing-along setting", error);
+let mounted: { destroy(): void } | null = null;
+
+function applySingAlong(enabled: boolean): void {
+  if (enabled === (mounted !== null)) return;
+  if (enabled) {
+    mounted = mountFader();
+    logger.log("sing-along on");
+    return;
+  }
+  mounted?.destroy();
+  mounted = null;
+  logger.log("sing-along off");
+}
+
+loadSettingsFrom(chrome.storage.sync)
+  .then(settings => applySingAlong(settings.singAlongEnabled))
+  .catch(error => {
+    logger.error("failed to check the sing-along setting", error);
+  });
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== "sync" || !(SETTINGS_STORAGE_KEY in changes)) return;
+  applySingAlong(sanitizeSettings(changes[SETTINGS_STORAGE_KEY].newValue).singAlongEnabled);
 });
