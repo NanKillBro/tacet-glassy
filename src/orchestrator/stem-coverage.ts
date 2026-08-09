@@ -12,6 +12,16 @@ function judgeStemCoverage(stemDurationSeconds: number, trackDurationSeconds: nu
   return stemDurationSeconds / trackDurationSeconds >= MINIMUM_USABLE_COVERAGE ? "short" : "unusable";
 }
 
+const OVERRUN_RATIO = 1.25;
+const OVERRUN_TOLERANCE_S = 20;
+
+function overrunsTrack(stemDurationSeconds: number, trackDurationSeconds: number): boolean {
+  if (!Number.isFinite(stemDurationSeconds) || !Number.isFinite(trackDurationSeconds)) return false;
+  if (trackDurationSeconds <= 0) return false;
+  if (stemDurationSeconds <= trackDurationSeconds + OVERRUN_TOLERANCE_S) return false;
+  return stemDurationSeconds / trackDurationSeconds > OVERRUN_RATIO;
+}
+
 // -- What to do about stems that do not cover the track ----------------------
 
 type ShortStemStep = "engage" | "reacquire" | "fail";
@@ -27,5 +37,14 @@ function stemDurationSeconds(frames: number, sampleRate: number): number {
   return frames / sampleRate;
 }
 
-export { judgeStemCoverage, decideShortStems, stemDurationSeconds, STEM_COVERAGE_TOLERANCE_S, MINIMUM_USABLE_COVERAGE };
+export {
+  judgeStemCoverage,
+  decideShortStems,
+  overrunsTrack,
+  stemDurationSeconds,
+  STEM_COVERAGE_TOLERANCE_S,
+  MINIMUM_USABLE_COVERAGE,
+  OVERRUN_RATIO,
+  OVERRUN_TOLERANCE_S,
+};
 export type { StemFit, ShortStemStep };
