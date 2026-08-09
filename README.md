@@ -15,10 +15,11 @@
 </p>
 
 Tacet splits whatever you are listening to into vocals and instrumental, then
-gives you a fader to sit anywhere between the two. Slide it down for karaoke,
-slide it up to hear the vocal on its own, leave it in the middle for the song as
-recorded. It runs [htdemucs](https://github.com/adefossez/demucs) on WebGPU, so
-your music never leaves your machine.
+gives you a fader that runs from the song as recorded down to the instrumental
+on its own. Take the vocal all the way out for karaoke, or stop part way and
+keep a guide vocal under you. It runs
+[htdemucs](https://github.com/adefossez/demucs) on WebGPU, so your music never
+leaves your machine.
 
 > [!WARNING]
 > Tacet is not on any extension store, and probably will not be. It works by
@@ -26,14 +27,15 @@ your music never leaves your machine.
 > policy treats the same way it treats video downloaders. Load it unpacked.
 
 > [!NOTE]
-> It plays well with [Better Lyrics](https://github.com/boidushya/better-lyrics)
-> and [Better Lyrics Shaders](https://github.com/better-lyrics/shaders), and
-> mounts its control into the Better Lyrics dock when that is installed. Neither
-> is required.
+> Tacet is part of the [Better Lyrics](https://github.com/boidushya/better-lyrics)
+> ecosystem. Although optional, it is **highly recommended** to use it alongside
+> Better Lyrics and [Better Lyrics Shaders](https://github.com/better-lyrics/shaders):
+> Tacet mounts its control straight into the Better Lyrics dock when that is
+> installed, and the three are built to sit together in the same player.
 
 ## Features
 
-- A vertical fader that crossfades between the vocal and the instrumental
+- A vertical fader that takes the vocal down, all the way out, or anywhere in between
 - Separation happens on your machine, on the GPU, with nothing uploaded
 - Tracks are separated ahead of you, so the fader is usually ready before you reach for it
 - Stems are cached, so a song you have played before is instant
