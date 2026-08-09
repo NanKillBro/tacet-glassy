@@ -32,6 +32,8 @@ const END_OF_TRACK_GUARD_S = 15;
 // Larger than any estimate refinement, so it means different media entirely.
 const DURATION_CHANGE_S = 2;
 
+const MAX_RESTARTS = 2;
+
 // How long the last slice waits, paused at that guard, for the tail it is not
 // allowed to play through to arrive anyway.
 const TAIL_SETTLE_MS = 4000;
@@ -149,6 +151,7 @@ async function runSliceCapture(
   // back to the slice's start, and the loop breaks from four places, two of
   // which are a stall and a lost frame.
   let reached = assignment.fromSeconds;
+  let restarts = 0;
 
   while (true) {
     await sleep(POLL_MS);
@@ -160,6 +163,16 @@ async function runSliceCapture(
     if (getVideoIdFromSearch(window.location.search) !== videoId) {
       log(`worker slice ${assignment.index} lost its frame to a navigation, sending what it has`);
       break;
+    }
+
+    if (restarts < MAX_RESTARTS && accumulator.keepFromLastInitSegment()) {
+      restarts++;
+      log(`worker slice ${assignment.index} saw the stream re-initialise, restarting from the new header`);
+      cursor = assignment.fromSeconds;
+      reached = assignment.fromSeconds;
+      stalls = 0;
+      seekTo(assignment.fromSeconds);
+      continue;
     }
 
     // Different length means different media, almost always a preroll: throw

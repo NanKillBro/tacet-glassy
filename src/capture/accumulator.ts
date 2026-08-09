@@ -40,6 +40,7 @@ interface CaptureAccumulator {
   // Drop what is retained and keep going, for when those bytes turn out to
   // belong to something other than the track being captured.
   discardRetained(): void;
+  keepFromLastInitSegment(): boolean;
 }
 
 function createCaptureAccumulator(maxRetainedBytes: number = DEFAULT_MAX_RETAINED_BYTES): CaptureAccumulator {
@@ -97,6 +98,19 @@ function createCaptureAccumulator(maxRetainedBytes: number = DEFAULT_MAX_RETAINE
     hitCap = false;
   }
 
+  function keepFromLastInitSegment(): boolean {
+    let lastInit = -1;
+    for (let index = 0; index < chunks.length; index++) {
+      if (chunks[index].isInitSegment) lastInit = index;
+    }
+    if (lastInit <= 0) return false;
+
+    chunks = chunks.slice(lastInit);
+    retainedBytes = chunks.reduce((sum, chunk) => sum + chunk.bytes.byteLength, 0);
+    hitCap = false;
+    return true;
+  }
+
   function standDown(): void {
     stoodDown = true;
     chunks = [];
@@ -116,7 +130,7 @@ function createCaptureAccumulator(maxRetainedBytes: number = DEFAULT_MAX_RETAINE
     };
   }
 
-  return { setActiveVideoId, addChunk, getChunks, getStats, standDown, discardRetained };
+  return { setActiveVideoId, addChunk, getChunks, getStats, standDown, discardRetained, keepFromLastInitSegment };
 }
 
 export { DEFAULT_MAX_RETAINED_BYTES, createCaptureAccumulator };

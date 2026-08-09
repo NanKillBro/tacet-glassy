@@ -37,6 +37,7 @@ export interface RequestPrefetchMessage {
   type: "blk-request-prefetch";
   videoId: string;
   ahead?: boolean;
+  fresh?: boolean;
 }
 
 // This track's stems came from the cache. Capture cannot stop the player

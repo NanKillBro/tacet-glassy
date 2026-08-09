@@ -329,7 +329,15 @@ function abandonPrefetch(videoId: string, ahead: boolean, reason: string): void 
   }, delay);
 }
 
-function startPrefetchFor(videoId: string, { ahead = false } = {}): void {
+function startPrefetchFor(videoId: string, { ahead = false, fresh = false } = {}): void {
+  if (fresh) {
+    log(`discarding the capture held for videoId=${videoId} and acquiring it again`);
+    prefetchedByVideoId.delete(videoId);
+    prefetchStateByVideoId.delete(videoId);
+    prefetchAttemptsByVideoId.delete(videoId);
+    stoodDownVideoIds.delete(videoId);
+    announcedKeys.clear();
+  }
   // Already acquired: the pipeline resets its state on every track change, so
   // it needs telling again rather than relying on the earlier announcement.
   if (prefetchStateByVideoId.get(videoId) === "done" && prefetchedByVideoId.has(videoId)) {
@@ -462,7 +470,7 @@ window.addEventListener("message", event => {
   const data: unknown = event.data;
   if (isRequestCapturedAudioMessage(data)) respondToCapturedAudioRequest(data.videoId);
   if (isRequestPrefetchMessage(data) && runsOrchestration) {
-    startPrefetchFor(data.videoId, { ahead: data.ahead === true });
+    startPrefetchFor(data.videoId, { ahead: data.ahead === true, fresh: data.fresh === true });
   }
 
   if (isRequestNextPrefetchMessage(data) && runsOrchestration) {

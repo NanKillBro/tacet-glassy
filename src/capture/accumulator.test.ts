@@ -239,6 +239,82 @@ describe("createCaptureAccumulator", () => {
     });
   });
 
+  describe("keeping only the newest initialization", () => {
+    it("drops everything before the second init segment", () => {
+      const accumulator = createCaptureAccumulator(1024);
+      accumulator.setActiveVideoId("song-a");
+      accumulator.addChunk("audio/mp4", ftypBytes(10));
+      accumulator.addChunk("audio/mp4", moofBytes(20));
+      accumulator.addChunk("audio/mp4", ftypBytes(12));
+      accumulator.addChunk("audio/mp4", moofBytes(30));
+
+      expect(accumulator.keepFromLastInitSegment()).toBe(true);
+
+      const chunks = accumulator.getChunks();
+      expect(chunks).toHaveLength(2);
+      expect(chunks[0].isInitSegment).toBe(true);
+      expect(chunks[0].bytes.byteLength).toBe(12);
+      expect(accumulator.getStats().initSegmentCount).toBe(1);
+    });
+
+    it("reports nothing to do when there is only one init segment", () => {
+      const accumulator = createCaptureAccumulator(1024);
+      accumulator.setActiveVideoId("song-a");
+      accumulator.addChunk("audio/mp4", ftypBytes());
+      accumulator.addChunk("audio/mp4", moofBytes());
+
+      expect(accumulator.keepFromLastInitSegment()).toBe(false);
+      expect(accumulator.getChunks()).toHaveLength(2);
+    });
+
+    it("reports nothing to do when nothing has been captured", () => {
+      const accumulator = createCaptureAccumulator(1024);
+      accumulator.setActiveVideoId("song-a");
+
+      expect(accumulator.keepFromLastInitSegment()).toBe(false);
+    });
+
+    it("frees the budget the dropped chunks were holding", () => {
+      const accumulator = createCaptureAccumulator(30);
+      accumulator.setActiveVideoId("song-a");
+      accumulator.addChunk("audio/mp4", ftypBytes(10));
+      accumulator.addChunk("audio/mp4", moofBytes(10));
+      accumulator.addChunk("audio/mp4", ftypBytes(10));
+
+      accumulator.keepFromLastInitSegment();
+
+      expect(accumulator.addChunk("audio/mp4", moofBytes(15))).toBe("added");
+    });
+
+    it("leaves the running totals alone, since those describe the stream", () => {
+      const accumulator = createCaptureAccumulator(1024);
+      accumulator.setActiveVideoId("song-a");
+      accumulator.addChunk("audio/mp4", ftypBytes(10));
+      accumulator.addChunk("audio/mp4", ftypBytes(10));
+
+      accumulator.keepFromLastInitSegment();
+
+      const stats = accumulator.getStats();
+      expect(stats.appendCount).toBe(2);
+      expect(stats.totalBytes).toBe(20);
+      expect(stats.retainedChunkCount).toBe(1);
+    });
+
+    it("regression: a capture that re-initialized twice keeps only the last run", () => {
+      const accumulator = createCaptureAccumulator(1024);
+      accumulator.setActiveVideoId("song-a");
+      accumulator.addChunk("audio/mp4", ftypBytes(10));
+      accumulator.addChunk("audio/mp4", moofBytes(10));
+      accumulator.addChunk("audio/mp4", ftypBytes(11));
+      accumulator.addChunk("audio/mp4", moofBytes(10));
+      accumulator.addChunk("audio/mp4", ftypBytes(12));
+
+      expect(accumulator.keepFromLastInitSegment()).toBe(true);
+      expect(accumulator.getChunks()).toHaveLength(1);
+      expect(accumulator.getChunks()[0].bytes.byteLength).toBe(12);
+    });
+  });
+
   describe("edge cases", () => {
     it("addChunk works before any video id has been set", () => {
       const accumulator = createCaptureAccumulator(1024);

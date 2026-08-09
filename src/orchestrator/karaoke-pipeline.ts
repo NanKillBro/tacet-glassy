@@ -29,7 +29,7 @@ import { createLogger } from "@/shared/logger";
 import { decodeOpusToPcm } from "@/cache/opus-codec";
 import { initialKaraokeState, reduceKaraokeState } from "@/orchestrator/karaoke-state";
 import type { KaraokeState } from "@/orchestrator/karaoke-state";
-import { judgeStemCoverage, stemDurationSeconds } from "@/orchestrator/stem-coverage";
+import { decideShortStems, judgeStemCoverage, stemDurationSeconds } from "@/orchestrator/stem-coverage";
 import { playerVideoElement } from "@/pageworld/player-state";
 import type { LoadStemsMessage, SetMixLevelMessage, StopStemsMessage } from "@/pageworld/protocol";
 import { loadSettingsFrom } from "@/settings/storage";
@@ -91,6 +91,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   let vocalsAssembler: ChunkAssembler | null = null;
   let instrumentalAssembler: ChunkAssembler | null = null;
   let doneReceived = false;
+  const reacquiredVideoIds = new Set<string>();
 
   // Unlike every later transition, the initial state never reaches setState below, so it is announced here.
   options.onStateChange(state);
@@ -164,13 +165,16 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   }
 
   function forgetAndReacquire(videoId: string): void {
+    reacquiredVideoIds.add(videoId);
+    resetStemAssembly();
+    dispatch({ type: "reacquire", videoId });
     const forget: ForgetTrackCommand = { type: "blk-forget-track", videoId };
     chrome.runtime
       .sendMessage(forget)
       .catch(error => logError("failed to send a forget-track command", error))
       .finally(() => {
         if (videoId !== state.videoId) return;
-        postToPageWorld({ type: "blk-request-prefetch", videoId });
+        postToPageWorld({ type: "blk-request-prefetch", videoId, fresh: true });
       });
   }
 
@@ -296,14 +300,22 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
         if (videoId !== state.videoId) return;
 
         const stemSeconds = stemDurationSeconds(vocals.channels[0]?.length ?? 0, vocals.sampleRate);
-        if (judgeStemCoverage(stemSeconds, trackDurationSeconds()) === "short") {
-          logError(
-            "stems are shorter than the track, dropping them and acquiring it again",
-            new Error(`${stemSeconds.toFixed(1)}s of stems against a ${trackDurationSeconds().toFixed(1)}s track`)
-          );
+        const trackSeconds = trackDurationSeconds();
+        const fit = judgeStemCoverage(stemSeconds, trackSeconds);
+        const step = decideShortStems(fit, reacquiredVideoIds.has(videoId));
+        const measured = `${stemSeconds.toFixed(1)}s of stems against a ${trackSeconds.toFixed(1)}s track`;
+
+        if (step === "reacquire") {
+          logError("stems are shorter than the track, capturing it again", new Error(measured));
           forgetAndReacquire(videoId);
           return;
         }
+        if (step === "fail") {
+          logError("stems are still too short after a fresh capture", new Error(measured));
+          dispatch({ type: "failed", videoId, reason: "Only part of this track could be separated." });
+          return;
+        }
+        if (fit !== "fits") log(`using slightly short stems for ${videoId}: ${measured}`);
 
         log(`stems decoded for ${videoId}, loading into the playback graph`);
         const transfer = [...vocals.channels, ...instrumental.channels].map(channel => channel.buffer);

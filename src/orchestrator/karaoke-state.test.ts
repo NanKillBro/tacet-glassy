@@ -68,6 +68,43 @@ describe("track-changed", () => {
   });
 });
 
+describe("reacquire", () => {
+  it("returns the same track to waiting-for-capture, clearing the stage it stalled on", () => {
+    const encoding: KaraokeState = {
+      status: "processing",
+      videoId: "video-1",
+      stage: "encoding",
+      processed: 9,
+      total: 10,
+      reason: null,
+      downloadFraction: 1,
+      downloadSource: "hidden-player",
+    };
+    expect(reduceKaraokeState(encoding, { type: "reacquire", videoId: "video-1" })).toEqual(
+      initialKaraokeState("video-1")
+    );
+  });
+
+  it("regression: leaves a stale stage nowhere for the card to read", () => {
+    const encoding: KaraokeState = {
+      status: "processing",
+      videoId: "video-1",
+      stage: "encoding",
+      processed: 9,
+      total: 10,
+      reason: null,
+      downloadFraction: 1,
+      downloadSource: "hidden-player",
+    };
+    expect(reduceKaraokeState(encoding, { type: "reacquire", videoId: "video-1" }).stage).toBeNull();
+  });
+
+  it("ignores a reacquire aimed at a track that is no longer playing", () => {
+    const state = initialKaraokeState("video-1");
+    expect(reduceKaraokeState(state, { type: "reacquire", videoId: "video-2" })).toBe(state);
+  });
+});
+
 describe("capture-ready", () => {
   it("moves waiting-for-capture to ready-to-engage", () => {
     const state = initialKaraokeState("video-1");

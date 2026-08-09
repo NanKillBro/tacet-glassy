@@ -29,6 +29,7 @@ interface KaraokeState {
 
 type KaraokeEvent =
   | { type: "track-changed"; videoId: string }
+  | { type: "reacquire"; videoId: string }
   | { type: "capture-ready"; videoId: string }
   | { type: "cache-hit"; videoId: string }
   | { type: "engage"; videoId: string }
@@ -59,6 +60,9 @@ function reduceKaraokeState(state: KaraokeState, event: KaraokeEvent): KaraokeSt
   if (event.videoId !== state.videoId) return state;
 
   switch (event.type) {
+    case "reacquire":
+      return initialKaraokeState(state.videoId);
+
     // Also recovers from failed: the hidden player finishes after the
     // listener's partial capture has been tried and rejected, and a complete
     // acquisition should not be wasted.
