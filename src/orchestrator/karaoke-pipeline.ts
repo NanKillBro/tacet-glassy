@@ -19,6 +19,7 @@ import {
 } from "@/orchestrator/player-source";
 import type { PlayerState } from "@/orchestrator/player-source";
 import { createLogger } from "@/shared/logger";
+import { NEUTRAL_MIX_LEVEL } from "@/pageworld/gain-law";
 import { decodeOpusToPcm } from "@/cache/opus-codec";
 import { initialKaraokeState, reduceKaraokeState } from "@/orchestrator/karaoke-state";
 import type { KaraokeState } from "@/orchestrator/karaoke-state";
@@ -46,9 +47,6 @@ import {
 
 const CAPTURE_REQUEST_TIMEOUT_MS = 8000;
 const ACQUISITION_WATCHDOG_MS = 8000;
-
-// k = 1 is the original mix untouched (see src/pageworld/gain-law.ts).
-const NEUTRAL_MIX_LEVEL = 1;
 
 const logger = createLogger("orchestrator");
 
@@ -412,7 +410,8 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   function maybeAutoEngage(videoId: string): void {
     loadSettingsFrom(chrome.storage.sync)
       .then(settings => {
-        if (!settings.autoSeparateEnabled) return;
+        const armed = pendingMixLevel !== NEUTRAL_MIX_LEVEL;
+        if (!settings.autoSeparateEnabled && !armed) return;
         if (videoId !== state.videoId || state.status !== "ready-to-engage") return;
 
         log(`auto-separating ${videoId}`);

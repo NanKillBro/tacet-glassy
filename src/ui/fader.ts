@@ -1,3 +1,4 @@
+import { shouldShowActivePill } from "@/ui/armed-affordance";
 import { isFaderInteractive, shouldCloseForDisabled } from "@/ui/fader-disabled-gate";
 import {
   dockCouplingCardClosed,
@@ -35,6 +36,7 @@ const DOCK_EXPANDED_CLASS = "blyrics-dock__inner--expanded";
 interface CreateFaderControlOptions {
   host?: FaderHost;
   onChange(mixLevel: number): void;
+  onOpenChange?(open: boolean): void;
   requestAnimationFrame?: SpringDeps["requestAnimationFrame"];
   prefersReducedMotion?: SpringDeps["prefersReducedMotion"];
 }
@@ -78,10 +80,15 @@ function createGlyphStack(size: number): GlyphStack {
   const layers: Record<GlyphLayerKind, HTMLElement> = { mic: micLayer, note: noteLayer, busy: busyLayer };
   const shownFraction: Partial<Record<GlyphKind, string>> = {};
   let shownKind: GlyphLayerKind | null = null;
+  let shownBusyKind: GlyphKind | null = null;
 
   function show(kind: GlyphLayerKind, fraction: number, busyKind?: GlyphKind): void {
     if (kind === "busy") {
-      busyInner.style.setProperty("--glyph", createGlyphMaskUrl(busyKind ?? "mic"));
+      const wanted = busyKind ?? "mic";
+      if (shownBusyKind !== wanted) {
+        shownBusyKind = wanted;
+        busyInner.style.setProperty("--glyph", createGlyphMaskUrl(wanted));
+      }
     } else if (shownFraction[kind] !== String(fraction)) {
       shownFraction[kind] = String(fraction);
       layers[kind].replaceChildren(createFilledGlyphSvg(kind, fraction, size));
@@ -201,12 +208,20 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
   let busy = false;
   let lastGlyphKind: GlyphKind = "mic";
   let lastGlyphFraction = 0;
+  let committedValue = 0;
+
+  function syncActivePill(): void {
+    const active = shouldShowActivePill(committedValue, busy);
+    button.classList.toggle("blyrics-sing--active", active);
+    button.classList.toggle(DOCK_CONTROL_ACTIVE_CLASS, active);
+  }
 
   function setBusy(nextBusy: boolean): void {
     if (busy === nextBusy) return;
     busy = nextBusy;
     if (busy) stack.show("busy", 1, lastGlyphKind);
     else stack.show(lastGlyphKind, lastGlyphFraction);
+    syncActivePill();
   }
 
   const paint: Spring = createSpring(
@@ -218,7 +233,8 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
       thumb.style.setProperty("--shadow-y", `${frame.shadowYPx.toFixed(2)}px`);
       lastGlyphKind = frame.glyphKind;
       lastGlyphFraction = frame.glyphFraction;
-      if (!busy) stack.show(frame.glyphKind, frame.glyphFraction);
+      if (busy) stack.show("busy", 1, frame.glyphKind);
+      else stack.show(frame.glyphKind, frame.glyphFraction);
     },
     { requestAnimationFrame: requestFrame, prefersReducedMotion }
   );
@@ -254,8 +270,8 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
   function commit(mode: SpringMode, announce = true): void {
     const frame = computeCommit(v);
     paint.set(frame.effectiveValue, mode);
-    button.classList.toggle("blyrics-sing--active", frame.effectiveValue !== 0);
-    button.classList.toggle(DOCK_CONTROL_ACTIVE_CLASS, frame.effectiveValue !== 0);
+    committedValue = frame.effectiveValue;
+    syncActivePill();
     track.dataset.rest = String(frame.effectiveValue === 0);
     track.setAttribute("aria-valuenow", String(Math.round(frame.effectiveValue * 100)));
     track.setAttribute("aria-valuetext", frame.label);
@@ -327,6 +343,7 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
     menu.classList.toggle("blyrics-mix--open", next);
     menu.classList.toggle(DOCK_MENU_OPEN_CLASS, next);
     button.setAttribute("aria-expanded", String(next));
+    options.onOpenChange?.(next);
     if (next) track.focus();
   }
 

@@ -87,9 +87,16 @@ function createFilledGlyphSvg(kind: GlyphKind, fraction: number, size = 16): SVG
   return svg;
 }
 
+const maskUrls = new Map<GlyphKind, string>();
+
 function createGlyphMaskUrl(kind: GlyphKind): string {
+  const cached = maskUrls.get(kind);
+  if (cached) return cached;
+
   const serialized = new XMLSerializer().serializeToString(createIconSvg(OUTLINE[kind], 24, "white"));
-  return `url("data:image/svg+xml,${encodeURIComponent(serialized)}")`;
+  const url = `url("data:image/svg+xml,${encodeURIComponent(serialized)}")`;
+  maskUrls.set(kind, url);
+  return url;
 }
 
 export { createTranslateIcon, createWaveformIcon, createFilledGlyphSvg, createGlyphMaskUrl };

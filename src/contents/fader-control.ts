@@ -5,6 +5,8 @@ import { createKaraokePipeline } from "@/orchestrator/karaoke-pipeline";
 import type { KaraokeState } from "@/orchestrator/karaoke-state";
 import { SETTINGS_STORAGE_KEY, sanitizeSettings } from "@/settings/settings";
 import { loadSettingsFrom } from "@/settings/storage";
+import { NEUTRAL_MIX_LEVEL } from "@/pageworld/gain-law";
+import { labelWhileBusy } from "@/ui/armed-affordance";
 import { createFaderControl } from "@/ui/fader";
 import type { FaderControl } from "@/ui/fader";
 import { attachFaderMount, hasBetterLyrics } from "@/ui/mount";
@@ -66,27 +68,28 @@ function describeStage(state: KaraokeState): TooltipContent {
   }
 }
 
-function renderKaraokeState(control: FaderControl, tooltip: Tooltip, state: KaraokeState): void {
+function describeBusy(state: KaraokeState, armed: boolean): TooltipContent {
+  const stage =
+    state.downloadSource === null
+      ? describeStage(state)
+      : describeDownload(state.downloadFraction, state.downloadSource);
+  return { label: labelWhileBusy(stage.label, armed), percent: stage.percent };
+}
+
+function renderKaraokeState(control: FaderControl, tooltip: Tooltip, state: KaraokeState, armed: boolean): void {
   const button = control.button;
   // The shimmer, not a grey-out, is the working state. Grey reads as broken.
   control.setBusy(state.status === "waiting-for-capture" || state.status === "processing");
   switch (state.status) {
     case "waiting-for-capture":
-      markUnavailable(button);
-      tooltip.setContent(
-        state.downloadSource === null
-          ? describeStage(state)
-          : describeDownload(state.downloadFraction, state.downloadSource)
-      );
+    case "processing":
+      markAvailable(button);
+      tooltip.setContent(describeBusy(state, armed));
       break;
     case "ready-to-engage":
     case "engaged":
       markAvailable(button);
       tooltip.setContent({ label: "Click to remove vocals, hold to set the level", percent: null });
-      break;
-    case "processing":
-      markUnavailable(button);
-      tooltip.setContent(describeStage(state));
       break;
     case "failed":
       markUnavailable(button, true);
@@ -101,16 +104,31 @@ function mountFader(): { destroy(): void } {
   injectStylesheet();
 
   let pipeline: ReturnType<typeof createKaraokePipeline> | undefined;
+  let tooltip: Tooltip | undefined;
+  let latest: KaraokeState | null = null;
+  let armed = false;
+
+  function render(): void {
+    if (latest && tooltip) renderKaraokeState(control, tooltip, latest, armed);
+  }
 
   const control = createFaderControl({
     host: hasBetterLyrics() ? "dock" : "bar",
-    onChange: mixLevel => pipeline?.engage(mixLevel),
+    onChange: mixLevel => {
+      armed = mixLevel !== NEUTRAL_MIX_LEVEL;
+      pipeline?.engage(mixLevel);
+      render();
+    },
+    onOpenChange: open => tooltip?.setSuppressed(open),
   });
 
-  const tooltip = createTooltip(control.button);
+  tooltip = createTooltip(control.button);
 
   pipeline = createKaraokePipeline({
-    onStateChange: state => renderKaraokeState(control, tooltip, state),
+    onStateChange: state => {
+      latest = state;
+      render();
+    },
   });
 
   const mount = attachFaderMount({ button: control.button, setHost: control.setHost });
