@@ -1,4 +1,4 @@
-import { playerStateFromBetterLyrics, playerStateFromOwnBridge } from "@/orchestrator/player-source";
+import { durationForTrack, playerStateFromBetterLyrics, playerStateFromOwnBridge } from "@/orchestrator/player-source";
 import { describe, expect, it } from "vitest";
 
 // A real blyrics-send-player-time detail, trimmed to the fields read here.
@@ -75,6 +75,43 @@ describe("playerStateFromOwnBridge", () => {
         durationSeconds: 215,
       });
       expect(mine).toEqual(playerStateFromBetterLyrics(betterLyricsDetail()));
+    });
+  });
+});
+
+describe("durationForTrack", () => {
+  const observed = { videoId: "DJCB1ZlseJ8", durationSeconds: 215 };
+
+  it("answers with the duration announced for that very track", () => {
+    expect(durationForTrack(observed, "DJCB1ZlseJ8")).toBe(215);
+  });
+
+  describe("edge cases", () => {
+    it("refuses to answer for a track it has not seen announced", () => {
+      expect(durationForTrack(observed, "HwBFSyIcIFI")).toBeNaN();
+    });
+
+    it("refuses to answer before any track has been announced", () => {
+      expect(durationForTrack(null, "DJCB1ZlseJ8")).toBeNaN();
+    });
+  });
+
+  describe("regressions", () => {
+    it("does not hand back the previous track's duration after the track changes", () => {
+      const previous = { videoId: "OLD_TRACK_1", durationSeconds: 1267.3 };
+      expect(durationForTrack(previous, "NEW_TRACK_2")).toBeNaN();
+    });
+
+    it("follows the announcement across a track change", () => {
+      const next = { videoId: "NEW_TRACK_2", durationSeconds: 177 };
+      expect(durationForTrack(next, "NEW_TRACK_2")).toBe(177);
+      expect(durationForTrack(next, "OLD_TRACK_1")).toBeNaN();
+    });
+  });
+
+  describe("invariants", () => {
+    it("is a pure function: identical input produces identical output", () => {
+      expect(durationForTrack(observed, "DJCB1ZlseJ8")).toBe(durationForTrack(observed, "DJCB1ZlseJ8"));
     });
   });
 });

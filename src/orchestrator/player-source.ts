@@ -25,5 +25,9 @@ function playerStateFromOwnBridge(message: unknown): PlayerState | null {
   return readState(record.videoId, record.durationSeconds);
 }
 
-export { BETTER_LYRICS_PLAYER_EVENT, playerStateFromBetterLyrics, playerStateFromOwnBridge };
+function durationForTrack(observed: PlayerState | null, videoId: string): number {
+  return observed !== null && observed.videoId === videoId ? observed.durationSeconds : Number.NaN;
+}
+
+export { BETTER_LYRICS_PLAYER_EVENT, durationForTrack, playerStateFromBetterLyrics, playerStateFromOwnBridge };
 export type { PlayerState };

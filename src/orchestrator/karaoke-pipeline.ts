@@ -13,15 +13,16 @@ import {
 } from "@/capture/bridge-protocol";
 import {
   BETTER_LYRICS_PLAYER_EVENT,
+  durationForTrack,
   playerStateFromBetterLyrics,
   playerStateFromOwnBridge,
 } from "@/orchestrator/player-source";
+import type { PlayerState } from "@/orchestrator/player-source";
 import { createLogger } from "@/shared/logger";
 import { decodeOpusToPcm } from "@/cache/opus-codec";
 import { initialKaraokeState, reduceKaraokeState } from "@/orchestrator/karaoke-state";
 import type { KaraokeState } from "@/orchestrator/karaoke-state";
 import { decideShortStems, judgeStemCoverage, stemDurationSeconds } from "@/orchestrator/stem-coverage";
-import { playerVideoElement } from "@/pageworld/player-state";
 import type { LoadStemsMessage, SetMixLevelMessage, StopStemsMessage } from "@/pageworld/protocol";
 import { loadSettingsFrom } from "@/settings/storage";
 import { base64ToBytes, bytesToBase64 } from "@/relay/base64";
@@ -80,6 +81,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   let instrumentalAssembler: ChunkAssembler | null = null;
   let doneReceived = false;
   let cacheProbeTimer: ReturnType<typeof setTimeout> | null = null;
+  let observedTrack: PlayerState | null = null;
   const reacquiredVideoIds = new Set<string>();
 
   // Unlike every later transition, the initial state never reaches setState below, so it is announced here.
@@ -116,7 +118,9 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
 
   // -- Track change polling -----------------------------------------------
 
-  function onTrackObserved(videoId: string): void {
+  function onTrackObserved(observed: PlayerState): void {
+    observedTrack = observed;
+    const { videoId } = observed;
     if (videoId === state.videoId) return;
 
     log(`track changed ${state.videoId || "(none)"} -> ${videoId}`);
@@ -158,9 +162,8 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     }, ACQUISITION_WATCHDOG_MS);
   }
 
-  function trackDurationSeconds(): number {
-    const element = playerVideoElement(document);
-    return element && Number.isFinite(element.duration) ? element.duration : Number.NaN;
+  function trackDurationSeconds(videoId: string): number {
+    return durationForTrack(observedTrack, videoId);
   }
 
   function forgetAndReacquire(videoId: string): void {
@@ -179,7 +182,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
 
   function onBetterLyricsPlayerState(event: Event): void {
     const observed = playerStateFromBetterLyrics((event as CustomEvent).detail);
-    if (observed) onTrackObserved(observed.videoId);
+    if (observed) onTrackObserved(observed);
   }
   document.addEventListener(BETTER_LYRICS_PLAYER_EVENT, onBetterLyricsPlayerState);
 
@@ -212,7 +215,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
 
     const observed = playerStateFromOwnBridge(data);
     if (observed) {
-      onTrackObserved(observed.videoId);
+      onTrackObserved(observed);
       return;
     }
 
@@ -299,7 +302,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
         if (videoId !== state.videoId) return;
 
         const stemSeconds = stemDurationSeconds(vocals.channels[0]?.length ?? 0, vocals.sampleRate);
-        const trackSeconds = trackDurationSeconds();
+        const trackSeconds = trackDurationSeconds(videoId);
         const fit = judgeStemCoverage(stemSeconds, trackSeconds);
         const step = decideShortStems(fit, reacquiredVideoIds.has(videoId));
         const measured = `${stemSeconds.toFixed(1)}s of stems against a ${trackSeconds.toFixed(1)}s track`;
