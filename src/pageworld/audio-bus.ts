@@ -1,6 +1,7 @@
 // -- Shared audio bus --------------------------------------------------------
 
 import { decideAudioBusClaim } from "@/pageworld/audio-bus-claim";
+import { sourceBelongsToBus } from "@/pageworld/audio-bus-wiring";
 import { createLogger } from "@/shared/logger";
 
 const logger = createLogger("audio");
@@ -18,12 +19,21 @@ interface BlyricsAudioBus {
 function isBlyricsAudioBus(value: unknown): value is BlyricsAudioBus {
   if (typeof value !== "object" || value === null) return false;
   const bus = value as Record<string, unknown>;
-  return (
-    typeof bus.version === "number" &&
-    bus.context instanceof AudioContext &&
-    bus.source instanceof MediaElementAudioSourceNode &&
-    bus.element instanceof HTMLMediaElement
-  );
+  if (
+    typeof bus.version !== "number" ||
+    !(bus.context instanceof AudioContext) ||
+    !(bus.source instanceof MediaElementAudioSourceNode) ||
+    !(bus.element instanceof HTMLMediaElement)
+  ) {
+    return false;
+  }
+  // A source can only be connected inside the context that created it, so a bus
+  // whose parts came from different graphs would throw on the first connect.
+  if (!sourceBelongsToBus(bus as unknown as BlyricsAudioBus)) {
+    logger.error("a published bus has a source that does not belong to its context and element, ignoring it");
+    return false;
+  }
+  return true;
 }
 
 function readWindowBus(): unknown {
