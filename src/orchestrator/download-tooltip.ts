@@ -7,8 +7,8 @@ import type { TooltipContent } from "@/ui/tooltip";
 
 type DownloadSource = "hidden-player" | "listener-playback";
 
-const HIDDEN_PLAYER_LABEL = "Downloading the track";
-const LISTENER_PLAYBACK_LABEL = "Buffering with the player";
+const HIDDEN_PLAYER_LABEL = "Downloading the track…";
+const LISTENER_PLAYBACK_LABEL = "Buffering with the player…";
 
 function describeDownload(bufferedFraction: number, source: DownloadSource = "listener-playback"): TooltipContent {
   return {

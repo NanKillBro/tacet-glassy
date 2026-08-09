@@ -70,19 +70,19 @@ function markAvailable(button: HTMLButtonElement): void {
 function describeStage(state: KaraokeState): TooltipContent {
   switch (state.stage) {
     case "checking-cache":
-      return { label: "Checking for cached vocals", percent: null };
+      return { label: "Checking for cached vocals…", percent: null };
     case "decoding":
-      return { label: "Decoding the captured track", percent: null };
+      return { label: "Decoding the captured track…", percent: null };
     case "downloading-model":
-      return { label: "Downloading the separation model", percent: null };
+      return { label: "Downloading the separation model…", percent: null };
     case "loading-model":
-      return { label: "Loading the separation model", percent: null };
+      return { label: "Loading the separation model…", percent: null };
     case "separating":
-      return { label: "Separating vocals", percent: state.total > 0 ? state.processed / state.total : null };
+      return { label: "Separating vocals…", percent: state.total > 0 ? state.processed / state.total : null };
     case "encoding":
-      return { label: "Finishing up", percent: null };
+      return { label: "Finishing up…", percent: null };
     default:
-      return { label: "Preparing sing-along", percent: null };
+      return { label: "Preparing sing-along…", percent: null };
   }
 }
 
@@ -102,7 +102,7 @@ function renderKaraokeState(control: FaderControl, tooltip: Tooltip, state: Kara
     case "ready-to-engage":
     case "engaged":
       markAvailable(button);
-      tooltip.setContent({ label: "Drag to remove vocals", percent: null });
+      tooltip.setContent({ label: "Click to remove vocals, hold to set the level", percent: null });
       break;
     case "processing":
       markUnavailable(button);

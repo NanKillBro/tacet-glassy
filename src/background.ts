@@ -84,20 +84,16 @@ chrome.runtime.onMessage.addListener((message: unknown, sender) => {
   if (isProbeCacheCommand(message)) {
     const probeTabId = sender.tab?.id;
     if (probeTabId !== undefined) tabRegistry.remember(message.videoId, probeTabId);
-    ensureOffscreenDocument()
-      .then(() => chrome.runtime.sendMessage(message))
-      .catch(error => {
-        logger.error("failed to relay a cache probe", error);
-      });
+    sendToOffscreenWithRetry(message).catch(error => {
+      logger.error("failed to relay a cache probe", error);
+    });
     return undefined;
   }
 
   if (isForgetTrackCommand(message)) {
-    ensureOffscreenDocument()
-      .then(() => chrome.runtime.sendMessage(message))
-      .catch(error => {
-        logger.error("failed to relay a forget-track command", error);
-      });
+    sendToOffscreenWithRetry(message).catch(error => {
+      logger.error("failed to relay a forget-track command", error);
+    });
     return undefined;
   }
 
@@ -105,17 +101,15 @@ chrome.runtime.onMessage.addListener((message: unknown, sender) => {
     const tabId = sender.tab?.id;
     if (tabId !== undefined) tabRegistry.remember(message.videoId, tabId);
 
-    ensureOffscreenDocument()
-      .then(() => chrome.runtime.sendMessage(message))
-      .catch(error => {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        relayToTabForVideo(message.videoId, {
-          type: "blk-track-error",
-          videoId: message.videoId,
-          code: "unknown",
-          message: `Failed to reach the offscreen document: ${errorMessage}`,
-        });
+    sendToOffscreenWithRetry(message).catch(error => {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      relayToTabForVideo(message.videoId, {
+        type: "blk-track-error",
+        videoId: message.videoId,
+        code: "unknown",
+        message: `Failed to reach the offscreen document: ${errorMessage}`,
       });
+    });
     return;
   }
 

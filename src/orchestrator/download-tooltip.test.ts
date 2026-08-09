@@ -50,11 +50,15 @@ describe("describeDownload", () => {
       }
     });
 
-    // The label is a step name, never a sentence: the card is one line and its
-    // motion rolls that line, so the ellipsis is the card's to add.
-    it("leaves punctuation to the card", () => {
+    it("marks both as still running with a trailing ellipsis, since the card adds none", () => {
       for (const label of [HIDDEN_PLAYER_LABEL, LISTENER_PLAYBACK_LABEL]) {
-        expect(label).not.toMatch(/[.…]$/);
+        expect(label).toMatch(/…$/);
+      }
+    });
+
+    it("never ends a label with a full stop, which the rolling line would strand", () => {
+      for (const label of [HIDDEN_PLAYER_LABEL, LISTENER_PLAYBACK_LABEL]) {
+        expect(label).not.toMatch(/\.$/);
       }
     });
   });

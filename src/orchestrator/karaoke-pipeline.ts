@@ -53,6 +53,7 @@ import {
 } from "../../workers/protocol2";
 
 const CAPTURE_REQUEST_TIMEOUT_MS = 8000;
+const CACHE_PROBE_TIMEOUT_MS = 6000;
 
 // k = 1 is the original mix untouched (see src/pageworld/gain-law.ts).
 const NEUTRAL_MIX_LEVEL = 1;
@@ -91,6 +92,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   let vocalsAssembler: ChunkAssembler | null = null;
   let instrumentalAssembler: ChunkAssembler | null = null;
   let doneReceived = false;
+  let cacheProbeTimer: ReturnType<typeof setTimeout> | null = null;
   const reacquiredVideoIds = new Set<string>();
 
   // Unlike every later transition, the initial state never reaches setState below, so it is announced here.
@@ -152,11 +154,25 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     probeCacheFor(videoId);
   }
 
+  function clearCacheProbeTimer(): void {
+    if (cacheProbeTimer !== null) clearTimeout(cacheProbeTimer);
+    cacheProbeTimer = null;
+  }
+
   // The cache lookup used to live only in the capture-completion path, so a
   // track had to be fully re-captured before anything would even look.
   function probeCacheFor(videoId: string): void {
     const probe: ProbeCacheCommand = { type: "blk-probe-cache", videoId };
     chrome.runtime.sendMessage(probe).catch(error => logError("failed to send cache probe", error));
+
+    if (videoId !== state.videoId) return;
+    clearCacheProbeTimer();
+    cacheProbeTimer = setTimeout(() => {
+      cacheProbeTimer = null;
+      if (videoId !== state.videoId || state.status !== "waiting-for-capture") return;
+      logError("no answer from the cache lookup, acquiring anyway", new Error(videoId));
+      postToPageWorld({ type: "blk-request-prefetch", videoId });
+    }, CACHE_PROBE_TIMEOUT_MS);
   }
 
   function trackDurationSeconds(): number {
@@ -349,6 +365,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
         return;
       }
       log(`cached stems found for ${message.videoId}, capture is not needed`);
+      if (message.videoId === state.videoId) clearCacheProbeTimer();
       dispatch({ type: "cache-hit", videoId: message.videoId });
       postToPageWorld({ type: "blk-capture-stand-down", videoId: message.videoId });
       // The relay through background does not guarantee ordering, so the stems
@@ -363,6 +380,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
         return;
       }
       if (message.videoId !== state.videoId) return;
+      clearCacheProbeTimer();
       log(`no cached stems for ${message.videoId}, acquiring`);
       // From here, not the capture script: this module only exists when the
       // master switch is on, and that script runs for every track regardless.
@@ -444,6 +462,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   }
 
   function destroy(): void {
+    clearCacheProbeTimer();
     document.removeEventListener(BETTER_LYRICS_PLAYER_EVENT, onBetterLyricsPlayerState);
     window.removeEventListener("message", onWindowMessage);
     chrome.runtime.onMessage.removeListener(onRuntimeMessage);

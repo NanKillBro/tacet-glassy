@@ -42,7 +42,7 @@ function percentText(percent: number): string {
 }
 
 function fillLine(line: HTMLSpanElement, content: TooltipContent): void {
-  line.textContent = content.percent === null ? `${content.label}…` : `${content.label}… `;
+  line.textContent = content.percent === null ? content.label : `${content.label} `;
   if (content.percent === null) return;
   const percent = document.createElement("span");
   percent.className = PERCENT_CLASS;
