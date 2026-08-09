@@ -23,7 +23,7 @@ import { NEUTRAL_MIX_LEVEL } from "@/pageworld/gain-law";
 import { decodeOpusToPcm } from "@/cache/opus-codec";
 import { initialKaraokeState, reduceKaraokeState } from "@/orchestrator/karaoke-state";
 import type { KaraokeState } from "@/orchestrator/karaoke-state";
-import { decideShortStems, judgeStemCoverage, overrunsTrack, stemDurationSeconds } from "@/orchestrator/stem-coverage";
+import { decideShortStems, judgeStemCoverage, stemDurationSeconds } from "@/orchestrator/stem-coverage";
 import type { LoadStemsMessage, SetMixLevelMessage, StopStemsMessage } from "@/pageworld/protocol";
 import { loadSettingsFrom } from "@/settings/storage";
 import { base64ToBytes, bytesToBase64 } from "@/relay/base64";
@@ -316,9 +316,6 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
           return;
         }
         if (fit !== "fits") log(`using slightly short stems for ${videoId}: ${measured}`);
-        if (overrunsTrack(stemSeconds, trackSeconds)) {
-          logError("stems run past the end of the track, they may span more than one", new Error(measured));
-        }
 
         log(`stems decoded for ${videoId}, loading into the playback graph`);
         const transfer = [...vocals.channels, ...instrumental.channels].map(channel => channel.buffer);

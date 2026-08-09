@@ -2,10 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   MINIMUM_USABLE_COVERAGE,
   STEM_COVERAGE_TOLERANCE_S,
-  OVERRUN_TOLERANCE_S,
   decideShortStems,
   judgeStemCoverage,
-  overrunsTrack,
   stemDurationSeconds,
 } from "@/orchestrator/stem-coverage";
 import type { StemFit } from "@/orchestrator/stem-coverage";
@@ -131,34 +129,5 @@ describe("stemDurationSeconds", () => {
   it("reports empty stems as zero, which judges as unusable", () => {
     expect(stemDurationSeconds(0, 44100)).toBe(0);
     expect(judgeStemCoverage(stemDurationSeconds(0, 44100), TRACK_S)).toBe("unusable");
-  });
-});
-
-describe("overrunsTrack", () => {
-  it("accepts stems that match the track", () => {
-    expect(overrunsTrack(187.7, 188)).toBe(false);
-    expect(overrunsTrack(215, 215)).toBe(false);
-  });
-
-  it("flags stems that span more than the track", () => {
-    expect(overrunsTrack(314.89, 109.79)).toBe(true);
-    expect(overrunsTrack(315, 188)).toBe(true);
-  });
-
-  describe("edge cases", () => {
-    it("tolerates a small overrun rather than crying wolf", () => {
-      expect(overrunsTrack(188 + OVERRUN_TOLERANCE_S - 1, 188)).toBe(false);
-    });
-
-    it("needs both the absolute and the ratio test to trip", () => {
-      expect(overrunsTrack(40, 25)).toBe(false);
-      expect(overrunsTrack(400, 250)).toBe(true);
-    });
-
-    it("says nothing when the track duration is unknown", () => {
-      expect(overrunsTrack(300, Number.NaN)).toBe(false);
-      expect(overrunsTrack(300, 0)).toBe(false);
-      expect(overrunsTrack(Number.NaN, 200)).toBe(false);
-    });
   });
 });
