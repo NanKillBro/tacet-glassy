@@ -26,6 +26,7 @@ import { installForcedSilence, silenceMediaIn } from "@/capture/silence-frame";
 import { runSliceCapture } from "@/capture/slice-runner";
 import { DEFAULT_WORKER_COUNT, planSlices, planWholeTrack } from "@/capture/slice-plan";
 import { decidePrefetch } from "@/capture/prefetch-gate";
+import { videoIdsToRelease } from "@/capture/prefetch-retention";
 import { installSourceBufferCapture } from "@/capture/sourcebuffer-patch";
 import { nextVideoIdInQueue, readQueueItems } from "@/capture/next-track";
 import { getVideoIdFromSearch } from "@/capture/video-id";
@@ -277,6 +278,19 @@ function prefetchTrackInSlices(
 
 const prefetchAttemptsByVideoId = new Map<string, number>();
 
+function holdPrefetched(videoId: string, track: PrefetchedTrack): void {
+  prefetchedByVideoId.delete(videoId);
+  prefetchedByVideoId.set(videoId, track);
+
+  for (const released of videoIdsToRelease([...prefetchedByVideoId.keys()])) {
+    const bytes = prefetchedByVideoId.get(released)?.bytes.byteLength ?? 0;
+    prefetchedByVideoId.delete(released);
+    prefetchStateByVideoId.delete(released);
+    prefetchAttemptsByVideoId.delete(released);
+    log(`released ${bytes} captured bytes held for videoId=${released}`);
+  }
+}
+
 function abandonPrefetch(videoId: string, ahead: boolean, reason: string): void {
   const attempts = (prefetchAttemptsByVideoId.get(videoId) ?? 0) + 1;
   prefetchAttemptsByVideoId.set(videoId, attempts);
@@ -355,10 +369,7 @@ function startPrefetchFor(videoId: string, { ahead = false, fresh = false } = {}
           return;
         }
 
-        prefetchedByVideoId.set(videoId, {
-          mimeType: captured.mimeType,
-          bytes: new Uint8Array(captured.bytes),
-        });
+        holdPrefetched(videoId, { mimeType: captured.mimeType, bytes: new Uint8Array(captured.bytes) });
         prefetchStateByVideoId.set(videoId, "done");
         log(
           `prefetch complete for videoId=${videoId}, ${captured.bytes.byteLength} bytes covering ${captured.trackDurationSeconds.toFixed(1)}s`
