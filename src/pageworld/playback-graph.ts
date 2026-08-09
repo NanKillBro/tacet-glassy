@@ -1,7 +1,7 @@
 // -- Playback graph ----------------------------------------------------------
 
 import { createBypassController } from "@/pageworld/bypass";
-import { gainsForMixLevel } from "@/pageworld/gain-law";
+import { gainsForMixLevel, listenerGain } from "@/pageworld/gain-law";
 import { createLogger } from "@/shared/logger";
 
 const logger = createLogger("page");
@@ -22,6 +22,7 @@ interface GraphState {
   instrumentalRms: number;
   stemsPlaying: boolean;
   elementTime: number;
+  listenerGain: number;
 }
 
 interface PlaybackGraph {
@@ -51,10 +52,15 @@ function createStemBuffer(
 function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   const { context, source } = deps;
 
+  // -- Stem path: gains, then the listener's own volume, then out -------------
+
+  const listenerVolumeNode = context.createGain();
+  listenerVolumeNode.connect(context.destination);
+
   const vocalsGainNode = context.createGain();
   const instrumentalGainNode = context.createGain();
-  vocalsGainNode.connect(context.destination);
-  instrumentalGainNode.connect(context.destination);
+  vocalsGainNode.connect(listenerVolumeNode);
+  instrumentalGainNode.connect(listenerVolumeNode);
 
   const originalGainNode = context.createGain();
   originalGainNode.gain.value = 1;
@@ -70,6 +76,12 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
 
   // Followed directly, rather than being told about the transport.
   const element = source.mediaElement;
+
+  function syncListenerVolume(): void {
+    listenerVolumeNode.gain.value = listenerGain(element.volume, element.muted);
+  }
+  syncListenerVolume();
+  element.addEventListener("volumechange", syncListenerVolume);
 
   function stopActiveSources(): void {
     vocalsSource?.stop();
@@ -170,12 +182,14 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   function dispose(): void {
     stopActiveSources();
     loadedStems = null;
+    element.removeEventListener("volumechange", syncListenerVolume);
 
     originalGainNode.gain.value = 1;
     source.disconnect(originalGainNode);
     originalGainNode.disconnect();
     vocalsGainNode.disconnect();
     instrumentalGainNode.disconnect();
+    listenerVolumeNode.disconnect();
     source.connect(context.destination);
 
     if (!transportAttached) return;
@@ -206,6 +220,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
       instrumentalRms,
       stemsPlaying: instrumentalSource !== null,
       elementTime: Number.isFinite(element.currentTime) ? element.currentTime : 0,
+      listenerGain: listenerVolumeNode.gain.value,
     };
   }
 

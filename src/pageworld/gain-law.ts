@@ -1,5 +1,5 @@
 const MIN_MIX_LEVEL = 0;
-const MAX_MIX_LEVEL = 2;
+const MAX_MIX_LEVEL = 1;
 const INSTRUMENTAL_GAIN = 1;
 
 interface StemGains {
@@ -18,5 +18,11 @@ function gainsForMixLevel(mixLevel: number): StemGains {
   return { vocalsGain: clampMixLevel(mixLevel), instrumentalGain: INSTRUMENTAL_GAIN };
 }
 
-export { MIN_MIX_LEVEL, MAX_MIX_LEVEL, INSTRUMENTAL_GAIN, clampMixLevel, gainsForMixLevel };
+function listenerGain(volume: number, muted: boolean): number {
+  if (muted) return 0;
+  if (!Number.isFinite(volume)) return 1;
+  return Math.max(0, Math.min(1, volume));
+}
+
+export { MIN_MIX_LEVEL, MAX_MIX_LEVEL, INSTRUMENTAL_GAIN, clampMixLevel, gainsForMixLevel, listenerGain };
 export type { StemGains };
