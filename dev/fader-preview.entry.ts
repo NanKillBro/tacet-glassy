@@ -138,28 +138,38 @@ for (const [id, armedTakesPill] of [
   byId<HTMLDivElement>(id).append(...PARK_ROW.map(([state, caption]) => buildParkPill(state, armedTakesPill, caption)));
 }
 
-const WORDINGS: Array<[string, string, string]> = [
-  ["W1", "Separating vocals", "Karaoke starts when this finishes"],
-  ["W2", "Separating vocals", "Vocals drop as soon as it is ready"],
+const TIP_ROWS: Array<[string, string, number | null, string | null]> = [
+  ["not armed, downloading", "Downloading the track", 0.93, null],
+  ["armed, downloading", "Downloading the track", 0.93, "Karaoke starts when this finishes"],
+  ["not armed, separating", "Separating vocals\u2026", 0.47, null],
+  ["armed, separating", "Separating vocals\u2026", 0.47, "Karaoke starts when this finishes"],
+  ["armed, no percentage", "Loading the separation model\u2026", null, "Karaoke starts when this finishes"],
 ];
 
 const wording = byId<HTMLDivElement>("wording");
-for (const [name, unarmed, armedText] of WORDINGS) {
+for (const [name, label, percent, note] of TIP_ROWS) {
   const block = document.createElement("div");
-  block.style.cssText = "margin-bottom:18px";
-  const label = document.createElement("div");
-  label.className = "caption";
-  label.style.cssText = "max-width:none;margin:0 0 8px";
-  label.textContent = name;
-  const before = document.createElement("div");
-  before.className = "blyrics-mix-tip is-open";
-  before.style.cssText = "position:static;display:inline-flex;margin-right:12px";
-  before.textContent = `${unarmed} 47%`;
-  const after = document.createElement("div");
-  after.className = "blyrics-mix-tip is-open";
-  after.style.cssText = "position:static;display:inline-flex";
-  after.textContent = `${armedText} 47%`;
-  block.append(label, before, after);
+  block.style.cssText = "margin-bottom:20px";
+  const caption = document.createElement("div");
+  caption.className = "caption";
+  caption.style.cssText = "max-width:none;margin:0 0 6px";
+  caption.textContent = name;
+
+  const host = document.createElement("span");
+  host.style.cssText = "display:inline-block;width:1px;height:1px";
+  document.body.appendChild(host);
+  const tip = createTooltip(host);
+  tip.setContent({ label, percent, note });
+  const cards = document.querySelectorAll<HTMLElement>(".blyrics-mix-tip");
+  const card = cards.length > 0 ? cards[cards.length - 1] : null;
+  if (card) {
+    card.classList.add("is-open");
+    card.style.position = "static";
+    card.style.display = "inline-block";
+    block.append(caption, card);
+  } else {
+    block.append(caption);
+  }
   wording.appendChild(block);
 }
 
