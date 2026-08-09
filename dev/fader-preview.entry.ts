@@ -7,7 +7,7 @@
 
 import { createFaderControl } from "@/ui/fader";
 import type { GlyphKind } from "@/ui/fader-geometry";
-import { createFilledGlyphSvg, createOutlineIcon } from "@/ui/fader-icons";
+import { createFilledGlyphSvg } from "@/ui/fader-icons";
 import { attachFaderMount } from "@/ui/mount";
 
 function byId<T extends HTMLElement>(id: string): T {
@@ -64,7 +64,7 @@ function buildUnavailablePill(): HTMLDivElement {
   button.title = "Sing-along needs a stereo track";
   const glyph = document.createElement("span");
   glyph.className = "blyrics-sing__glyph blyrics-sing__glyph--on";
-  glyph.appendChild(createOutlineIcon("mic"));
+  glyph.appendChild(createFilledGlyphSvg("mic", 0));
   button.appendChild(glyph);
 
   const captionEl = document.createElement("div");
@@ -76,11 +76,11 @@ function buildUnavailablePill(): HTMLDivElement {
 }
 
 byId<HTMLDivElement>("meter").append(
-  buildMeterPill("note", 1, "Karaoke. Note heads solid."),
-  buildMeterPill("note", 0.5, "Vocals down."),
   buildMeterPill("mic", 0, "Original. Empty mic, no pill, off."),
-  buildMeterPill("mic", 0.5, "Vocals up."),
-  buildMeterPill("mic", 1, "Top of the travel. Capsule solid."),
+  buildMeterPill("note", 0.25, "Vocals down a quarter."),
+  buildMeterPill("note", 0.5, "Vocals down by half."),
+  buildMeterPill("note", 0.75, "Vocals mostly out."),
+  buildMeterPill("note", 1, "Karaoke. Note heads solid."),
   buildUnavailablePill()
 );
 

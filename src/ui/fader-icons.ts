@@ -57,10 +57,6 @@ function createWaveformIcon(size = 16): SVGSVGElement {
   return createIconSvg(WAVEFORM_OUTLINE, size);
 }
 
-function createOutlineIcon(kind: GlyphKind, size = 16): SVGSVGElement {
-  return createIconSvg(OUTLINE[kind], size);
-}
-
 function createFilledGlyphSvg(kind: GlyphKind, fraction: number, size = 16): SVGSVGElement {
   const clampedFraction = Math.max(0, Math.min(1, fraction));
   const clipId = `blyrics-glyph-clip-${clipIdSequence++}`;
@@ -96,4 +92,4 @@ function createGlyphMaskUrl(kind: GlyphKind): string {
   return `url("data:image/svg+xml,${encodeURIComponent(serialized)}")`;
 }
 
-export { createTranslateIcon, createWaveformIcon, createOutlineIcon, createFilledGlyphSvg, createGlyphMaskUrl };
+export { createTranslateIcon, createWaveformIcon, createFilledGlyphSvg, createGlyphMaskUrl };

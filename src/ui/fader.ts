@@ -14,8 +14,7 @@ import {
   stepValue,
   valueFromPointerOffset,
 } from "@/ui/fader-geometry";
-import type { Pole } from "@/ui/fader-geometry";
-import { createFilledGlyphSvg, createGlyphMaskUrl, createOutlineIcon } from "@/ui/fader-icons";
+import { createFilledGlyphSvg, createGlyphMaskUrl } from "@/ui/fader-icons";
 import { computeCardPosition } from "@/ui/fader-position";
 import { createSpring } from "@/ui/spring";
 import type { Spring, SpringDeps, SpringMode } from "@/ui/spring";
@@ -98,22 +97,7 @@ function createGlyphStack(size: number): GlyphStack {
   return { el, show };
 }
 
-// -- Pole buttons and track ----------------------------------------------------
-
-interface PoleButton {
-  button: HTMLButtonElement;
-  pole: Pole;
-}
-
-function createPoleButton(pole: Pole): PoleButton {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "blyrics-mix-pole";
-  button.dataset.pole = String(pole);
-  button.setAttribute("aria-label", pole === 1 ? "Vocals up" : "Karaoke");
-  button.appendChild(createOutlineIcon(pole === 1 ? "mic" : "note", 15));
-  return { button, pole };
-}
+// -- Track ---------------------------------------------------------------------
 
 interface Track {
   track: HTMLDivElement;
@@ -128,7 +112,7 @@ function createTrack(): Track {
   track.setAttribute("role", "slider");
   track.setAttribute("aria-label", "Sing-along");
   track.setAttribute("aria-valuemin", "-100");
-  track.setAttribute("aria-valuemax", "100");
+  track.setAttribute("aria-valuemax", "0");
 
   const well = document.createElement("div");
   well.className = "blyrics-mix-well";
@@ -172,13 +156,11 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
   menu.setAttribute("role", "group");
   menu.setAttribute("aria-label", "Sing-along level");
 
-  const poleUp = createPoleButton(1);
   const { track, fill, thumb } = createTrack();
-  const poleDown = createPoleButton(-1);
   const readout = document.createElement("div");
   readout.className = "blyrics-mix-readout";
 
-  menu.append(poleUp.button, track, poleDown.button, readout);
+  menu.append(track, readout);
   document.body.appendChild(menu);
 
   let v = 0;
@@ -231,10 +213,8 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
     x => {
       const frame = computePaintFrame(x);
       thumb.style.top = `${frame.thumbCenterPercent}%`;
-      fill.style.setProperty("--fill-dir", frame.shown >= 0 ? "to top" : "to bottom");
       fill.style.top = `${frame.fillTopPercent}%`;
       fill.style.height = `${frame.fillHeightPercent}%`;
-      fill.style.borderRadius = frame.fillBorderRadius;
       thumb.style.setProperty("--shadow-y", `${frame.shadowYPx.toFixed(2)}px`);
       lastGlyphKind = frame.glyphKind;
       lastGlyphFraction = frame.glyphFraction;
@@ -280,8 +260,6 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
     track.setAttribute("aria-valuenow", String(Math.round(frame.effectiveValue * 100)));
     track.setAttribute("aria-valuetext", frame.label);
     if (announce) flashLabel(frame.label);
-    poleUp.button.classList.toggle("blyrics-mix-pole--reached", frame.poleReached[1]);
-    poleDown.button.classList.toggle("blyrics-mix-pole--reached", frame.poleReached[-1]);
     options.onChange(frame.mixLevel);
   }
 
@@ -459,13 +437,6 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
     event.preventDefault();
     commit("settle");
   });
-
-  for (const pole of [poleUp, poleDown]) {
-    pole.button.addEventListener("click", () => {
-      v = v === pole.pole ? 0 : pole.pole;
-      commit("settle");
-    });
-  }
 
   commit("settle", false);
   paint.jump(0);

@@ -207,19 +207,18 @@
    offset menus. The dock pill has backdrop-filter, which makes it a
    backdrop root, so a card nested inside it could only blur against the
    dock. Positioned from the trigger's screen rect, it samples the page.
-   Identical in both hosts: a 68px vertical fader is a different shape than
+   Identical in both hosts: a 60px vertical fader is a different shape than
    Better Lyrics' own general-purpose dropdown regardless of where it is
    mounted, so this carries its own complete chrome rather than reusing or
    duplicating .blyrics-dock__menu's. */
 .blyrics-mix {
   position: fixed;
   z-index: 2147483000;
-  width: 68px;
-  padding: 6px;
+  padding: 12px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  border-radius: 20px;
+  border-radius: 26px;
   background-color: hsla(0, 0%, 100%, 0.07);
   box-shadow:
     rgba(0, 0, 0, 0.28) 0 10px 28px -10px,
@@ -256,41 +255,14 @@
   max-height: none;
   overflow: visible;
   gap: 0;
-  padding: 6px;
-  border-radius: 20px;
-}
-
-.blyrics-mix-pole {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 22px;
-  padding: 0;
-  border: none;
-  border-radius: 11px;
-  background: transparent;
-  color: hsla(0, 0%, 100%, 0.4);
-  cursor: pointer;
-  transition-property: color, scale;
-  transition-duration: 160ms;
-  transition-timing-function: var(--ease, cubic-bezier(0.2, 0, 0, 1));
-}
-.blyrics-mix-pole:hover {
-  color: hsla(0, 0%, 100%, 0.9);
-}
-.blyrics-mix-pole:active {
-  scale: 0.96;
-}
-.blyrics-mix-pole--reached {
-  color: color-mix(in srgb, var(--dock-pill-accent, oklch(from hsl(45, 100%, 56%) l calc(c * 1.85) h)) 85%, #fff);
+  padding: 12px;
+  border-radius: 26px;
 }
 
 .blyrics-mix-track {
   position: relative;
   width: 30px;
   height: 146px;
-  margin: 5px 0;
   padding: 3px;
   border-radius: 14px;
   background-color: hsla(0, 0%, 100%, 0.06);
@@ -310,9 +282,9 @@
 
 /* Three concentric steps, so the clearance around the moving parts is the
    same on all four sides instead of only on the inline axis.
-     card  20 - 6 padding -> track 14
-     track 14 - 3 padding -> well  11  (the inline gap that was already right)
-     well  11 - 2 padding -> fill and handle 9
+     card  26 - 12 padding -> track 14
+     track 14 - 3 padding  -> well  11  (the inline gap that was already right)
+     well  11 - 2 padding  -> fill and handle 9
    A taller handle is what lets the radius climb: at 18px it takes the full
    9px, which is exactly half its height, so it is a true capsule and still
    nests into the clip's 9px corner rather than being flush. */
@@ -332,8 +304,9 @@
   position: absolute;
   left: 0;
   right: 0;
+  border-radius: 9px;
   background: linear-gradient(
-    var(--fill-dir, to top),
+    to top,
     color-mix(in srgb, var(--dock-pill-accent, oklch(from hsl(45, 100%, 56%) l calc(c * 1.85) h)) 50%, transparent),
     color-mix(in srgb, var(--dock-pill-accent, oklch(from hsl(45, 100%, 56%) l calc(c * 1.85) h)) 65%, transparent)
   );
@@ -350,13 +323,16 @@
      the side with track left to catch it. Driven from the springed
      position, so it swings as the handle travels. */
   box-shadow: rgba(0, 0, 0, 0.45) 0 var(--shadow-y, 0px) 6px -1px;
-  transform: translateY(-50%);
-  transition-property: background-color;
-  transition-duration: 160ms;
+  transform: translateY(-50%) scale(var(--thumb-scale, 0.85));
+  opacity: var(--thumb-opacity, 0);
+  transition-property: transform, opacity;
+  transition-duration: 180ms;
   transition-timing-function: var(--ease, cubic-bezier(0.2, 0, 0, 1));
 }
-.blyrics-mix-track[data-rest="true"] .blyrics-mix-thumb {
-  background-color: hsla(0, 0%, 100%, 0.55);
+.blyrics-mix:hover .blyrics-mix-thumb,
+.blyrics-mix:focus-within .blyrics-mix-thumb {
+  --thumb-scale: 1;
+  --thumb-opacity: 1;
 }
 
 /* No label at rest. It appears on the far side from the dock only while the
@@ -408,13 +384,16 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .blyrics-sing,
-  .blyrics-mix-pole {
+  .blyrics-sing {
     transition-property: none;
   }
   .blyrics-sing__glyph {
     transition-property: --glyph-o;
     transition-delay: 0ms;
+  }
+  .blyrics-mix-thumb {
+    transition-property: opacity;
+    --thumb-scale: 1;
   }
   .blyrics-sing__glyph,
   .blyrics-mix {
