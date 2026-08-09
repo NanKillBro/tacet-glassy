@@ -11,6 +11,7 @@ interface PlayerVideoData {
 interface YtPlayer {
   getVideoData?: () => PlayerVideoData;
   getDuration?: () => number;
+  getCurrentTime?: () => number;
   playVideo?: () => void;
   pauseVideo?: () => void;
   seekTo?: (seconds: number, allowSeekAhead?: boolean) => void;

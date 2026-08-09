@@ -2,6 +2,9 @@
 
 import { createBypassController } from "@/pageworld/bypass";
 import { gainsForMixLevel, listenerGain } from "@/pageworld/gain-law";
+import { playerCurrentTime } from "@/pageworld/player-state";
+import { resolveStemStart } from "@/pageworld/stem-offset";
+import type { StemStart } from "@/pageworld/stem-offset";
 import { createLogger } from "@/shared/logger";
 
 const logger = createLogger("page");
@@ -22,6 +25,10 @@ interface GraphState {
   instrumentalRms: number;
   stemsPlaying: boolean;
   elementTime: number;
+  playerTime: number;
+  startOffset: number | null;
+  startSource: string | null;
+  startRefusedBecause: string | null;
   listenerGain: number;
 }
 
@@ -72,6 +79,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   let instrumentalSource: AudioBufferSourceNode | null = null;
   let currentMixLevel = 1;
   let transportAttached = false;
+  let lastStart: StemStart | null = null;
   let loadedStems: { vocals: AudioBuffer; instrumental: AudioBuffer; durationSeconds: number } | null = null;
 
   // Followed directly, rather than being told about the transport.
@@ -108,11 +116,25 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     instrumentalGainNode.gain.value = gains.instrumentalGain;
   }
 
-  function startSourcesAt(offsetSeconds: number): void {
+  function startSourcesAtPlayhead(): void {
     if (!loadedStems) return;
     stopActiveSources();
 
-    const offset = Math.max(0, Math.min(offsetSeconds, loadedStems.durationSeconds));
+    const start = resolveStemStart({
+      playerTimeSeconds: playerCurrentTime(document),
+      elementTimeSeconds: element.currentTime,
+      stemDurationSeconds: loadedStems.durationSeconds,
+    });
+    lastStart = start;
+
+    if (start.kind === "bypass") {
+      logger.warn(`handing back to the original, ${start.reason}`);
+      originalGainNode.gain.value = 1;
+      return;
+    }
+
+    originalGainNode.gain.value = 0;
+    const offset = start.offsetSeconds;
     vocalsSource = context.createBufferSource();
     vocalsSource.buffer = loadedStems.vocals;
     instrumentalSource = context.createBufferSource();
@@ -127,7 +149,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   function syncToElement(): void {
     if (!loadedStems || bypass.isBypassed()) return;
     if (element.paused) stopActiveSources();
-    else startSourcesAt(element.currentTime);
+    else startSourcesAtPlayhead();
   }
 
   function attachTransportListeners(): void {
@@ -168,7 +190,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     bypass.exitBypass();
     attachTransportListeners();
     // Start where the listener actually is, not at the beginning of the track.
-    if (!element.paused) startSourcesAt(element.currentTime);
+    if (!element.paused) startSourcesAtPlayhead();
   }
 
   function setMixLevel(mixLevel: number): void {
@@ -220,6 +242,10 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
       instrumentalRms,
       stemsPlaying: instrumentalSource !== null,
       elementTime: Number.isFinite(element.currentTime) ? element.currentTime : 0,
+      playerTime: playerCurrentTime(document),
+      startOffset: lastStart?.kind === "start" ? lastStart.offsetSeconds : null,
+      startSource: lastStart?.kind === "start" ? lastStart.source : null,
+      startRefusedBecause: lastStart?.kind === "bypass" ? lastStart.reason : null,
       listenerGain: listenerVolumeNode.gain.value,
     };
   }

@@ -36,11 +36,22 @@ function currentPlayerSnapshot(doc: Document): PlayerSnapshot | null {
   return readPlayerSnapshot(player ? (player as unknown as YtPlayer) : null);
 }
 
+function playerCurrentTime(doc: Document): number {
+  const player = doc.getElementById(MOVIE_PLAYER_ELEMENT_ID) as unknown as YtPlayer | null;
+  if (!player || typeof player.getCurrentTime !== "function") return Number.NaN;
+  try {
+    const seconds = player.getCurrentTime();
+    return Number.isFinite(seconds) ? seconds : Number.NaN;
+  } catch {
+    return Number.NaN;
+  }
+}
+
 function playerVideoElement(doc: Document): HTMLVideoElement | null {
   const player = doc.getElementById(MOVIE_PLAYER_ELEMENT_ID);
   if (!player) return null;
   return selectPlaybackElement(Array.from(player.querySelectorAll("video")));
 }
 
-export { currentPlayerSnapshot, playerVideoElement, readPlayerSnapshot };
+export { currentPlayerSnapshot, playerCurrentTime, playerVideoElement, readPlayerSnapshot };
 export type { PlayerSnapshot };
