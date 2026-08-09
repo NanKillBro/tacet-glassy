@@ -2,6 +2,7 @@ import { MOVIE_PLAYER_ELEMENT_ID } from "@/capture/ad-guard";
 import { readVideoData } from "@/capture/yt-player";
 import type { YtPlayer } from "@/capture/yt-player";
 import { selectPlaybackElement } from "@/pageworld/select-media-element";
+import { chooseTrackDuration, readClockDuration } from "@/pageworld/track-duration";
 
 interface PlayerSnapshot {
   videoId: string;
@@ -18,14 +19,14 @@ function readDuration(player: YtPlayer): number {
   }
 }
 
-function readPlayerSnapshot(player: YtPlayer | null): PlayerSnapshot | null {
+function readPlayerSnapshot(player: YtPlayer | null, clockDurationSeconds = Number.NaN): PlayerSnapshot | null {
   if (!player) return null;
 
   const videoData = readVideoData(player);
   if (!videoData || videoData.isAd === true) return null;
   if (typeof videoData.video_id !== "string" || !videoData.video_id) return null;
 
-  const durationSeconds = readDuration(player);
+  const durationSeconds = chooseTrackDuration(clockDurationSeconds, readDuration(player));
   if (durationSeconds <= 0) return null;
 
   return { videoId: videoData.video_id, durationSeconds };
@@ -33,7 +34,7 @@ function readPlayerSnapshot(player: YtPlayer | null): PlayerSnapshot | null {
 
 function currentPlayerSnapshot(doc: Document): PlayerSnapshot | null {
   const player = doc.getElementById(MOVIE_PLAYER_ELEMENT_ID);
-  return readPlayerSnapshot(player ? (player as unknown as YtPlayer) : null);
+  return readPlayerSnapshot(player ? (player as unknown as YtPlayer) : null, readClockDuration(doc));
 }
 
 function playerCurrentTime(doc: Document): number {
