@@ -8,6 +8,7 @@
   },
   "include": [
     "./*.ts",
+    "../src/types/base64.d.ts",
     "../src/separation/types.ts",
     "../src/separation/chunker.ts",
     "../src/separation/stft.ts",
@@ -31,5 +32,6 @@
     "../src/relay/base64.ts",
     "../src/relay/chunk-transfer.ts",
     "../src/settings/settings.ts"
-  ]
+  ],
+  "exclude": ["./*.test.ts"]
 }
