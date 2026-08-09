@@ -27,6 +27,8 @@ import { runSliceCapture } from "@/capture/slice-runner";
 import { DEFAULT_WORKER_COUNT, planSlices, planWholeTrack } from "@/capture/slice-plan";
 import { decidePrefetch } from "@/capture/prefetch-gate";
 import { videoIdsToRelease } from "@/capture/prefetch-retention";
+import { settledTrackDuration } from "@/capture/settled-duration";
+import { readClockDuration } from "@/pageworld/track-duration";
 import { installSourceBufferCapture } from "@/capture/sourcebuffer-patch";
 import { nextVideoIdInQueue, readQueueItems } from "@/capture/next-track";
 import { getVideoIdFromSearch } from "@/capture/video-id";
@@ -132,18 +134,40 @@ function announceKey(videoId: string, durationSeconds: number): string {
   return `${videoId}:${Math.round(durationSeconds)}`;
 }
 
+function trackDurationSeconds(element: HTMLVideoElement): number | null {
+  return settledTrackDuration(element.duration, readClockDuration(document));
+}
+
 function announceIfCaptureComplete(element: HTMLVideoElement): void {
   const stats = accumulator.getStats();
   if (!stats.videoId || stats.retainedChunkCount === 0) return;
   if (stoodDownVideoIds.has(stats.videoId)) return;
   if (hiddenPlayerOwns(stats.videoId)) return;
   if (isAdPlayingHere()) return;
-  if (!Number.isFinite(element.duration)) return;
 
-  const key = announceKey(stats.videoId, element.duration);
+  const duration = trackDurationSeconds(element);
+  if (duration === null) {
+    logStaleElement(stats.videoId, element);
+    return;
+  }
+
+  const key = announceKey(stats.videoId, duration);
   if (announcedKeys.has(key)) return;
   announcedKeys.add(key);
   announceCaptureReady(stats.videoId);
+}
+
+let staleElementNotice: string | null = null;
+
+function logStaleElement(videoId: string, element: HTMLVideoElement): void {
+  const clockSeconds = readClockDuration(document);
+  if (!Number.isFinite(element.duration) || !Number.isFinite(clockSeconds)) return;
+  const notice = `${videoId}:${Math.round(element.duration)}`;
+  if (staleElementNotice === notice) return;
+  staleElementNotice = notice;
+  log(
+    `capture-ready withheld for videoId=${videoId}: the element still reports ${element.duration.toFixed(1)}s against the player bar's ${clockSeconds.toFixed(1)}s`
+  );
 }
 
 // Waiting for "ended" would make a track singable only on a second listen.
@@ -163,9 +187,8 @@ function announceDownloadProgress(element: HTMLVideoElement): void {
   if (prefetchStateByVideoId.get(videoId) === "done") return;
   const prefetching = hiddenPlayerOwns(videoId);
   const source: DownloadSource = prefetching ? "hidden-player" : "listener-playback";
-  const fraction = prefetching
-    ? hiddenPlayerProgress()
-    : computeBufferedFraction(bufferedEndSeconds(element), element.duration);
+  const against = trackDurationSeconds(element) ?? readClockDuration(document);
+  const fraction = prefetching ? hiddenPlayerProgress() : computeBufferedFraction(bufferedEndSeconds(element), against);
   const message: DownloadProgressMessage = { type: "blk-download-progress", videoId, fraction, source };
   window.postMessage(message, window.location.origin);
 }
