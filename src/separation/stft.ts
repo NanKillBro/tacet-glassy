@@ -4,13 +4,27 @@ const N_FFT = 4096;
 const HOP_LENGTH = 1024;
 const WIN_LENGTH = N_FFT;
 
+const hannWindows = new Map<number, Float32Array>();
+
 function hannWindow(size: number): Float32Array {
+  const cached = hannWindows.get(size);
+  if (cached) return cached;
+
   const w = new Float32Array(size);
   for (let i = 0; i < size; i++) {
     w[i] = 0.5 * (1 - Math.cos((2 * Math.PI * i) / size));
   }
+  hannWindows.set(size, w);
   return w;
 }
+
+interface FftTables {
+  cos: Float64Array;
+  sin: Float64Array;
+  reversed: Uint32Array;
+}
+
+const fftTablesByLength = new Map<number, FftTables>();
 
 function bitReverse(value: number, bits: number): number {
   let reversed = 0;
@@ -22,27 +36,53 @@ function bitReverse(value: number, bits: number): number {
   return reversed;
 }
 
-function fftRadix2(real: Float32Array, imag: Float32Array): void {
-  const n = real.length;
+function fftTables(n: number): FftTables {
+  const cached = fftTablesByLength.get(n);
+  if (cached) return cached;
+
   const bits = Math.log2(n);
   if (!Number.isInteger(bits)) throw new Error("FFT length must be power of 2");
 
+  const half = n / 2;
+  const cos = new Float64Array(half);
+  const sin = new Float64Array(half);
+  for (let j = 0; j < half; j++) {
+    const angle = (-2 * Math.PI * j) / n;
+    cos[j] = Math.cos(angle);
+    sin[j] = Math.sin(angle);
+  }
+
+  const reversed = new Uint32Array(n);
+  for (let i = 0; i < n; i++) reversed[i] = bitReverse(i, bits);
+
+  const tables: FftTables = { cos, sin, reversed };
+  fftTablesByLength.set(n, tables);
+  return tables;
+}
+
+function fftRadix2(real: Float32Array, imag: Float32Array): void {
+  const n = real.length;
+  const { cos, sin, reversed } = fftTables(n);
+
   for (let i = 0; i < n; i++) {
-    const j = bitReverse(i, bits);
+    const j = reversed[i];
     if (j > i) {
-      [real[i], real[j]] = [real[j], real[i]];
-      [imag[i], imag[j]] = [imag[j], imag[i]];
+      const tmpReal = real[i];
+      real[i] = real[j];
+      real[j] = tmpReal;
+      const tmpImag = imag[i];
+      imag[i] = imag[j];
+      imag[j] = tmpImag;
     }
   }
 
   for (let size = 2; size <= n; size *= 2) {
     const halfsize = size / 2;
-    const angleStep = (-2 * Math.PI) / size;
+    const stride = n / size;
     for (let i = 0; i < n; i += size) {
-      for (let k = 0; k < halfsize; k++) {
-        const angle = angleStep * k;
-        const wr = Math.cos(angle);
-        const wi = Math.sin(angle);
+      for (let k = 0, twiddle = 0; k < halfsize; k++, twiddle += stride) {
+        const wr = cos[twiddle];
+        const wi = sin[twiddle];
         const idx = i + k;
         const jdx = idx + halfsize;
         const tr = wr * real[jdx] - wi * imag[jdx];
