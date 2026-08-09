@@ -1,17 +1,16 @@
 import faderCss from "data-text:../ui/fader.css";
 import type { PlasmoCSConfig } from "plasmo";
-import { describeDownload } from "@/orchestrator/download-tooltip";
+import { describeBusy } from "@/orchestrator/busy-tooltip";
 import { createKaraokePipeline } from "@/orchestrator/karaoke-pipeline";
 import type { KaraokeState } from "@/orchestrator/karaoke-state";
 import { SETTINGS_STORAGE_KEY, sanitizeSettings } from "@/settings/settings";
 import { loadSettingsFrom } from "@/settings/storage";
 import { NEUTRAL_MIX_LEVEL } from "@/pageworld/gain-law";
-import { ARMED_LABEL } from "@/ui/armed-affordance";
 import { createFaderControl } from "@/ui/fader";
 import type { FaderControl } from "@/ui/fader";
 import { attachFaderMount, hasBetterLyrics } from "@/ui/mount";
 import { createTooltip } from "@/ui/tooltip";
-import type { Tooltip, TooltipContent } from "@/ui/tooltip";
+import type { Tooltip } from "@/ui/tooltip";
 import { createLogger } from "@/shared/logger";
 
 const logger = createLogger("orchestrator");
@@ -47,33 +46,6 @@ function markAvailable(button: HTMLButtonElement): void {
   button.style.opacity = "";
   button.style.filter = "";
   button.style.cursor = "";
-}
-
-function describeStage(state: KaraokeState): TooltipContent {
-  switch (state.stage) {
-    case "checking-cache":
-      return { label: "Checking for cached vocals…", percent: null };
-    case "decoding":
-      return { label: "Decoding the captured track…", percent: null };
-    case "downloading-model":
-      return { label: "Downloading the separation model…", percent: null };
-    case "loading-model":
-      return { label: "Loading the separation model…", percent: null };
-    case "separating":
-      return { label: "Separating vocals…", percent: state.total > 0 ? state.processed / state.total : null };
-    case "encoding":
-      return { label: "Finishing up…", percent: null };
-    default:
-      return { label: "Preparing sing-along…", percent: null };
-  }
-}
-
-function describeBusy(state: KaraokeState, armed: boolean): TooltipContent {
-  const stage =
-    state.downloadSource === null
-      ? describeStage(state)
-      : describeDownload(state.downloadFraction, state.downloadSource);
-  return { ...stage, note: armed ? ARMED_LABEL : null };
 }
 
 function renderKaraokeState(control: FaderControl, tooltip: Tooltip, state: KaraokeState, armed: boolean): void {
