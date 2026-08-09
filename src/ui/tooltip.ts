@@ -5,6 +5,8 @@ import { computeCardPosition } from "@/ui/fader-position";
 const TOOLTIP_CLASS = "blyrics-mix-tip";
 const LINE_CLASS = "blyrics-mix-tip__line";
 const PERCENT_CLASS = "blyrics-mix-tip__pct";
+const NOTE_CLASS = "blyrics-mix-tip__note";
+const NOTE_SHOWN_CLASS = "is-shown";
 
 const OPEN_DELAY_MS = 120;
 // The safety window: leaving and returning inside it never closes the card.
@@ -15,6 +17,7 @@ const TOOLTIP_GAP_PX = 14;
 interface TooltipContent {
   label: string;
   percent: number | null;
+  note?: string | null;
 }
 
 interface Tooltip {
@@ -56,6 +59,10 @@ function createTooltip(trigger: HTMLElement): Tooltip {
   stack.className = "blyrics-mix-tip__stack";
   card.appendChild(stack);
 
+  const note = document.createElement("span");
+  note.className = NOTE_CLASS;
+  card.appendChild(note);
+
   const ruler = document.createElement("span");
   ruler.className = "blyrics-mix-tip__ruler";
   card.appendChild(ruler);
@@ -78,8 +85,18 @@ function createTooltip(trigger: HTMLElement): Tooltip {
 
   function fitTo(next: TooltipContent): void {
     fillLine(ruler, next);
-    cardWidth = Math.ceil(ruler.getBoundingClientRect().width);
+    let widest = Math.ceil(ruler.getBoundingClientRect().width);
+    if (next.note) {
+      ruler.textContent = next.note;
+      widest = Math.max(widest, Math.ceil(ruler.getBoundingClientRect().width));
+    }
+    cardWidth = widest;
     card.style.width = `${cardWidth}px`;
+  }
+
+  function applyNote(text: string | null | undefined): void {
+    if (text) note.textContent = text;
+    note.classList.toggle(NOTE_SHOWN_CLASS, Boolean(text));
   }
 
   function place(): void {
@@ -126,6 +143,7 @@ function createTooltip(trigger: HTMLElement): Tooltip {
     }
 
     fitTo(next);
+    applyNote(next.note);
 
     const previous = stack.querySelector<HTMLSpanElement>(`.${LINE_CLASS}:not(.is-leaving)`);
 

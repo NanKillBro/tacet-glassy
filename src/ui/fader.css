@@ -459,6 +459,26 @@
   transform-origin: 50% 50%;
 }
 
+/* Second row, so the stage and its percentage stay readable while armed
+   rather than being replaced by the promise. */
+.blyrics-mix-tip__note {
+  display: flex;
+  align-items: flex-end;
+  white-space: nowrap;
+  height: 0;
+  opacity: 0;
+  color: hsla(0, 0%, 100%, 0.55);
+  font-size: 11px;
+  line-height: 15px;
+  transition:
+    height 220ms var(--ease, cubic-bezier(0.2, 0, 0, 1)),
+    opacity 160ms var(--ease, cubic-bezier(0.2, 0, 0, 1));
+}
+.blyrics-mix-tip__note.is-shown {
+  height: 18px;
+  opacity: 1;
+}
+
 .blyrics-mix-tip__ruler {
   position: absolute;
   visibility: hidden;

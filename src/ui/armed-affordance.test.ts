@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ARMED_LABEL, labelWhileBusy, shouldShowActivePill } from "@/ui/armed-affordance";
+import { ARMED_LABEL, shouldShowActivePill } from "@/ui/armed-affordance";
 
 describe("shouldShowActivePill", () => {
   it("shows the pill once vocals are actually coming out", () => {
@@ -37,21 +37,8 @@ describe("shouldShowActivePill", () => {
   });
 });
 
-describe("labelWhileBusy", () => {
-  it("keeps the stage's own wording when nothing is armed", () => {
-    expect(labelWhileBusy("Separating vocals…", false)).toBe("Separating vocals…");
-    expect(labelWhileBusy("Downloading the separation model…", false)).toBe("Downloading the separation model…");
-  });
-
-  it("promises the outcome once armed, whatever the stage is", () => {
-    expect(labelWhileBusy("Separating vocals…", true)).toBe(ARMED_LABEL);
-    expect(labelWhileBusy("Downloading the separation model…", true)).toBe(ARMED_LABEL);
-    expect(labelWhileBusy("Checking for cached vocals…", true)).toBe(ARMED_LABEL);
-  });
-
-  describe("edge cases", () => {
-    it("does not invent a label from an empty stage", () => {
-      expect(labelWhileBusy("", false)).toBe("");
-    });
+describe("ARMED_LABEL", () => {
+  it("reads as a promise about what happens next, not as a stage", () => {
+    expect(ARMED_LABEL).toBe("Karaoke starts when this finishes");
   });
 });

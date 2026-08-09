@@ -6,7 +6,7 @@ import type { KaraokeState } from "@/orchestrator/karaoke-state";
 import { SETTINGS_STORAGE_KEY, sanitizeSettings } from "@/settings/settings";
 import { loadSettingsFrom } from "@/settings/storage";
 import { NEUTRAL_MIX_LEVEL } from "@/pageworld/gain-law";
-import { labelWhileBusy } from "@/ui/armed-affordance";
+import { ARMED_LABEL } from "@/ui/armed-affordance";
 import { createFaderControl } from "@/ui/fader";
 import type { FaderControl } from "@/ui/fader";
 import { attachFaderMount, hasBetterLyrics } from "@/ui/mount";
@@ -73,7 +73,7 @@ function describeBusy(state: KaraokeState, armed: boolean): TooltipContent {
     state.downloadSource === null
       ? describeStage(state)
       : describeDownload(state.downloadFraction, state.downloadSource);
-  return { label: labelWhileBusy(stage.label, armed), percent: stage.percent };
+  return { ...stage, note: armed ? ARMED_LABEL : null };
 }
 
 function renderKaraokeState(control: FaderControl, tooltip: Tooltip, state: KaraokeState, armed: boolean): void {
