@@ -10,10 +10,12 @@ function bytesToBinaryString(bytes: Uint8Array): string {
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
+  if (bytes.toBase64) return bytes.toBase64();
   return btoa(bytesToBinaryString(bytes));
 }
 
 function base64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
+  if (Uint8Array.fromBase64) return Uint8Array.fromBase64(base64);
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);

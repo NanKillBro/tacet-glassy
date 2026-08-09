@@ -60,3 +60,52 @@ describe("round trip", () => {
     });
   });
 });
+
+describe("the native branch", () => {
+  const samples = [
+    new Uint8Array(0),
+    new Uint8Array([0]),
+    new Uint8Array([255, 0, 128]),
+    new TextEncoder().encode("the quick brown fox"),
+    new Uint8Array(8193).map((_, i) => (i * 31) % 256),
+  ];
+
+  it("is used when Uint8Array.prototype.toBase64 exists, and matches the fallback", () => {
+    const fallbackResults = samples.map(bytes => bytesToBase64(bytes));
+    let calls = 0;
+
+    Uint8Array.prototype.toBase64 = function (this: Uint8Array): string {
+      calls++;
+      let binary = "";
+      for (const byte of this) binary += String.fromCharCode(byte);
+      return btoa(binary);
+    };
+    try {
+      samples.forEach((bytes, index) => expect(bytesToBase64(bytes)).toBe(fallbackResults[index]));
+    } finally {
+      Uint8Array.prototype.toBase64 = undefined;
+    }
+
+    expect(calls).toBe(samples.length);
+  });
+
+  it("is used when Uint8Array.fromBase64 exists, and matches the fallback", () => {
+    const encoded = samples.map(bytes => bytesToBase64(bytes));
+    let calls = 0;
+
+    Uint8Array.fromBase64 = (base64: string): Uint8Array<ArrayBuffer> => {
+      calls++;
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return bytes;
+    };
+    try {
+      encoded.forEach((base64, index) => expect(base64ToBytes(base64)).toEqual(samples[index]));
+    } finally {
+      Uint8Array.fromBase64 = undefined;
+    }
+
+    expect(calls).toBe(samples.length);
+  });
+});
