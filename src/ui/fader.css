@@ -144,14 +144,18 @@
       order alone; the compound closes that gap the same way the dock
       compounds above do. ---------------------------------------------- */
 .blyrics-sing.blyrics-sing--bar {
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
-  color: hsla(0, 0%, 100%, 0.72);
+  color: rgb(144, 144, 144);
 }
 .blyrics-sing--bar.blyrics-sing--active {
   background-color: transparent;
   box-shadow: none;
+}
+.blyrics-sing--bar .blyrics-sing__glyph--busy > span {
+  width: 24px;
+  height: 24px;
 }
 
 .blyrics-sing__glyph {

@@ -147,7 +147,7 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
   button.setAttribute("aria-expanded", "false");
   button.setAttribute("aria-label", "Sing-along");
 
-  const stack = createGlyphStack(host === "bar" ? 20 : 16);
+  const stack = createGlyphStack(host === "bar" ? 24 : 16);
   button.appendChild(stack.el);
 
   const menu = document.createElement("div");
