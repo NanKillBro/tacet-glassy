@@ -19,6 +19,7 @@ interface TooltipContent {
 
 interface Tooltip {
   setContent(content: TooltipContent | null): void;
+  setSuppressed(suppressed: boolean): void;
   destroy(): void;
 }
 
@@ -64,6 +65,7 @@ function createTooltip(trigger: HTMLElement): Tooltip {
   let content: TooltipContent | null = null;
   let cardWidth = 0;
   let open = false;
+  let suppressed = false;
   let openTimer: ReturnType<typeof setTimeout> | null = null;
   let closeTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -97,10 +99,18 @@ function createTooltip(trigger: HTMLElement): Tooltip {
   }
 
   function show(): void {
-    if (open || !content) return;
+    if (open || suppressed || !content) return;
     open = true;
     card.classList.add("is-open");
     place();
+  }
+
+  function setSuppressed(next: boolean): void {
+    if (suppressed === next) return;
+    suppressed = next;
+    if (!suppressed) return;
+    clearTimers();
+    hide();
   }
 
   function hide(): void {
@@ -143,6 +153,7 @@ function createTooltip(trigger: HTMLElement): Tooltip {
 
   function onEnter(): void {
     clearTimers();
+    if (suppressed) return;
     openTimer = setTimeout(show, OPEN_DELAY_MS);
   }
 
@@ -165,7 +176,7 @@ function createTooltip(trigger: HTMLElement): Tooltip {
     card.remove();
   }
 
-  return { setContent, destroy };
+  return { setContent, setSuppressed, destroy };
 }
 
 export { createTooltip, TOOLTIP_CLASS };
