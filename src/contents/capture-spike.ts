@@ -53,12 +53,20 @@ const FULLY_BUFFERED_EPSILON_S = 0.5;
 
 const accumulator = createCaptureAccumulator();
 
+// -- Which track is being listened to ----------------------------------------
+
+let announcedListenedVideoId: string | null = null;
+
+function listenedVideoId(): string | null {
+  return announcedListenedVideoId ?? getVideoIdFromSearch(window.location.search);
+}
+
 // Stems already cached: retaining bytes and announcing readiness would
 // re-upload and re-separate a track that is already done.
 const stoodDownVideoIds = new Set<string>();
 
 function onAudioChunk(mimeType: string, bytes: Uint8Array): void {
-  const videoId = getVideoIdFromSearch(window.location.search);
+  const videoId = listenedVideoId();
   if (videoId !== null && accumulator.setActiveVideoId(videoId)) {
     log(`capture reset for videoId=${videoId}`);
     // A reset re-arms retention, so a stood-down track stands down again.
@@ -170,7 +178,7 @@ function bufferedEndSeconds(element: HTMLVideoElement): number {
 }
 
 function announceDownloadProgress(element: HTMLVideoElement): void {
-  const videoId = getVideoIdFromSearch(window.location.search);
+  const videoId = listenedVideoId();
   if (!videoId || stoodDownVideoIds.has(videoId) || isAdPlayingHere()) return;
   if (prefetchStateByVideoId.get(videoId) === "done") return;
   const prefetching = hiddenPlayerOwns(videoId);
@@ -359,9 +367,7 @@ function startPrefetchFor(videoId: string, { ahead = false, fresh = false } = {}
       prefetchStateByVideoId.set(videoId, "done");
       return;
     }
-    // A track being warmed ahead of the listener is deliberately not the one in
-    // the address bar, so only a prefetch for the current track checks.
-    if (!ahead && getVideoIdFromSearch(window.location.search) !== videoId) {
+    if (!ahead && listenedVideoId() !== videoId) {
       prefetchStateByVideoId.delete(videoId);
       return;
     }
@@ -470,6 +476,7 @@ window.addEventListener("message", event => {
   const data: unknown = event.data;
   if (isRequestCapturedAudioMessage(data)) respondToCapturedAudioRequest(data.videoId);
   if (isRequestPrefetchMessage(data) && runsOrchestration) {
+    if (data.ahead !== true) announcedListenedVideoId = data.videoId;
     startPrefetchFor(data.videoId, { ahead: data.ahead === true, fresh: data.fresh === true });
   }
 
@@ -495,7 +502,7 @@ declare global {
 }
 
 window.blkCaptureProbe = () => {
-  const videoId = getVideoIdFromSearch(window.location.search);
+  const videoId = listenedVideoId();
   return {
     videoId,
     prefetchState: videoId ? prefetchStateByVideoId.get(videoId) ?? null : null,
@@ -513,7 +520,7 @@ window.blkCaptureProbe = () => {
 
 window.blkPrefetchTrackInSlices = async (workerCount?: number) => {
   const started = performance.now();
-  const videoId = getVideoIdFromSearch(window.location.search);
+  const videoId = listenedVideoId();
   if (!videoId) return { slices: [], elapsedMs: 0 };
   const slices = await prefetchTrackInSlices(videoId, workerCount);
   return {

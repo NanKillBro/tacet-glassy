@@ -9,10 +9,14 @@
 // that YouTube is free to change.
 
 import { MOVIE_PLAYER_ELEMENT_ID } from "@/capture/ad-guard";
-import type { PlayerVideoData } from "@/capture/ad-guard";
 import { createLogger } from "@/shared/logger";
 
 const logger = createLogger("capture");
+
+interface PlayerVideoData {
+  video_id?: unknown;
+  isAd?: unknown;
+}
 
 interface YtPlayer {
   getVideoData?: () => PlayerVideoData;
@@ -58,8 +62,6 @@ function suppressAutoAdvance(player: YtPlayer): void {
   callSafely("clearQueue", player.clearQueue && (() => player.clearQueue?.()));
 }
 
-// What the player believes it is playing, or null if it will not say. Callers
-// pair this with isPlayingSomethingElse in ad-guard.ts.
 function readVideoData(player: YtPlayer | null): PlayerVideoData | null {
   if (!player || typeof player.getVideoData !== "function") return null;
   try {

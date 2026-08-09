@@ -53,7 +53,7 @@ import {
 } from "../../workers/protocol2";
 
 const CAPTURE_REQUEST_TIMEOUT_MS = 8000;
-const CACHE_PROBE_TIMEOUT_MS = 6000;
+const ACQUISITION_WATCHDOG_MS = 8000;
 
 // k = 1 is the original mix untouched (see src/pageworld/gain-law.ts).
 const NEUTRAL_MIX_LEVEL = 1;
@@ -165,14 +165,18 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     const probe: ProbeCacheCommand = { type: "blk-probe-cache", videoId };
     chrome.runtime.sendMessage(probe).catch(error => logError("failed to send cache probe", error));
 
-    if (videoId !== state.videoId) return;
+    if (videoId === state.videoId) armAcquisitionWatchdog(videoId);
+  }
+
+  function armAcquisitionWatchdog(videoId: string): void {
     clearCacheProbeTimer();
     cacheProbeTimer = setTimeout(() => {
       cacheProbeTimer = null;
       if (videoId !== state.videoId || state.status !== "waiting-for-capture") return;
-      logError("no answer from the cache lookup, acquiring anyway", new Error(videoId));
+      log(`still waiting on ${videoId}, asking again`);
       postToPageWorld({ type: "blk-request-prefetch", videoId });
-    }, CACHE_PROBE_TIMEOUT_MS);
+      probeCacheFor(videoId);
+    }, ACQUISITION_WATCHDOG_MS);
   }
 
   function trackDurationSeconds(): number {
