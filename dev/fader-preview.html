@@ -201,7 +201,45 @@
 <p class="note">Direct output of createFilledGlyphSvg, not the interactive control.</p>
 <div class="stage" id="meter"></div>
 
-<h2>4 &middot; Live migration</h2>
+<h2>4 &middot; Park mode: clickable while it works</h2>
+<p class="note">
+  Proposal. Today <code>waiting-for-capture</code> and <code>processing</code> set
+  <code>aria-disabled</code> and swallow every click. Here the button stays live: clicking arms it, and
+  the level applies the moment the stems land. The orchestrator already stores
+  <code>pendingMixLevel</code> and re-posts it after <code>stems-loaded</code>, so nothing new is needed
+  behind this except letting the click through.
+</p>
+<p class="note">
+  Two things to pick: whether armed carries the accent pill, and the wording. Rows are static
+  renders of the real classes, not the live control.
+</p>
+
+<h3 style="font-size:12px;font-weight:600;color:hsla(0,0%,100%,.55);margin:26px 0 12px">Variant A &middot; armed shows the accent pill</h3>
+<div class="stage" id="park-a"></div>
+
+<h3 style="font-size:12px;font-weight:600;color:hsla(0,0%,100%,.55);margin:34px 0 12px">Variant B &middot; armed is the note glyph only, pill waits for real audio</h3>
+<div class="stage" id="park-b"></div>
+
+<h3 style="font-size:12px;font-weight:600;color:hsla(0,0%,100%,.55);margin:34px 0 12px">Wording</h3>
+<div id="wording"></div>
+
+<h2>5 &middot; Tooltip yields to the open card</h2>
+<p class="note">
+  Long-press the button to open the fader, then hover it. On the left the tooltip still fires and
+  collides with the card; on the right it stays suppressed until the card closes.
+</p>
+<div class="stage" style="gap:64px">
+  <div class="cell">
+    <div class="blyrics-dock__inner"><div class="blyrics-dock__controls-static" id="tip-before"></div></div>
+    <div class="caption">Today. Both open.</div>
+  </div>
+  <div class="cell">
+    <div class="blyrics-dock__inner"><div class="blyrics-dock__controls-static" id="tip-after"></div></div>
+    <div class="caption">Proposed. Card wins.</div>
+  </div>
+</div>
+
+<h2>6 &middot; Live migration</h2>
 <p class="note">
   Toggle the dock and watch the control move between it and the player bar. This exercises the real
   <code>attachFaderMount</code> against the real selectors: the dock slot below carries the actual

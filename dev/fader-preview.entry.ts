@@ -7,8 +7,10 @@
 
 import { createFaderControl } from "@/ui/fader";
 import type { GlyphKind } from "@/ui/fader-geometry";
-import { createFilledGlyphSvg } from "@/ui/fader-icons";
+import { createFilledGlyphSvg, createGlyphMaskUrl } from "@/ui/fader-icons";
 import { attachFaderMount } from "@/ui/mount";
+import { createTooltip } from "@/ui/tooltip";
+import type { Tooltip } from "@/ui/tooltip";
 
 function byId<T extends HTMLElement>(id: string): T {
   const el = document.getElementById(id);
@@ -84,7 +86,103 @@ byId<HTMLDivElement>("meter").append(
   buildUnavailablePill()
 );
 
-// -- 4: live migration, exercising the real attachFaderMount -----------------
+// -- 4: park mode, proposed ---------------------------------------------------
+
+type ParkState = "idle" | "busy" | "busyArmed" | "engaged" | "failed";
+
+function buildParkPill(state: ParkState, armedTakesPill: boolean, caption: string): HTMLDivElement {
+  const cell = document.createElement("div");
+  cell.className = "cell";
+
+  const button = document.createElement("button");
+  button.className = "blyrics-sing blyrics-dock__control preview-static-glyph";
+  const armed = state === "busyArmed";
+  const accented = state === "engaged" || (armed && armedTakesPill);
+  if (accented) button.classList.add("blyrics-sing--active", "blyrics-dock__control--active");
+  if (state === "failed") button.classList.add("preview-unavailable");
+
+  const glyph = document.createElement("span");
+  glyph.className = "blyrics-sing__glyph blyrics-sing__glyph--on";
+
+  if (state === "busy" || state === "busyArmed") {
+    glyph.classList.add("blyrics-sing__glyph--busy");
+    const inner = document.createElement("span");
+    inner.style.setProperty("--glyph", createGlyphMaskUrl(armed ? "note" : "mic"));
+    glyph.appendChild(inner);
+  } else {
+    glyph.appendChild(createFilledGlyphSvg(state === "engaged" ? "note" : "mic", state === "engaged" ? 1 : 0));
+  }
+
+  button.appendChild(glyph);
+
+  const captionEl = document.createElement("div");
+  captionEl.className = "caption";
+  captionEl.textContent = caption;
+
+  cell.append(button, captionEl);
+  return cell;
+}
+
+const PARK_ROW: Array<[ParkState, string]> = [
+  ["idle", "Ready. Empty mic, clickable."],
+  ["busy", "Separating. Shimmering mic, still clickable."],
+  ["busyArmed", "Armed mid-separation. Shimmering note."],
+  ["engaged", "Stems landed, the armed level applied itself."],
+  ["failed", "Failed. Dimmed, reason in the tooltip."],
+];
+
+for (const [id, armedTakesPill] of [
+  ["park-a", true],
+  ["park-b", false],
+] as Array<[string, boolean]>) {
+  byId<HTMLDivElement>(id).append(...PARK_ROW.map(([state, caption]) => buildParkPill(state, armedTakesPill, caption)));
+}
+
+const WORDINGS: Array<[string, string, string]> = [
+  ["W1", "Separating vocals", "Karaoke starts when this finishes"],
+  ["W2", "Separating vocals", "Vocals drop as soon as it is ready"],
+];
+
+const wording = byId<HTMLDivElement>("wording");
+for (const [name, unarmed, armedText] of WORDINGS) {
+  const block = document.createElement("div");
+  block.style.cssText = "margin-bottom:18px";
+  const label = document.createElement("div");
+  label.className = "caption";
+  label.style.cssText = "max-width:none;margin:0 0 8px";
+  label.textContent = name;
+  const before = document.createElement("div");
+  before.className = "blyrics-mix-tip is-open";
+  before.style.cssText = "position:static;display:inline-flex;margin-right:12px";
+  before.textContent = `${unarmed} 47%`;
+  const after = document.createElement("div");
+  after.className = "blyrics-mix-tip is-open";
+  after.style.cssText = "position:static;display:inline-flex";
+  after.textContent = `${armedText} 47%`;
+  block.append(label, before, after);
+  wording.appendChild(block);
+}
+
+// -- 5: tooltip against an open card ------------------------------------------
+
+function buildTooltipDemo(slotId: string, suppressWhileOpen: boolean): void {
+  let tooltip: Tooltip | undefined;
+  const control = createFaderControl({
+    host: "dock",
+    onChange: mixLevel => log(slotId, mixLevel),
+    onOpenChange: open => {
+      if (suppressWhileOpen) tooltip?.setSuppressed(open);
+    },
+  });
+  byId<HTMLDivElement>(slotId).appendChild(control.button);
+  tooltip = createTooltip(control.button);
+  tooltip.setContent({ label: "Click to remove vocals, hold to set the level", percent: null });
+}
+
+buildTooltipDemo("tip-before", false);
+buildTooltipDemo("tip-after", true);
+
+// -- 6: live migration, exercising the real attachFaderMount -----------------
 // The dock and player-bar stand-ins it targets are the static markup with
 // id="live-dock-controls" and the real ytmusic-player-bar/yt-icon-button
 // tag names in fader-preview.html, so this exercises the real selectors.
