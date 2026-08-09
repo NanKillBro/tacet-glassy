@@ -33,14 +33,6 @@ import { readWorkerAssignment } from "@/capture/worker-frame";
 import { selectPlaybackElement } from "@/pageworld/select-media-element";
 
 // -- Track capture (MAIN world) ----------------------------------------------
-//
-// Patches SourceBuffer.appendBuffer at document_start, before YouTube's own
-// player script runs, so capture rides the player's own fetch and inherits its
-// PO token, signature and n-descrambling rather than re-deriving any of it.
-//
-// all_frames, so this also runs inside the hidden worker frames from
-// frame-pool.ts. Patching a child frame from its parent would be a poll against
-// the child player's boot; document_start is the only race-free option.
 export const config: PlasmoCSConfig = {
   matches: ["https://music.youtube.com/*"],
   run_at: "document_start",
@@ -61,8 +53,6 @@ function listenedVideoId(): string | null {
   return announcedListenedVideoId ?? getVideoIdFromSearch(window.location.search);
 }
 
-// Stems already cached: retaining bytes and announcing readiness would
-// re-upload and re-separate a track that is already done.
 const stoodDownVideoIds = new Set<string>();
 
 function onAudioChunk(mimeType: string, bytes: Uint8Array): void {
@@ -86,9 +76,6 @@ const isAdPlayingHere = (): boolean => isAdPlaying(document);
 const capture = installSourceBufferCapture({ isAdPlaying: isAdPlayingHere, onAudioChunk });
 
 // -- Worker frame mode -------------------------------------------------------
-//
-// A frame carrying a slice marker is one of our own hidden players: it drives
-// its own slice, reports to the opener, and runs no orchestration.
 
 const workerAssignment = readWorkerAssignment(window.location.search);
 
@@ -96,8 +83,6 @@ const workerAssignment = readWorkerAssignment(window.location.search);
 const SILENCE_SWEEP_MS = 250;
 
 if (workerAssignment) {
-  // Before anything else: muting only once an element exists let everything up
-  // to that point, preroll ads included, reach the listener's speakers.
   if (!installForcedSilence(HTMLMediaElement.prototype)) {
     logError("worker frame could not be silenced, refusing to capture in it", new Error("no media setters"));
   }
@@ -115,8 +100,6 @@ if (workerAssignment) {
   }
 }
 
-// Top-frame orchestration only: all_frames also puts this script in YouTube's
-// own iframes, which must never announce captures or spawn workers.
 const isTopFrame = window.top === window;
 const runsOrchestration = isTopFrame && !workerAssignment;
 
@@ -144,8 +127,6 @@ function announceCaptureReady(videoId: string): void {
 let listenedElement: HTMLVideoElement | null = null;
 const announcedKeys = new Set<string>();
 
-// Keyed by duration too: a preroll reuses the page's videoId with its own much
-// shorter duration, and used to consume the track's one announcement.
 function announceKey(videoId: string, durationSeconds: number): string {
   return `${videoId}:${Math.round(durationSeconds)}`;
 }
@@ -154,8 +135,6 @@ function announceIfCaptureComplete(element: HTMLVideoElement): void {
   const stats = accumulator.getStats();
   if (!stats.videoId || stats.retainedChunkCount === 0) return;
   if (stoodDownVideoIds.has(stats.videoId)) return;
-  // A hidden player owns this track. Announcing here races it with whatever the
-  // listener happened to play, which is partial and may not even decode.
   if (hiddenPlayerOwns(stats.videoId)) return;
   if (isAdPlayingHere()) return;
   if (!Number.isFinite(element.duration)) return;
@@ -210,25 +189,14 @@ function pollCaptureCompletion(): void {
 if (runsOrchestration) setInterval(pollCaptureCompletion, ENDED_LISTENER_POLL_MS);
 
 // -- Hidden-player prefetch --------------------------------------------------
-//
-// Acquires the whole track through a hidden worker player instead of waiting on
-// the listener's own playback.
 
 let slicedPrefetch: Promise<CapturedSlice[]> | null = null;
-// Which track the in-flight capture belongs to. Without it the promise was
-// handed to whichever track asked next.
 let slicedPrefetchVideoId: string | null = null;
 let slicedPrefetchIsAhead = false;
 let slicedPrefetchAbort: AbortController | null = null;
 
-// One worker, not four: every worker that seeks mid-track stalls within
-// seconds, while one starting at zero never seeks and takes the whole track in
-// about ten seconds. DEFAULT_WORKER_COUNT stays reachable from the console.
 const PRODUCTION_WORKER_COUNT = 1;
 
-// The request now only arrives once the cache lookup has answered "no stems",
-// so the old six second head start is pure latency. Kept short rather than zero
-// so a rapid skip through several tracks does not spawn a player per track.
 const PREFETCH_DELAY_MS = 800;
 
 interface PrefetchedTrack {
@@ -246,8 +214,6 @@ function hiddenPlayerOwns(videoId: string): boolean {
 }
 const prefetchStateByVideoId = new Map<string, PrefetchState>();
 
-// Reported instead of the listener's buffered fraction while a prefetch owns
-// the track, since that number describes work nobody is waiting on.
 function hiddenPlayerProgress(): number {
   try {
     const frame = document.querySelector<HTMLIFrameElement>(`iframe[id^="${FRAME_ID_PREFIX}"]`);
@@ -282,9 +248,6 @@ function prefetchTrackInSlices(
     slicedPrefetchAbort?.abort();
   }
 
-  // One worker needs no duration at all, which is what makes it immune to a
-  // preroll: the opener cannot tell an ad's duration from the track's, and
-  // planning against the ad produced a 20 s capture that reported complete.
   const element = currentVideoElement();
   const duration = element && Number.isFinite(element.duration) ? element.duration : 0;
   const slices = workerCount <= 1 ? planWholeTrack() : planSlices(duration, workerCount);
@@ -311,9 +274,6 @@ function prefetchTrackInSlices(
   });
   return slicedPrefetch;
 }
-
-// Riding the listener's playback only completes if they sit through the whole
-// track, since YouTube buffers a limited window ahead of the playhead.
 
 const prefetchAttemptsByVideoId = new Map<string, number>();
 
@@ -346,8 +306,6 @@ function startPrefetchFor(videoId: string, { ahead = false, fresh = false } = {}
     stoodDownVideoIds.delete(videoId);
     announcedKeys.clear();
   }
-  // Already acquired: the pipeline resets its state on every track change, so
-  // it needs telling again rather than relying on the earlier announcement.
   if (prefetchStateByVideoId.get(videoId) === "done" && prefetchedByVideoId.has(videoId)) {
     if (!stoodDownVideoIds.has(videoId)) announceCaptureReady(videoId);
     return;
@@ -419,8 +377,6 @@ function startPrefetchFor(videoId: string, { ahead = false, fresh = false } = {}
 // -- Handing the bytes over --------------------------------------------------
 
 function respondToCapturedAudioRequest(videoId: string): void {
-  // The hidden worker's bytes win: they cover the whole track, where the
-  // accumulator holds only what the listener played through.
   const prefetched = prefetchedByVideoId.get(videoId);
   if (prefetched) {
     const bytes = prefetched.bytes.slice();

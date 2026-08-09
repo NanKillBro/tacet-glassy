@@ -7,17 +7,6 @@ import { createLogger } from "../src/shared/logger.js";
 const logger = createLogger("selftest");
 
 // -- Synthetic end-to-end bisect ---------------------------------------------
-//
-// Feeds a known non-silent signal through the real separation path, skipping
-// only capture and decode. The whole point is to answer one question the
-// production run cannot: does audio survive the worker round trip, the
-// stitcher, the accumulator and the Opus codec at all?
-//
-// The signal is a pair of sines, which htdemucs has no reason to hear as a
-// voice, so vocals may legitimately come back near silent. instrumental is
-// derived as original - vocals, so it must come back close to the input.
-// An instrumental of ~0 means the original never reached the worker, which
-// is a plumbing failure rather than a model result.
 
 const TEST_SECONDS = 24;
 const TEST_AMPLITUDE = 0.3;

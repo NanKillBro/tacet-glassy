@@ -32,23 +32,7 @@ interface OrtModule {
   InferenceSession: OrtInferenceSessionStatic;
 }
 
-// chrome.runtime is bound to the isolated-world realm, not to a Worker's
-// global scope (a Worker's self.origin inherits the page's origin, and no
-// chrome.* bindings are injected there). The base URL is passed in on the
-// "load" command instead of calling chrome.runtime.getURL() from in here.
-
 // -- Minimal valid ONNX model, hand-encoded --------------------------------
-//
-// A single Identity node over a [1,1] float32 tensor: the smallest graph ORT
-// will actually build a session from. Passing real bytes makes the check
-// below a positive test, success means the webgpu EP genuinely built a
-// session, so there is no error string it could fail to recognise and
-// misreport as a pass. Encoded by hand against onnx/onnx's onnx.proto3
-// (ModelProto, GraphProto, NodeProto, ValueInfoProto, TypeProto,
-// TensorShapeProto); a protobuf library is not worth pulling in for 111
-// bytes. Verified end to end against onnxruntime-web's wasm backend in Node
-// before this replaced the old check: the session builds, reports
-// inputNames ["x"] / outputNames ["y"], and running it on 3.5 returns 3.5.
 
 function varint(value: number): number[] {
   const bytes: number[] = [];
@@ -169,31 +153,7 @@ async function runChecks(ortBaseUrl: string): Promise<WorkerResultMessage> {
 }
 
 // -- Real separation: htdemucs over the webgpu execution provider -----------
-//
-// Ported from composer's src/audio/separation/worker.ts. Two departures from
-// composer, both forced by running inside an extension worker rather than a
-// bundled web app:
-//   1. wasmPaths is set to the absolute ortBaseUrl passed in on
-//      "separate-init" (resolved by the offscreen document via
-//      chrome.runtime.getURL, since a Worker has no chrome.* bindings of its
-//      own), never a CDN. MV3 forbids remotely hosted code.
-//   2. The model bytes arrive already fetched, on "separate-init". The
-//      offscreen document owns fetching and IndexedDB caching, since a
-//      Worker cannot reach chrome.runtime and host_permissions-based CORS
-//      bypass applies to the offscreen document itself.
-// A third departure is the point of this file: composer accumulates every
-// chunk and calls the batch stitchChunks once at the end. This uses
-// StreamingStitcher instead and posts each finalised region, plus the
-// instrumental derived from it, as soon as it is available.
 
-// HTDemucs ONNX I/O contract (matches sevagh/demucs.onnx export):
-//   inputs:
-//     "input": [1, 2, 343980]      stereo waveform @ 44.1 kHz, 7.8 s
-//     "x":     [1, 4, 2048, 336]   pre-computed magspec (L_re, L_im, R_re, R_im)
-//   outputs:
-//     "output": [1, 4, 4, 2048, 336]  separated spectrogram branch
-//     "add_67": [1, 4, 2, 343980]     separated time branch
-//                                     stem order: drums, bass, other, vocals
 const FREQ_OUTPUT_NAME = "output";
 const TIME_OUTPUT_NAME = "add_67";
 const WAVEFORM_INPUT_NAME = "input";
@@ -230,9 +190,6 @@ function postSeparate(message: SeparateOutboundMessage, transfer?: Transferable[
   self.postMessage(message, transfer ?? []);
 }
 
-// Always the same bundle the spike proved works end to end (ort.webgpu.bundle.min.mjs
-// carries both the webgpu and wasm execution providers); forceWasm only changes which
-// provider list is requested below, not which module is loaded.
 async function loadSeparationOrt(ortBaseUrl: string): Promise<SeparationOrt> {
   const bundleUrl = `${ortBaseUrl}ort.webgpu.bundle.min.mjs`;
   const runtime = (await import(bundleUrl)) as SeparationOrt;
@@ -241,14 +198,8 @@ async function loadSeparationOrt(ortBaseUrl: string): Promise<SeparationOrt> {
   return runtime;
 }
 
-// Runs the freshly built session over all-zero inputs. Zeros are finite and
-// in range, so NaN coming back from them indicts the weights or the graph
-// rather than anything the audio path computed.
 async function probeWithZeros(runtime: SeparationOrt, session: SeparationOrtSession): Promise<void> {
   const magspecLength = MAGSPEC_DIMS.reduce((a, b) => a * b, 1);
-  // Graded amplitudes. Zeros are the control; if NaN only appears above some
-  // amplitude the fault is scaling, and if even a whisper produces it the
-  // fault is the layout we hand the model.
   for (const amplitude of [0, 1e-3, 1e-1, 1]) {
     try {
       const waveformData = new Float32Array(2 * SEGMENT_SAMPLES);
@@ -310,11 +261,6 @@ function emitRegion(
 }
 
 // -- First-chunk NaN probe --------------------------------------------------
-//
-// A NaN anywhere in this path survives every shape check, propagates through
-// the stitcher and the accumulator, and only becomes visible after the Opus
-// encoder turns it into silence. Reporting the count per stage on the first
-// chunk names the stage that introduces it.
 function probe(label: string, data: Float32Array): string {
   let nans = 0;
   let sum = 0;
@@ -417,10 +363,6 @@ async function handleSeparateProcess(channels: Float32Array[], totalFrames: numb
   const tail = stitcher.flush();
   if (tail) emitRegion(tailStart, tail, channels, normalized, totalFrames);
 
-  // Drop GPU/CPU resources tied to the model session before reporting done.
-  // The host terminates the worker right after, but releasing explicitly
-  // also covers a future keep-worker-alive case and helps the WebGPU EP
-  // flush its buffer pool promptly rather than waiting on GC.
   try {
     await separationSession.release?.();
   } catch (error) {

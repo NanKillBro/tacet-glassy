@@ -29,8 +29,6 @@ describe("playerStateFromBetterLyrics", () => {
       expect(playerStateFromBetterLyrics(betterLyricsDetail({ videoId: 42 }))).toBeNull();
     });
 
-    // Measured: for about 290 ms after a skip the player names the next track
-    // while still reporting duration 0.
     it("refuses a player that has not resolved a duration yet", () => {
       expect(playerStateFromBetterLyrics(betterLyricsDetail({ duration: 0 }))).toBeNull();
       expect(playerStateFromBetterLyrics(betterLyricsDetail({ duration: Number.NaN }))).toBeNull();
@@ -70,8 +68,6 @@ describe("playerStateFromOwnBridge", () => {
   });
 
   describe("invariants", () => {
-    // Either bridge may be the one publishing, so a track has to be described
-    // identically whichever one it arrived through.
     it("agrees with the sibling's event for the same track", () => {
       const mine = playerStateFromOwnBridge({
         type: "blk-player-state",

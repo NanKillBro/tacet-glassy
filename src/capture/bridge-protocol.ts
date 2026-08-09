@@ -1,10 +1,4 @@
 // -- Capture (MAIN world) to fader (ISOLATED world) bridge protocol --------
-//
-// window.postMessage between src/contents/capture-spike.ts (MAIN, owns the
-// SourceBuffer.appendBuffer capture) and src/contents/karaoke-pipeline.ts
-// (ISOLATED, drives the fader). Structured clone, so blk-captured-audio's
-// bytes cross as a transferable, unlike the chrome.runtime leg further
-// down the pipeline (see src/relay/chunk-transfer.ts), which is JSON-only.
 
 import type { DownloadSource } from "@/orchestrator/download-tooltip";
 
@@ -31,8 +25,6 @@ export interface CaptureReadyMessage {
   videoId: string;
 }
 
-// Acquire the track in a hidden player. From the isolated world because only it
-// can read the master switch.
 export interface RequestPrefetchMessage {
   type: "blk-request-prefetch";
   videoId: string;
@@ -40,8 +32,6 @@ export interface RequestPrefetchMessage {
   fresh?: boolean;
 }
 
-// This track's stems came from the cache. Capture cannot stop the player
-// fetching, but it can stop retaining and announcing.
 export interface RequestNextPrefetchMessage {
   type: "blk-request-next-prefetch";
   videoId: string;
@@ -65,16 +55,11 @@ export interface DownloadProgressMessage {
   source: DownloadSource;
 }
 
-// From a worker frame to its opener. startSeconds is the segment boundary at or
-// before the requested start, so slices overlap and are placed by offset.
 export interface SliceCapturedMessage {
   type: "blk-slice-captured";
   videoId: string;
   index: number;
   startSeconds: number;
-  // How far the capture actually got, against how long the track is. A worker
-  // reports these whether it finished or a stall cut it short, so the opener
-  // can refuse a partial capture rather than separating and caching it.
   reachedSeconds: number;
   trackDurationSeconds: number;
   mimeType: string;

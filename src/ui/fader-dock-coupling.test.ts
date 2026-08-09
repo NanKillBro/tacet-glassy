@@ -87,8 +87,6 @@ describe("invariants", () => {
 });
 
 describe("pointer on the card", () => {
-  // Reaching for the card takes the pointer out of the dock, so the dock
-  // collapses and used to take the open card down with it mid-reach.
   it("keeps the card open while the pointer is on it", () => {
     expect(dockCouplingShouldCloseCard(true, false, true)).toBe(false);
   });

@@ -11,9 +11,6 @@ import type { StemRecord } from "../src/cache/stem-store.js";
 import { decodeFileToFloat32 } from "../src/separation/audio-codec.js";
 
 // -- Signal tracing -------------------------------------------------------
-// Every stage reports the right frame COUNT even when the samples are all
-// zero, so shape-based checks pass while the audio is silent. Amplitude is
-// the only thing that catches that.
 function stageRms(channel: Float32Array | undefined): string {
   if (!channel || channel.length === 0) return "no-data";
   let sum = 0;
@@ -34,17 +31,6 @@ import { createLogger } from "../src/shared/logger.js";
 const logger = createLogger("pipeline");
 
 // -- Offscreen-side track pipeline -------------------------------------------
-//
-// Owns exactly one job at a time, keyed by videoId: capture chunks -> cache
-// lookup (videoId alias, then content key) -> decode -> separate -> encode
-// to Opus -> cache -> chunked delivery back to the tab. A message tagged
-// with a videoId other than the one currently active is either the start of
-// a new job (capture chunks) or stale (everything else), never merged into
-// the active job.
-//
-// Batch only: SeparationHost.process() already emits region events for a
-// future progressive-playback path (see src/orchestrator/region-accumulator.ts),
-// but nothing here reads a region before the whole track has landed.
 
 const TARGET_CHANNEL_COUNT = 2;
 
@@ -82,10 +68,6 @@ async function sendStemChunks(videoId: string, stem: StemName, blob: Blob): Prom
     try {
       await chrome.runtime.sendMessage(message);
     } catch (error) {
-      // Propagated, not swallowed: a dropped chunk leaves the receiving
-      // assembler permanently incomplete, and blk-track-done would still
-      // follow if this were ignored, so the pipeline would hang forever
-      // with no visible error instead of surfacing one here.
       logger.error("failed to send stem chunk", stem, index, error);
       throw error instanceof Error ? error : new Error(toErrorMessage(error));
     }
@@ -115,13 +97,6 @@ class TrackPipeline {
     }
   }
 
-  // The SeparationHost is owned by the caller (one Worker for the whole
-  // offscreen document's lifetime, shared with the existing cancel-command
-  // handler in workers/offscreen.ts), not created here. getCacheBudgetBytes
-  // is likewise owned by the caller: workers/offscreen.ts keeps the live
-  // value of the cacheBudgetBytes setting in memory and hands it over here on
-  // every put, so a budget change applies to the very next write without this
-  // class needing to know anything about chrome.storage.
   constructor(
     private separationHost: SeparationHost,
     private getCacheBudgetBytes: () => number
@@ -170,10 +145,6 @@ class TrackPipeline {
     const decision = decideSeparationStart(this.runningVideoId, message.videoId);
     if (decision === "ignore") {
       logger.log(`already separating ${message.videoId}, ignoring a second capture of it`);
-      // Answered, not merely ignored. A tab that arrives on a track already
-      // being separated ahead of time resets to a null stage, and a run deep in
-      // "separating" emits only progress, so it would wait out its timeout and
-      // report the track unavailable while the work was being done for it.
       this.republishProgress(message.videoId);
       return;
     }
@@ -192,15 +163,6 @@ class TrackPipeline {
       });
   }
 
-  // Called for an explicit cancel command (track change while a job is in
-  // flight), not just a superseding capture chunk. Clearing activeVideoId
-  // here, not only in handleCaptureChunk, is what makes every isStale()
-  // check downstream see the cancellation immediately, even mid-decode
-  // where SeparationHost.cancel() alone has nothing to abort.
-  // Answers "are there already stems for this videoId" without needing the
-  // audio. The alias lookup is keyed by videoId alone, so it costs one
-  // Drops a track's stems and its alias, so the next probe misses and the track
-  // is acquired again.
   async forgetTrack(videoId: string): Promise<void> {
     const contentKey = await getContentKeyForVideoId(videoId);
     await deleteVideoIdAlias(videoId);
@@ -208,13 +170,9 @@ class TrackPipeline {
     logger.log(`forgot ${videoId}${contentKey ? ` and its stems under ${contentKey.slice(0, 12)}` : ""}`);
   }
 
-  // IndexedDB read and can run the moment a track starts, long before any
-  // capture exists. Returns true when stems were delivered.
   async probeCache(videoId: string): Promise<boolean> {
     this.activeVideoId = videoId;
 
-    // Every path out of here answers, so the tab can start acquiring the moment
-    // the lookup comes back empty instead of guessing at how long it will take.
     const miss = (): boolean => {
       if (!this.isStale(videoId)) post({ type: "blk-cache-miss", videoId });
       return false;
@@ -229,8 +187,6 @@ class TrackPipeline {
     if (this.isStale(videoId)) return false;
     if (decideCacheLookup(record, null) !== "alias-hit") return miss();
 
-    // Before the stems, not after: the tab is waiting on a capture that is
-    // never going to be needed, and only this moves it over to taking delivery.
     post({ type: "blk-cache-hit", videoId });
     this.sendStage(videoId, "checking-cache");
     await this.deliver(videoId, record);

@@ -33,10 +33,6 @@ beforeEach(() => {
 // -- computeContentKey -----------------------------------------------------------------
 
 describe("computeContentKey", () => {
-  // These used to assert the raw SHA-256 of the audio. The key now mixes in the
-  // separation version deliberately, so stems produced by an older model are
-  // unreachable rather than served as though they were current. The properties
-  // below are what callers actually depend on.
   it("is a 64 character hex digest", async () => {
     const key = await computeContentKey(new Uint8Array(0));
     expect(key).toMatch(/^[0-9a-f]{64}$/);
@@ -143,9 +139,6 @@ describe("clearAllAliases", () => {
 });
 
 describe("separation version", () => {
-  // Renaming the model object for CDN cache busting used to change this, which
-  // purged every cached stem and re-downloaded a file whose bytes were
-  // identical. The version names the model, not the file it is served from.
   it("does not depend on the model's filename", () => {
     expect(SEPARATION_VERSION).not.toContain(MODEL_FILENAME);
     expect(SEPARATION_VERSION).not.toContain(".onnx");

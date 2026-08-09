@@ -4,11 +4,6 @@ const N_FFT = 4096;
 const HOP_LENGTH = 1024;
 const WIN_LENGTH = N_FFT;
 
-// Periodic Hann window: divisor is `size` (not `size - 1`). Matches PyTorch's
-// `torch.hann_window(size, periodic=True)`, which is what `torch.stft` uses by
-// default. The symmetric variant (divisor `size - 1`) introduces a small but
-// consistent shape error across every frame that gets amplified through the
-// HTDemucs magnitude branch: audible as distortion in the separated stems.
 function hannWindow(size: number): Float32Array {
   const w = new Float32Array(size);
   for (let i = 0; i < size; i++) {

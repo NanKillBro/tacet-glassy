@@ -1,8 +1,3 @@
-// The hard bypass, and the one guarantee that a listener never loses their
-// audio: the stop message and the context watchdog both funnel through
-// enterBypass rather than each restoring the original their own way. Starts
-// bypassed, since the original is audible until something turns it down.
-
 interface BypassControllerDeps {
   restoreOriginal(): void;
   stopStems(): void;

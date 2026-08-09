@@ -89,9 +89,6 @@ describe("decideEngagement", () => {
       expect(decideEngagement(input({ graph: "none", target: "none", stemsAreStale: true }))).toBe("hold");
     });
 
-    // The player goes on naming the track it will return to for the whole
-    // break, so nothing else here reads an ad as a reason to stop, and the
-    // stems used to play straight over one.
     it("regression: suspends the stems for an ad the player does not admit to", () => {
       for (const target of ["same", "none"] as const) {
         expect(decideEngagement(input({ ...bound, target, adPlaying: true }))).toBe("suspend");

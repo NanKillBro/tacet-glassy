@@ -2,11 +2,6 @@ import { SETTINGS_STORAGE_KEY, sanitizeSettings } from "@/settings/settings";
 import type { Settings } from "@/settings/settings";
 
 // -- Storage read/write round trip -----------------------------------------------
-//
-// storageArea is an explicit parameter, never defaulted to chrome.storage.sync
-// here, so this module never references the chrome global and stays testable
-// with a plain fake. Call sites (popup, the content script gate, the offscreen
-// document) pass chrome.storage.sync themselves.
 
 interface SettingsStorageArea {
   get(keys: string): Promise<Record<string, unknown>>;

@@ -1,12 +1,6 @@
 import { denormalizeDemucsOutput } from "@/separation/demucs-postprocess";
 import { computeInstrumental } from "@/separation/derived-stems";
 
-// Ties a freshly finalised StreamingStitcher region back to the original
-// track: denormalizes the model's vocals output, then slices the matching
-// span out of the (never normalized) original audio to derive the
-// instrumental, since HTDemucs only outputs vocals. Pure and ORT-free, unlike
-// the worker loop that produces vocalsRegionRaw in the first place.
-
 interface RegionStems {
   vocals: Float32Array[];
   instrumental: Float32Array[];

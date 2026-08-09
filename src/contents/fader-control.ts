@@ -15,16 +15,6 @@ import { createLogger } from "@/shared/logger";
 const logger = createLogger("orchestrator");
 
 // -- Fader UI wiring -----------------------------------------------------------
-//
-// ISOLATED world: mounts the real fader control (src/ui/fader.ts) next to
-// Better Lyrics' dock or the player bar (src/ui/mount.ts), and drives it
-// from the karaoke pipeline (src/contents/karaoke-pipeline.ts), which owns
-// every message to and from the page world and the offscreen document.
-//
-// The button is disabled whenever the pipeline cannot act on a click right
-// now (capture not confirmed yet, a separation in flight, or a failure),
-// each with an honest tooltip. See src/orchestrator/karaoke-state.ts for
-// the state machine this renders.
 
 export const config: PlasmoCSConfig = {
   matches: ["https://music.youtube.com/*"],
@@ -33,12 +23,6 @@ export const config: PlasmoCSConfig = {
 };
 
 // -- Stylesheet ----------------------------------------------------------
-//
-// Injected as a same-origin <style> rather than left to Plasmo's manifest
-// css array, which was empty and left the control completely unstyled on the
-// real page. Same-origin also matters for the @property registration the
-// glyph morph depends on: Gecko drops @property from a stylesheet that is
-// cross-origin to the document, which a chrome-extension:// link would be.
 const STYLE_ELEMENT_ID = "blyrics-karaoke-style";
 
 function injectStylesheet(): void {
@@ -49,10 +33,6 @@ function injectStylesheet(): void {
   (document.head ?? document.documentElement).appendChild(style);
 }
 
-// aria-disabled rather than the disabled attribute: a disabled button fires no
-// pointer events, so the hover card explaining why it is unavailable could never
-// appear on the states that most need it. src/ui/fader.ts gates every gesture on
-// this attribute instead.
 function markUnavailable(button: HTMLButtonElement, dim = false): void {
   button.setAttribute("aria-disabled", "true");
   button.style.opacity = dim ? "0.45" : "";
@@ -116,16 +96,10 @@ function renderKaraokeState(control: FaderControl, tooltip: Tooltip, state: Kara
 }
 
 // -- Master switch ---------------------------------------------------------
-//
-// Off means none of this exists: no control, no pipeline, and nothing below
-// them (an AudioContext, a claim on the media element). Watched rather than
-// read once, so the popup's switch takes effect on the track already playing.
 
 function mountFader(): { destroy(): void } {
   injectStylesheet();
 
-  // createFaderControl emits its initial value during construction, before the
-  // pipeline below exists, so this cannot assume the pipeline is assigned yet.
   let pipeline: ReturnType<typeof createKaraokePipeline> | undefined;
 
   const control = createFaderControl({

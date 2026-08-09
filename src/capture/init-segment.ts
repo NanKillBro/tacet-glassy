@@ -1,9 +1,3 @@
-// Tells a fresh initialization from another chunk of the same stream, for both
-// containers YouTube serves. WebM (1A45DFA3 header, 1F43B675 clusters) is the
-// one YouTube Music actually uses; fragmented MP4 leads with an ftyp box.
-// Missing the WebM case is invisible until a mid-stream quality switch splices
-// a second header in and the whole capture stops decoding.
-
 const BOX_TYPE_OFFSET = 4;
 const BOX_TYPE_LENGTH = 4;
 const FTYP_BOX_TYPE = "ftyp";

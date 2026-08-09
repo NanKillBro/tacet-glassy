@@ -30,12 +30,6 @@ export function isWorkerResultMessage(data: unknown): data is WorkerResultMessag
 }
 
 // -- Separation host to worker message protocol ------------------------------
-//
-// Runs the real htdemucs model, as opposed to the load/result pair above,
-// which only probes that ORT and WebGPU are reachable. The model bytes are
-// fetched by the offscreen document (host_permissions apply there, not in a
-// Worker), then transferred in on "separate-init" alongside the same
-// ortBaseUrl pattern the spike established.
 
 export interface SeparateInitCommand {
   type: "separate-init";

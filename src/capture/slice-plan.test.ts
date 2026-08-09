@@ -92,10 +92,6 @@ describe("planWholeTrack", () => {
     expect(slice.fromSeconds).toBe(0);
   });
 
-  // The opener cannot tell a preroll ad's duration from the track's, and
-  // planning against the ad produced a 20 s capture that reported complete.
-  // Ending long is safe because the worker clamps to the duration it measures
-  // for itself; ending short silently truncates the track.
   it("ends far beyond any real track, so the worker's own duration wins", () => {
     expect(planWholeTrack()[0].toSeconds).toBe(OPEN_ENDED_SECONDS);
     expect(OPEN_ENDED_SECONDS).toBeGreaterThan(60 * 60);

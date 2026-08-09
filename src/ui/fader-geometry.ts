@@ -1,19 +1,6 @@
-// Pure geometry and value math ported from the singAlong()/createSingAlong()
-// functions in docs/mocks/2026-08-07-singalong-fader-v3.html and
-// 2026-08-07-singalong-mounts.html (better-lyrics repo). No DOM: fader.ts
-// applies these numbers to actual style properties.
-//
-// Two value domains, kept separate throughout: `v` is the logical value the
-// user has set (drag, keys, poles), used for the commit/label/mix-level
-// side. `shown` is the springed, clamped, currently-animating position used
-// for the per-frame paint (thumb, fill, glyph fraction).
-
 type GlyphKind = "mic" | "note";
 type Pole = 1 | -1;
 
-// Track 146, minus 3px of track padding and 2px of well padding at each end,
-// leaves 136 of travel. The handle is 18px tall, so its centre stops 9px
-// from either end of that, which is 9/136 as a percentage.
 const TRACK_HEIGHT_PX = 146;
 const CLIP_HEIGHT_PX = TRACK_HEIGHT_PX - 6 - 4;
 const THUMB_HEIGHT_PX = 18;
@@ -26,8 +13,6 @@ const SHADOW_THROW_PX = 3;
 
 // Below this, the value reads and behaves as exactly centred.
 const REST = 0.05;
-// A drag release close to centre snaps to it. Distinct from REST: this is
-// the pointer's own dead zone, not the commit-time rounding.
 const DRAG_CENTER_SNAP = 0.07;
 const POLE_REACHED_THRESHOLD = 0.97;
 
@@ -39,8 +24,6 @@ const VIEWPORT_EDGE_PX = 8;
 const CARD_GAP_PX = 8;
 
 const LABEL_HIDE_MS = 900;
-// transitionend does not fire in a hidden tab, so the outgoing word is also
-// removed on a plain timeout as a fallback.
 const LABEL_EXIT_FALLBACK_MS = 400;
 
 function clamp(value: number, min: number, max: number): number {
@@ -77,9 +60,6 @@ function labelForValue(v: number): string {
   return "Original";
 }
 
-// k: 0 to 2, where 1 is the original mix untouched, 0 is full vocal
-// removal, 2 is vocals boosted. Never wired to audio here, just the shape
-// of the value the control emits.
 function mixLevelFromValue(v: number): number {
   return v + 1;
 }
@@ -113,9 +93,6 @@ function computePaintFrame(x: number): PaintFrame {
   const centre = 50 - shown * (50 - THUMB_INSET_PERCENT);
   const up = shown >= 0;
 
-  // The fill runs to the handle's OUTER edge, so it reads as one continuous
-  // bar with the handle riding on it, and both ends derive from the
-  // handle's own position, never from a second multiplier.
   const outer = centre + (up ? -THUMB_INSET_PERCENT : THUMB_INSET_PERCENT);
   const span = Math.abs(50 - outer);
   const covered = (span * CLIP_HEIGHT_PX) / 100 < THUMB_HEIGHT_PX;

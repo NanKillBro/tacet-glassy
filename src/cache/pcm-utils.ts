@@ -121,22 +121,6 @@ function concatFrames(chunks: Float32Array[][], numberOfChannels: number): Float
 }
 
 // -- Packet framing -----------------------------------------------------------------
-//
-// Fixed header layout (all fields little-endian uint32 unless noted):
-//   0  formatVersion
-//   4  sampleRate            (encoder input rate)
-//   8  numberOfChannels      (encoder input channels)
-//   12 totalFrames           (encoder input rate frame count)
-//   16 packetCount
-//   20 decoderSampleRate
-//   24 decoderNumberOfChannels
-//   28 descriptionLength
-//   32 description bytes (descriptionLength bytes), then packets.
-//
-// formatVersion lives in the first four bytes specifically so that a
-// pre-version buffer (whose first four bytes were the old header's plain
-// sampleRate, e.g. 44100) can never collide with PACKET_STREAM_FORMAT_VERSION
-// and is rejected instead of misread.
 
 const PACKET_STREAM_FORMAT_VERSION = 2;
 const FIXED_HEADER_BYTES = 32;

@@ -105,11 +105,6 @@ describe("createChunkAssembler", () => {
       expect(() => assembler.assemble()).toThrow(/incomplete|missing/i);
     });
 
-    // Behaviour changed deliberately: this used to throw. Observed in a real
-    // browser, re-engaging the same track produced a second transfer with a
-    // different chunk count, and treating that as corruption left the assembler
-    // permanently poisoned by the abandoned transfer's chunks. A differing
-    // total now starts a fresh assembly instead.
     it("starts a new assembly when a chunk reports a different total", () => {
       const assembler = createChunkAssembler();
       assembler.addChunk(0, 3, "stale-a");

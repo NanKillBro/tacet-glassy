@@ -10,9 +10,6 @@ import {
 
 // -- Constants ----------------------------------------------------------------
 
-// add_67 has dims [1, 4, 2, 343980]: batch, stem, channel, sample.
-// output has dims [1, 4, 4, 2048, 336]: batch, stem, complex-as-channels, freq, time.
-// Vocals = stem index 3. Stride per stem = 2 * SEGMENT_SAMPLES.
 const STEM_INDEX_VOCALS = 3;
 
 // -- Types --------------------------------------------------------------------

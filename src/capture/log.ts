@@ -1,7 +1,5 @@
 import { createLogger } from "@/shared/logger";
 
-// The capture patch runs in the page world alongside YouTube's own noise, so it
-// keeps a named scope rather than printing under the bare prefix.
 const logger = createLogger("capture");
 
 function log(message: string): void {

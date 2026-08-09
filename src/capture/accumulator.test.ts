@@ -155,8 +155,6 @@ describe("createCaptureAccumulator", () => {
       expect(accumulator.getChunks()).toHaveLength(0);
     });
 
-    // The stream stays observable even when none of it is kept, so a stood-down
-    // track can still be told apart from one the player never fetched at all.
     it("keeps counting the stream it is no longer keeping", () => {
       const accumulator = createCaptureAccumulator(1024);
       accumulator.setActiveVideoId("song-a");
@@ -192,9 +190,6 @@ describe("createCaptureAccumulator", () => {
   });
 
   describe("discarding what was retained", () => {
-    // A preroll's bytes reach the accumulator under the track's own videoId, so
-    // nothing upstream resets it. Discarding is how a worker throws the ad away
-    // and starts over once it notices the media changed length.
     it("drops what it was holding but keeps retaining", () => {
       const accumulator = createCaptureAccumulator(1024);
       accumulator.setActiveVideoId("song-a");

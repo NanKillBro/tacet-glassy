@@ -1,24 +1,10 @@
 // -- Isolated to page world audio bridge protocol -----------------------------
-//
-// window.postMessage between the fader's ISOLATED-world content script and
-// the MAIN-world audio graph script (see src/contents/fader-control.ts and
-// src/contents/inject-main-world.ts). Structured clone carries these across,
-// including the transferable Float32Array buffers in blk-load-stems, which
-// chrome.runtime messaging cannot: that is JSON-only, this is not.
-//
-// blk-load-stems and blk-stop-stems are not sent by anything yet. They are
-// the seam a later phase (audio acquisition and separation) pushes decoded
-// stems through: one AudioBufferSourceNode per stem, built from these
-// per-channel Float32Arrays at this sampleRate.
 
 export interface SetMixLevelMessage {
   type: "blk-set-mix-level";
   mixLevel: number;
 }
 
-// videoId is what binds these stems to an element: the page world asks the
-// player which track it is on rather than comparing durations, which cannot
-// tell two recordings of the same length apart.
 export interface LoadStemsMessage {
   type: "blk-load-stems";
   videoId: string;

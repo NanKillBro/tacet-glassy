@@ -4,11 +4,6 @@ const STEMS_STORE_NAME = "stems";
 const ALIASES_STORE_NAME = "aliases";
 const MODEL_STORE_NAME = "model";
 
-// Stems cached before version 4 hold Opus blobs in the pre-fix packet stream
-// format (decoder configured from the encoder's input rate instead of its
-// own metadata). Those blobs cannot be decoded under the new format, so the
-// store is dropped and recreated empty on upgrade past this version rather
-// than left to serve stale, unreadable records.
 const STEMS_FORMAT_MIGRATION_VERSION = 4;
 
 function openDB(): Promise<IDBDatabase> {

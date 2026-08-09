@@ -162,8 +162,6 @@ describe("shouldEvictForNewBudget", () => {
   });
 
   it("does not evict when a smaller budget still covers current usage", () => {
-    // Budget shrank (500 MB -> 300 MB) but usage (200 MB) never got close to
-    // either, so no eviction should fire just because the setting changed.
     expect(shouldEvictForNewBudget(200 * 1024 * 1024, 300 * 1024 * 1024)).toBe(false);
   });
 

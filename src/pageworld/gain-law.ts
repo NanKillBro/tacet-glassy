@@ -1,7 +1,3 @@
-// Fader law for the stem playback graph. `mixLevel` (k) comes from the fader
-// UI's onChange callback, 0 to 2, where 1 is the original mix untouched: 0
-// is full vocal removal, 2 is vocals boosted. The instrumental never moves.
-
 const MIN_MIX_LEVEL = 0;
 const MAX_MIX_LEVEL = 2;
 const INSTRUMENTAL_GAIN = 1;

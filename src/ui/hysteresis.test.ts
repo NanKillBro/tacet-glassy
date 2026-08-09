@@ -70,8 +70,6 @@ describe("createMountResolver", () => {
       resolver.resolve();
       expect(mountCalls).toEqual(["dock"]);
 
-      // Something else in the page tore the button itself out, but the dock
-      // container it belongs in is still there.
       state.controlOnDock = false;
       resolver.resolve();
       expect(mountCalls).toEqual(["dock", "dock"]);
@@ -124,9 +122,6 @@ describe("createMountResolver", () => {
       state.dockPresent = true;
       resolver.resolve();
 
-      // Advance well past the absent-delay window. The re-render already
-      // healed, so the fallback timer must never have fired and the control
-      // must never have been asked to move to the bar.
       vi.advanceTimersByTime(1000);
       expect(mountCalls).toEqual(["dock"]);
       expect(resolver.currentTarget()).toBe("dock");
@@ -165,8 +160,6 @@ describe("createMountResolver", () => {
       resolver.resolve();
 
       vi.advanceTimersByTime(LEAVE_DELAY_ABSENT_MS);
-      // If duplicate timers had been scheduled this would fire "bar" more
-      // than once.
       expect(mountCalls).toEqual(["dock", "bar"]);
     });
   });

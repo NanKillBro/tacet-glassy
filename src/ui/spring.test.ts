@@ -171,9 +171,6 @@ describe("createSpring", () => {
       const nextX = frames.at(-1) as number;
       expect(nextX).not.toBe(-1);
 
-      // If the retarget had reset velocity to zero instead of carrying it
-      // over, this is what the very next frame would have produced. The
-      // real value must differ, proving the spring kept its momentum.
       const asIfRestarted = stepSpring({ x: midFlightX, vel: 0 }, -1, SPRING_PROFILES.drag, 0.016).x;
       expect(nextX).not.toBeCloseTo(asIfRestarted, 5);
     });

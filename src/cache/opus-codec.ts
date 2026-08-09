@@ -1,14 +1,4 @@
 // -- Not unit tested ------------------------------------------------------------
-// WebCodecs (AudioEncoder, AudioDecoder, AudioData, EncodedAudioChunk) does not
-// exist in Node, so this file has no vitest coverage. Every piece of logic worth
-// testing (packet framing, duration arithmetic, sample-rate frame conversion,
-// channel interleaving and prefix boundary trimming) lives in pcm-utils.ts,
-// which is fully unit tested. This wrapper is intentionally thin: WebCodecs
-// calls and data shuffling only, plus reading the decoder config Chrome hands
-// back through the encoder's output callback (Opus encodes at 48kHz
-// regardless of the configured input rate, so that callback is the only
-// place the true decoder sampleRate is available).
-// Its own correctness is verified by a browser check, not by this test suite.
 
 import {
   alignToFrameCount,

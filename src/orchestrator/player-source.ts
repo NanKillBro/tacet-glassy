@@ -1,15 +1,3 @@
-// One shape for "what track is playing", from whichever bridge is publishing.
-//
-// Better Lyrics already runs a page-world bridge on this exact player and
-// dispatches blyrics-send-player-time on the document, which an isolated
-// content script receives directly. When it is installed we read that rather
-// than running a second bridge over the same object; when it is not, our own
-// page world publishes blk-player-state in its place.
-//
-// Both are gated the same way, on the rule Better Lyrics established: a player
-// that will not name a video or report a positive duration is not playing a
-// track, which is what an ad and a still-loading player both look like.
-
 interface PlayerState {
   videoId: string;
   durationSeconds: number;

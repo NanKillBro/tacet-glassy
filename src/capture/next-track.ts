@@ -1,9 +1,3 @@
-// YouTube Music's player reports an empty getPlaylist() even with fifty tracks
-// queued, so the queue is read from its own rendered items instead. Measured on
-// a radio queue: 50 ytmusic-player-queue-item elements, the id on the element's
-// own `data` property, and only the playing one carrying the selected
-// attribute. `__data` is absent on these, so it is only a fallback.
-
 const QUEUE_ITEM_SELECTOR = "ytmusic-player-queue-item";
 const SELECTED_ATTRIBUTE = "selected";
 

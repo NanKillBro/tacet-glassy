@@ -1,8 +1,3 @@
-// Ported from docs/mocks/2026-08-07-singalong-fader-v3.html (better-lyrics repo).
-// Position is a rAF spring, never a CSS transition, so grabbing the handle
-// mid-flight retargets instead of restarting. The value the caller wants
-// updates instantly; only the pixels spring.
-
 type SpringMode = "drag" | "settle";
 
 interface SpringProfile {
@@ -10,16 +5,11 @@ interface SpringProfile {
   damping: number;
 }
 
-// Under the finger: stiff and near-critical (damping ratio ~0.97) so the
-// handle has weight without lagging. On release, taps and keys: softer,
-// damping ratio ~0.60, roughly 9% overshoot.
 const SPRING_PROFILES: Record<SpringMode, SpringProfile> = {
   drag: { stiffness: 900, damping: 58 },
   settle: { stiffness: 200, damping: 17 },
 };
 
-// A backgrounded tab can deliver one rAF callback with a multi-second delta.
-// Clamping the integration step stops that from flinging the handle.
 const MAX_STEP_SECONDS = 0.032;
 
 const SETTLE_POSITION_EPSILON = 0.0004;

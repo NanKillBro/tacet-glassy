@@ -181,9 +181,6 @@ describe("microsecondsToFrames", () => {
 
 describe("convertFrameCount", () => {
   it("converts 44100 input frames at 44100Hz to the 48000Hz target frame count", () => {
-    // Real codec measurement: 44100 frames in at 44100Hz produced 47688
-    // decoded frames at 48000Hz (Opus pre-skip). The arithmetic target that
-    // alignToFrameCount pads that shortfall up to is 48000, not 47688.
     expect(convertFrameCount(44100, 44100, 48000)).toBe(48000);
   });
 
@@ -406,11 +403,6 @@ describe("encodePacketStream / decodePacketStream", () => {
     });
 
     it("rejects a buffer from an older, pre-versioned packet stream format", () => {
-      // The pre-fix format had no version field: its first four bytes were a
-      // plain little-endian sampleRate (e.g. 44100), which can never equal
-      // PACKET_STREAM_FORMAT_VERSION, so it is rejected rather than misread.
-      // Built long enough (legacy header + one packet) that this is the
-      // version check failing, not the too-short-buffer check.
       const legacyHeaderBytes = 16;
       const packetData = new Uint8Array(30).fill(9);
       const buffer = new ArrayBuffer(legacyHeaderBytes + 20 + packetData.length);

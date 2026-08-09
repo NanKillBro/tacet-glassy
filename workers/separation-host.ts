@@ -11,12 +11,6 @@ import {
   isSeparateRegionMessage,
 } from "./protocol.js";
 
-// Offscreen-document-side host, analogous to composer's worker-host.ts
-// SeparationWorker. It owns the model fetch (host_permissions apply to the
-// offscreen document, not the Worker) and the Worker's lifecycle; the Worker
-// itself only ever sees an already-fetched modelBytes ArrayBuffer and an
-// absolute ortBaseUrl.
-
 interface RegionEvent {
   vocals: Float32Array[];
   instrumental: Float32Array[];
@@ -137,9 +131,6 @@ class SeparationHost {
       this.currentProgress = opts.onProgress ?? null;
       this.currentRegion = opts.onRegion ?? null;
 
-      // Copy each channel into a fresh buffer before transferring. Transferring
-      // the caller's original buffers would detach them (length -> 0), which
-      // breaks anything else the caller wanted to do with that audio.
       const copies = opts.channels.map(channel => new Float32Array(channel));
       const transfer = copies.map(channel => channel.buffer);
       this.post({ type: "separate-process", channels: copies, totalFrames: opts.totalFrames }, transfer);

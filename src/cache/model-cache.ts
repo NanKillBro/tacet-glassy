@@ -1,12 +1,6 @@
 import { MODEL_STORE_NAME, openDB } from "@/cache/idb";
 import { digestsMatch, sha256Hex } from "@/cache/model-digest";
 
-// Ported from composer src/audio/separation/model-cache.ts. Composer keys the
-// cache on a ModelDescriptor and stores bytes via the Cache API; there is no
-// model-registry equivalent here (a single htdemucs_fp32.onnx, not a variant
-// set), so this keys directly on the fetch url and stores in IndexedDB via
-// idb.ts, per the design doc's extension-origin cache decision.
-
 const APPROX_MODEL_BYTES = 83 * 1024 * 1024;
 
 interface ModelCacheRecord {

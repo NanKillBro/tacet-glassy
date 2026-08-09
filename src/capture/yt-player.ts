@@ -1,13 +1,3 @@
-// Thin, defensive accessor for YouTube Music's own player object.
-//
-// Driving the raw <video> element loses: YTM's player pauses a worker that was
-// seeked mid-track ("The play() request was interrupted because a pause was
-// requested") and navigates the frame onto the next queue item even with
-// video.loop set. Both behaviours belong to the player, not the element, so
-// the controls have to be issued at the player's altitude. Every method is
-// optional and called through a guard, since this is an undocumented surface
-// that YouTube is free to change.
-
 import { MOVIE_PLAYER_ELEMENT_ID } from "@/capture/ad-guard";
 import { createLogger } from "@/shared/logger";
 
@@ -51,10 +41,6 @@ function callSafely(label: string, fn: (() => void) | undefined): boolean {
   }
 }
 
-// Stops the frame ever advancing to another track: autonav off, the queue
-// emptied, and the video looped so reaching the end is a no-op rather than a
-// hand-off. Applied together because any one of them alone was observed to be
-// insufficient.
 function suppressAutoAdvance(player: YtPlayer): void {
   callSafely("setAutonav", player.setAutonav && (() => player.setAutonav?.(false)));
   callSafely("setAutonavState", player.setAutonavState && (() => player.setAutonavState?.(0)));

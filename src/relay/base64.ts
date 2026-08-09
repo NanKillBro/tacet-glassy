@@ -1,9 +1,3 @@
-// btoa/atob only accept binary strings (one char code per byte), and
-// String.fromCharCode(...bytes) overflows the call stack past a few tens of
-// thousands of bytes, so both directions chunk through an intermediate
-// binary string in fixed-size blocks. chrome.runtime messaging is JSON-only
-// (see src/relay/chunk-transfer.ts), which is what these bytes cross as.
-
 const BINARY_STRING_CHUNK_SIZE = 8192;
 
 function bytesToBinaryString(bytes: Uint8Array): string {

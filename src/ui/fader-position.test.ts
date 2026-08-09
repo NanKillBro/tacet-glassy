@@ -114,8 +114,6 @@ describe("gap", () => {
     expect(position.bottom).toBe(`${900 - 300 + CARD_GAP_PX}px`);
   });
 
-  // The hover card sits further off than the fader card, and must keep that
-  // same offset when the dock flips it to the other side.
   it("applies a caller's gap to whichever edge the card opens from", () => {
     const up = computeCardPosition(triggerRect, anchorRect, menuSize, viewport, null, 14);
     expect(up.opensDown).toBe(false);

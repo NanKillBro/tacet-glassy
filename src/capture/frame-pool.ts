@@ -1,11 +1,3 @@
-// Spawns the hidden worker players and collects their slices.
-//
-// Each worker is an ordinary same-origin YouTube Music page carrying a slice
-// marker, so the capture content script runs inside it at document_start and
-// owns its own SourceBuffer patch. That is the only race-free way to install
-// the patch before the player builds its buffers; patching a child frame from
-// here would be a poll against the player's boot.
-
 import { log } from "@/capture/log";
 import type { SlicePlan } from "@/capture/slice-plan";
 import { buildWorkerUrl } from "@/capture/worker-frame";
@@ -31,11 +23,6 @@ interface SliceCaptureOptions {
 const FRAME_ID_PREFIX = "blyrics-karaoke-worker-";
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
 
-// Inside the viewport, but tiny and effectively invisible. display:none and
-// off-viewport placement both leave the frame's media eligible to be paused:
-// a worker parked at left:-10000px had its play() interrupted by a pause it
-// never requested, and never recovered. Staying laid out and intersecting the
-// viewport is what keeps the player running.
 const FRAME_STYLE =
   "position:fixed;right:0;bottom:0;width:2px;height:2px;opacity:0.01;pointer-events:none;border:0;z-index:-1";
 
@@ -69,8 +56,6 @@ function captureTrackInSlices(options: SliceCaptureOptions): Promise<CapturedSli
       clearTimeout(timer);
       signal?.removeEventListener("abort", onAbort);
       for (const frame of frames) frame.remove();
-      // A worker reports even when it captured nothing, so the pool can settle
-      // promptly; those empty slices count as answered but carry no audio.
       const result = [...collected.values()]
         .filter(slice => slice.bytes.byteLength > 0)
         .sort((a, b) => a.index - b.index);
@@ -101,8 +86,6 @@ function captureTrackInSlices(options: SliceCaptureOptions): Promise<CapturedSli
       finish("aborted");
     }
 
-    // A partial result is still useful: the separation path can work with the
-    // slices that landed, so a single wedged worker does not lose the track.
     const timer = setTimeout(() => finish("timed out"), timeoutMs);
 
     window.addEventListener("message", onMessage);

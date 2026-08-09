@@ -1,10 +1,3 @@
-// Splits a track into contiguous slices, one per hidden worker player.
-//
-// The slice count is not a speed dial: one hopping worker acquires a whole
-// track in seconds, and extra workers only add the mid-track seeks that make
-// them stall. planWholeTrack is the production path; planSlices survives for
-// re-measuring the parallel one.
-
 interface SlicePlan {
   index: number;
   fromSeconds: number;
@@ -30,16 +23,10 @@ function planSlices(durationSeconds: number, maxWorkers: number = DEFAULT_WORKER
   return Array.from({ length: count }, (_, index) => ({
     index,
     fromSeconds: index * span,
-    // The final slice takes the exact duration rather than a computed multiple,
-    // so floating point drift can never leave a sliver of the track unclaimed.
     toSeconds: index === count - 1 ? durationSeconds : (index + 1) * span,
   }));
 }
 
-// One worker covering everything, needing no duration up front. The duration
-// the opener can see is the ad's during a preroll, and planning against it
-// produced a 20 s "track". The worker clamps this to its own measured
-// duration, so ending long is safe and ending short truncates.
 const OPEN_ENDED_SECONDS = 86_400;
 
 function planWholeTrack(): SlicePlan[] {

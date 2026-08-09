@@ -1,7 +1,3 @@
-// The capture loop's decision logic, pure so it tests without a media element.
-// Each poll hops the scrubber to the contiguous buffered edge, which pulls the
-// next window; when the edge stops moving, a nudge re-triggers the fetch.
-
 interface HopState {
   bufferedEnd: number;
   cursor: number;
@@ -24,8 +20,6 @@ const NUDGE_S = 0.1;
 const NUDGE_EVERY = 4;
 const MAX_STALLS = 70;
 
-// Never seek to the very last frame: reaching the end is what triggers
-// "ended" and the autoplay queue.
 const END_GUARD_S = 0.1;
 
 function decideHop(state: HopState): HopDecision {
@@ -44,8 +38,6 @@ function decideHop(state: HopState): HopDecision {
   return { action: "wait" };
 }
 
-// A slice's real audio starts at the segment boundary at or before its request,
-// so slices overlap and must be placed by offset rather than concatenated.
 function bufferedRangeStart(ranges: TimeRanges, at: number): number {
   for (let i = 0; i < ranges.length; i++) {
     if (ranges.start(i) <= at + 0.5 && ranges.end(i) >= at) return ranges.start(i);

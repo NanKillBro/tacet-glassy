@@ -1,10 +1,3 @@
-// Marks a hidden worker frame and carries its slice assignment in the URL.
-//
-// The worker runs the same MAIN-world capture script as the real page, so it
-// needs a way to know it is a worker before the player boots. A query parameter
-// is the only channel available at document_start, and it survives the
-// navigation that would discard anything set on the window.
-
 const WORKER_PARAM = "blk-slice";
 const WATCH_URL = "https://music.youtube.com/watch";
 

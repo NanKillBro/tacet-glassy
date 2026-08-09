@@ -49,9 +49,6 @@ describe("decideAudioBusClaim", () => {
 
   describe("invariants", () => {
     it("never calls create() itself: it only decides, callers own the side effect", () => {
-      // decideAudioBusClaim takes no factory at all, so there is nothing to
-      // spy on: this is enforced by the type signature, exercised here by
-      // confirming the return value is a plain string, not an executed bus.
       const result = decideAudioBusClaim(undefined, 1, isFakeBus);
       expect(typeof result).toBe("string");
     });

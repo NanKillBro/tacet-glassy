@@ -1,12 +1,3 @@
-// Ported from createSingAlong() in docs/mocks/2026-08-07-singalong-mounts.html
-// (better-lyrics repo). One control, two hosts: `host` decides the button's
-// chrome and which element the card measures its gap from, everything else
-// is identical. See docs/plans/2026-08-07-singalong-karaoke.md section 6 for
-// the reasoning behind every constant below.
-//
-// This module emits a mix level (0 to 2, 1 is the original mix untouched)
-// through onChange and nothing else. It never touches audio.
-
 import { isFaderInteractive, shouldCloseForDisabled } from "@/ui/fader-disabled-gate";
 import {
   dockCouplingCardClosed,
@@ -34,11 +25,6 @@ type GlyphKind = "mic" | "note";
 type GlyphLayerKind = GlyphKind | "busy";
 
 // -- Better Lyrics' own dock classes, reused rather than restyled --------------
-// In the dock, Better Lyrics' stylesheet is the only definition of this
-// chrome, so a user theme layered on top of it styles our control too. In
-// the player bar, Better Lyrics may not be installed at all, so that path
-// carries a self-contained copy under the --bar modifier classes in
-// fader.css instead of these.
 const DOCK_CONTROL_CLASS = "blyrics-dock__control";
 const DOCK_CONTROL_ACTIVE_CLASS = "blyrics-dock__control--active";
 const DOCK_MENU_CLASS = "blyrics-dock__menu";
@@ -64,9 +50,6 @@ interface FaderControl {
 }
 
 // -- Glyph stack --------------------------------------------------------------
-// Mic above centre, instrumental below it, shimmer while a companion works.
-// All three stay in the DOM and cross-fade, so scrubbing across the middle
-// interrupts cleanly instead of restarting a keyframe.
 
 interface GlyphStack {
   el: HTMLSpanElement;
@@ -200,22 +183,14 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
 
   let v = 0;
 
-  // The control reports unavailable through aria-disabled rather than the
-  // disabled attribute, which would stop it firing the pointer events its hover
-  // card needs (see src/contents/fader-control.ts).
   const isMarkedDisabled = (): boolean => button.getAttribute("aria-disabled") === "true";
 
   // -- Placement --------------------------------------------------------------
-  // In the dock the gap is measured off the pill, because the button sits
-  // inside its 8px padding. In the bar the button is the outermost thing, so
-  // it measures off itself.
   function anchorRect(): DOMRect {
     const pill = button.closest(".blyrics-dock__inner");
     return (pill ?? button).getBoundingClientRect();
   }
 
-  // No dock ancestor in the player bar, so this is naturally null there:
-  // computeCardPosition already reads a null data-position as opens-up.
   function currentDataPosition(): string | null {
     if (host === "bar") return null;
     const dock = button.closest<HTMLElement>(".blyrics-dock");
@@ -240,11 +215,6 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
   // -- Paint --------------------------------------------------------------------
 
   // -- Busy state -----------------------------------------------------------
-  //
-  // While a companion is working, the glyph is painted with the project's
-  // shimmer instead of the accent, because accent reads as engaged rather than
-  // working. The busy layer suppresses value painting so a spring frame does
-  // not overwrite it mid-shimmer.
 
   let busy = false;
   let lastGlyphKind: GlyphKind = "mic";
@@ -304,10 +274,6 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
   function commit(mode: SpringMode, announce = true): void {
     const frame = computeCommit(v);
     paint.set(frame.effectiveValue, mode);
-    // Both classes are toggled unconditionally: whichever host is mounted,
-    // only the class matching its own chrome (blyrics-dock__control--active
-    // from Better Lyrics, or blyrics-sing--active scoped under --bar) has a
-    // matching CSS rule, so the other one is inert.
     button.classList.toggle("blyrics-sing--active", frame.effectiveValue !== 0);
     button.classList.toggle(DOCK_CONTROL_ACTIVE_CLASS, frame.effectiveValue !== 0);
     track.dataset.rest = String(frame.effectiveValue === 0);
@@ -380,8 +346,6 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
     open = next;
     if (next) place();
     syncDockExpansion(next);
-    // Same unconditional-pair pattern as the active class above, for the
-    // menu's enter/exit chrome.
     menu.classList.toggle("blyrics-mix--open", next);
     menu.classList.toggle(DOCK_MENU_OPEN_CLASS, next);
     button.setAttribute("aria-expanded", String(next));
@@ -397,9 +361,6 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
   window.addEventListener("resize", onResize);
   window.addEventListener("scroll", onScroll, { passive: true });
 
-  // Tap toggles Karaoke on and off. Hold or double-click opens the fader.
-  // The hold timer marks itself handled so releasing after a hold does not
-  // also toggle.
   let holdTimer: ReturnType<typeof setTimeout> | null = null;
   let holdHandled = false;
 
@@ -461,10 +422,6 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
   // -- Track: drag, double-click reset, keys -------------------------------------
 
   track.addEventListener("pointerdown", event => {
-    // setPointerCapture retargets pointer events but not the legacy mouse ones
-    // the drag-and-drop machinery runs on, so without this the browser starts
-    // dragging whatever image the pointer crosses and takes the gesture with it.
-    // preventDefault also suppresses the focus that keyboard control needs.
     event.preventDefault();
     track.focus();
     track.setPointerCapture(event.pointerId);
@@ -514,8 +471,6 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
   paint.jump(0);
 
   function setHost(next: FaderHost): void {
-    // The control is stateless UI over a single value: moving it between
-    // hosts is a reparent and a class swap, nothing is torn down or re-read.
     host = next;
     button.classList.toggle(DOCK_CONTROL_CLASS, next === "dock");
     button.classList.toggle(BAR_CONTROL_CLASS, next === "bar");

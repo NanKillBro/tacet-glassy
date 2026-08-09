@@ -30,11 +30,6 @@ describe("getModelUrl", () => {
   });
 
   describe("edge cases", () => {
-    // Behaviour changed deliberately: this used to return null when unset.
-    // Plasmo leaves an unresolved "$VAR/*" in host_permissions and Chrome then
-    // ignores the malformed entry without a diagnostic, so an unset variable
-    // produced a permissionless fetch that failed silently. Falling back to the
-    // same host that host_permissions names keeps the two in agreement.
     it("falls back to the default host when the env var is unset", () => {
       delete process.env[ENV_KEY];
       expect(getModelUrl()).toBe(`${DEFAULT_MODEL_BASE_URL}/${MODEL_FILENAME}`);

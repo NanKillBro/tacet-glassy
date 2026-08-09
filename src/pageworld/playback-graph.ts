@@ -1,9 +1,4 @@
 // -- Playback graph ----------------------------------------------------------
-//
-// The original is silenced with a gain of ZERO, never by disconnecting it. Web
-// Audio only pulls through nodes reaching the destination, so a disconnected
-// MediaElementAudioSourceNode stalls the element behind it: currentTime freezes
-// and YouTube Music discards the element and builds another, repeatedly.
 
 import { createBypassController } from "@/pageworld/bypass";
 import { gainsForMixLevel } from "@/pageworld/gain-law";
@@ -33,21 +28,13 @@ interface PlaybackGraph {
   loadStems(vocals: Float32Array<ArrayBuffer>[], instrumental: Float32Array<ArrayBuffer>[], sampleRate: number): void;
   setMixLevel(mixLevel: number): void;
   stopStems(): void;
-  // For stems the graph still holds. Copying a track into an AudioBuffer costs
-  // tens of megabytes on the main thread, so an ad break must not pay for it.
   resumeStems(): void;
   isEngaged(): boolean;
-  // A graph discarded without this keeps its listeners on the element, and each
-  // one restarts the stem sources: audible karaoke nothing can control.
   dispose(): void;
   // What actually reached Web Audio, not what the pipeline believes it sent.
   describe(): GraphState;
 }
 
-// Built once per track. A full track is tens of megabytes per stem, and the
-// copy runs on the main thread, so rebuilding these per transport event froze
-// playback and eventually exhausted memory. An AudioBuffer feeds any number of
-// source nodes; only the source node is single use.
 function createStemBuffer(
   context: AudioContext,
   channels: Float32Array<ArrayBuffer>[],
@@ -69,8 +56,6 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   vocalsGainNode.connect(context.destination);
   instrumentalGainNode.connect(context.destination);
 
-  // Only the source's own destination edge is replaced, so a sibling
-  // extension's analyser survives. Unity gain, so building this is inaudible.
   const originalGainNode = context.createGain();
   originalGainNode.gain.value = 1;
   source.disconnect(context.destination);
@@ -111,8 +96,6 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     instrumentalGainNode.gain.value = gains.instrumentalGain;
   }
 
-  // An AudioBufferSourceNode cannot be paused or repositioned once started, so
-  // following the player means rebuilding the pair at the right offset.
   function startSourcesAt(offsetSeconds: number): void {
     if (!loadedStems) return;
     stopActiveSources();
@@ -188,8 +171,6 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     stopActiveSources();
     loadedStems = null;
 
-    // Hand the source back as the bus gave it: a leftover gain is a second path
-    // to the destination, so the next graph plays the original twice.
     originalGainNode.gain.value = 1;
     source.disconnect(originalGainNode);
     originalGainNode.disconnect();
@@ -207,8 +188,6 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   }
 
   function describe(): GraphState {
-    // The retained stems, not the live source: sources are rebuilt on every
-    // pause and seek, so a paused graph still has stems loaded.
     const samples = loadedStems?.instrumental.getChannelData(0) ?? null;
     let instrumentalRms = 0;
     if (samples) {

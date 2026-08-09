@@ -5,11 +5,6 @@ import { DEFAULT_BUDGET_BYTES } from "@/cache/stem-store";
 const SETTINGS_STORAGE_KEY = "blk-settings";
 
 // -- Cache budget bounds and presets -------------------------------------------
-//
-// Presets back the popup's slider (docs/plans/2026-08-07-better-lyrics-karaoke.md
-// Phase 9). The min/max bound is defense in depth against a corrupt storage
-// value or a caller that bypasses the slider, not something the slider itself
-// can produce.
 
 const MIN_CACHE_BUDGET_BYTES = 50 * 1024 * 1024;
 const MAX_CACHE_BUDGET_BYTES = 5 * 1024 * 1024 * 1024;
@@ -60,11 +55,6 @@ function sanitizeSettings(raw: unknown): Settings {
 }
 
 // -- Eviction-on-budget-change decision ------------------------------------------
-//
-// Called when the cache budget setting changes, before the next stem write
-// would otherwise trigger stem-store.ts's own eviction pass. Kept as its own
-// function (rather than always calling evictUntilWithinBudget unconditionally)
-// so the caller can log or skip the IndexedDB scan when nothing needs to move.
 
 function shouldEvictForNewBudget(currentUsageBytes: number, newBudgetBytes: number): boolean {
   return currentUsageBytes > newBudgetBytes;

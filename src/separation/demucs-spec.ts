@@ -2,14 +2,6 @@
 
 import { HOP_LENGTH, type Spectrogram, istft, reflectPad, stft } from "@/separation/stft";
 
-// Mirrors HTDemucs's `_spec` / `_magnitude` (sevagh's `standalone_*` helpers).
-// For a 7.8s stereo segment at 44.1 kHz (343,980 samples), the model expects
-// magspec shape [1, 4, 2048, 336]:
-//   - 4 channels = stereo (2) × complex (2), laid out [L_re, L_im, R_re, R_im]
-//   - 2048 freq bins = n_fft/2 = 4096/2; the Nyquist bin is dropped
-//   - 336 time frames = ceil(343980 / 1024), with 2 leading + 2 trailing context
-//     frames produced by the spectro pre-pad and then trimmed off
-
 const SEGMENT_SAMPLES = 343_980;
 const PRE_PAD_LEFT = (HOP_LENGTH / 2) * 3; // 1536
 const PRE_PAD_RIGHT = PRE_PAD_LEFT + 336 * HOP_LENGTH - SEGMENT_SAMPLES; // 1620

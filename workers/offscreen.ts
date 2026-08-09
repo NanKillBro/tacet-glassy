@@ -24,13 +24,6 @@ import { createLogger } from "../src/shared/logger.js";
 const logger = createLogger("offscreen");
 
 // -- Separation version purge -------------------------------------------------
-//
-// Content keys now include the model identity, but a videoId alias written by an
-// older build still points at a record produced by that older model. Left alone,
-// a probe follows the stale alias and serves stems the current model would never
-// produce: the fp16 to fp32 switch fixed separation while silent NaN-derived
-// stems kept being served from cache. Clearing once per version change is the
-// only way to be sure nothing older survives.
 
 const SEPARATION_VERSION_KEY = "blk-separation-version";
 
@@ -44,8 +37,6 @@ function purgeStaleSeparations(): void {
   }
   if (previous === SEPARATION_VERSION) return;
 
-  // Marked before the clear, not after: an offscreen document closed mid-clear
-  // would otherwise never record that it ran, and purge again on every startup.
   localStorage.setItem(SEPARATION_VERSION_KEY, SEPARATION_VERSION);
   Promise.all([clearAllStemRecords(), clearAllAliases()])
     .then(() => logger.log(`cleared stems from a previous separation version (${previous ?? "none"})`))
@@ -57,19 +48,6 @@ function purgeStaleSeparations(): void {
 purgeStaleSeparations();
 
 // -- Settings-driven cache budget --------------------------------------------
-//
-// The offscreen document owns every write to the stem store, so it is the
-// only place that can apply a changed budget without waiting for a reload:
-// it keeps the live cacheBudgetBytes value in memory, evicts right away if
-// usage already exceeds a smaller budget, and hands the current value to the
-// track pipeline on every future write (see TrackPipeline's constructor).
-//
-// An offscreen document is granted chrome.runtime and nothing else: chrome.storage
-// is undefined here even with the permission declared in the manifest, and
-// reading it at module scope threw and took the whole document down with it
-// (nothing below ever registered). The current value is fetched from
-// background on startup and pushed on every change instead; see
-// src/background.ts and workers/protocol2.ts's settings relay.
 
 let currentCacheBudgetBytes = DEFAULT_SETTINGS.cacheBudgetBytes;
 
@@ -99,11 +77,6 @@ function getCacheBudgetBytes(): number {
 }
 
 // -- Real separation host -----------------------------------------------
-//
-// One Worker for this document's lifetime, shared by the track pipeline
-// (workers/track-pipeline.ts) below. Cancellation always goes through the
-// pipeline, not straight to the host, so its own notion of "which track is
-// active" clears in step with the Worker actually stopping.
 
 const separationHost = new SeparationHost();
 const trackPipeline = new TrackPipeline(separationHost, getCacheBudgetBytes);
@@ -128,12 +101,6 @@ chrome.runtime.onMessage.addListener(message => {
 });
 
 // -- Cache status and clearing (popup) ---------------------------------------
-//
-// Routed through src/background.ts, since only the offscreen document holds
-// the live IndexedDB connection and knows whether a separation is currently
-// running. A running separation is cancelled first in both cases, so a job
-// in flight cannot write a fresh record into a store the user just asked to
-// empty. See src/settings/ for the setting this reacts to.
 
 async function fetchCacheStatus(): Promise<CacheStatusMessage> {
   const stemCacheBytes = await getTotalStemBytes();
@@ -196,12 +163,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 // -- Stem verification hook -----------------------------------------------
-//
-// Answers "is there actually a separated stem in there". Reads the cached
-// stems straight out of IndexedDB and reports, per stem, the RMS and the
-// normalised correlation between the two. Separation that worked yields two
-// largely independent signals, so correlation is low. Separation that
-// silently passed the original through twice yields correlation near 1.
 
 interface StemAnalysis {
   key: string;
@@ -307,9 +268,6 @@ chrome.runtime.onMessage.addListener(message => {
 (self as unknown as Record<string, unknown>).blkAnalyseCachedStems = analyseCachedStems;
 
 // -- Synthetic pipeline bisect --------------------------------------------
-//
-// Runs the real separation path over a generated signal, so the capture and
-// decode stages can be ruled in or out without waiting on a track to buffer.
 
 async function runSelfTest(forceWasm = false): Promise<unknown> {
   const { runPipelineSelfTest } = await import("./pipeline-selftest.js");

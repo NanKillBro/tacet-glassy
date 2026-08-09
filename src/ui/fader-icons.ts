@@ -1,17 +1,3 @@
-// SVG construction ported from docs/mocks/2026-08-07-singalong-mounts.html
-// (better-lyrics repo). Builds real SVG DOM nodes instead of the mock's
-// innerHTML strings; the shapes and rules below are otherwise unchanged.
-//
-// Per-path opacity is carried on --glyph-o (registered with @property in
-// fader.css so it interpolates), never on the wrapper. That only works
-// because no two painted shapes overlap: per-path opacity stacks wherever
-// they do, and any overlap turns into a bright seam at partial opacity.
-//
-// Each outline below is one <path> with several subpaths, never several
-// <path> elements: one element is one stroke paint, so subpaths that meet
-// (the mic arc's cap against the stem's, the note bar's ends against its
-// heads) cannot composite twice.
-
 import type { GlyphKind } from "@/ui/fader-geometry";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -28,9 +14,6 @@ const WAVEFORM_OUTLINE = "M2 12h3l3-8 4 16 3-8h5";
 const OUTLINE: Record<GlyphKind, string> = { mic: MIC_OUTLINE, note: NOTE_OUTLINE };
 const FILL: Record<GlyphKind, string> = { mic: MIC_FILL, note: NOTE_FILL };
 
-// Vertical span of the fillable part of each glyph. The mic fills its
-// capsule (y 2 to 14); the note fills its two heads (y 13 to 21), because a
-// filled note bar would read as a solid quadrilateral.
 const FILL_SPAN: Record<GlyphKind, [number, number]> = {
   mic: [2.875, 10.25],
   note: [13.875, 6.25],
@@ -78,8 +61,6 @@ function createOutlineIcon(kind: GlyphKind, size = 16): SVGSVGElement {
   return createIconSvg(OUTLINE[kind], size);
 }
 
-// Partial fill: a clip rect walks up the fillable part of the glyph and the
-// outline is drawn on top, so one path serves both states.
 function createFilledGlyphSvg(kind: GlyphKind, fraction: number, size = 16): SVGSVGElement {
   const clampedFraction = Math.max(0, Math.min(1, fraction));
   const clipId = `blyrics-glyph-clip-${clipIdSequence++}`;
@@ -110,8 +91,6 @@ function createFilledGlyphSvg(kind: GlyphKind, fraction: number, size = 16): SVG
   return svg;
 }
 
-// A named stroke colour keeps a raw # out of the data URI, where it would
-// be read as a fragment delimiter and silently drop the whole mask.
 function createGlyphMaskUrl(kind: GlyphKind): string {
   const serialized = new XMLSerializer().serializeToString(createIconSvg(OUTLINE[kind], 24, "white"));
   return `url("data:image/svg+xml,${encodeURIComponent(serialized)}")`;

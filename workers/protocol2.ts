@@ -1,12 +1,6 @@
 import type { Settings } from "../src/settings/settings.js";
 
 // -- Separation control messages ------------------------------------------------------
-//
-// Small, JSON-safe messages only: chrome.runtime message passing uses JSON
-// serialization in Chrome, not structured clone, so ArrayBuffer/Float32Array
-// payloads (model bytes, audio channels, separated stems) never cross this
-// layer. Those stay inside the offscreen document and its Worker, which talk
-// over Worker postMessage (workers/protocol.ts) instead.
 
 export interface GetModelUrlCommand {
   type: "blk-get-model-url";
@@ -40,18 +34,7 @@ export function isCancelSeparationCommand(data: unknown): data is CancelSeparati
 }
 
 // -- Track pipeline messages (real karaoke path) ------------------------------
-//
-// Captured audio and finished stems are binary, and chrome.runtime messaging
-// is JSON-only in Chrome, so both cross as base64 text chunked per
-// src/relay/chunk-transfer.ts. Everything else here is a small control
-// message. Content script to background to offscreen for capture chunks;
-// offscreen to background to content script (routed by videoId, since only
-// background can target a specific tab) for stage, progress, stem chunks,
-// completion and error.
 
-// loading-model and downloading-model are separate because they cost minutes
-// apart: the model is 170 MB over the network, and an extension reload throws
-// away the session but not the cached bytes, so the common case is a local read.
 export type TrackStage =
   | "checking-cache"
   | "decoding"
@@ -182,11 +165,6 @@ export type TrackPipelineOutboundMessage =
   | TrackErrorMessage;
 
 // -- Cache status and clearing (popup) ----------------------------------------
-//
-// Popup to background to offscreen and back, the same relay shape as
-// GetModelUrlCommand above but answered by the offscreen document instead of
-// background itself, since only it holds the IndexedDB connection and knows
-// whether a separation is running (see workers/offscreen.ts).
 
 export type CacheClearTarget = "stems" | "model";
 
@@ -250,12 +228,6 @@ export function isClearCacheResultMessage(data: unknown): data is ClearCacheResu
 }
 
 // -- Settings relay (offscreen has no chrome.storage) --------------------------
-//
-// An offscreen document is granted chrome.runtime and nothing else: chrome.storage
-// is undefined there even with the permission declared in the manifest, and
-// reading it throws. The offscreen document asks background for the current
-// settings on startup, and background pushes an update whenever they change,
-// rather than the offscreen document ever touching chrome.storage itself.
 
 export interface GetSettingsCommand {
   type: "blk-get-settings";
@@ -294,9 +266,6 @@ export function isSettingsChangedMessage(data: unknown): data is SettingsChanged
 }
 
 // -- Cache probe --------------------------------------------------------------
-//
-// Does this videoId already have stems, and if so deliver them. Without it the
-// cache was write-only: the lookup lived inside the capture-completion path.
 
 export interface ProbeCacheCommand {
   type: "blk-probe-cache";
@@ -328,16 +297,11 @@ export function isForgetTrackCommand(data: unknown): data is ForgetTrackCommand 
   );
 }
 
-// The probe's answer, sent before the stems it found. The tab is waiting for a
-// capture, and stem chunks alone do not move it off that.
 export interface CacheHitMessage {
   type: "blk-cache-hit";
   videoId: string;
 }
 
-// The other answer. Without it the tab cannot tell a finished probe from a slow
-// one, so acquisition started on a timer and raced the lookup: a cold offscreen
-// document answers well after six seconds and the track downloaded again.
 export interface CacheMissMessage {
   type: "blk-cache-miss";
   videoId: string;
@@ -362,9 +326,6 @@ export function isCacheHitMessage(data: unknown): data is CacheHitMessage {
 }
 
 // -- The relay's guard for everything the offscreen document sends out ---------
-//
-// Keyed by the union's own type strings, so a message added without a guard is
-// a compile error. Hand-maintained, this silently lost blk-cache-miss.
 
 const TRACK_PIPELINE_OUTBOUND_GUARDS: Record<TrackPipelineOutboundMessage["type"], (data: unknown) => boolean> = {
   "blk-cache-hit": isCacheHitMessage,

@@ -20,8 +20,6 @@ describe("describeDownload", () => {
       expect(describeDownload(1.4).percent).toBe(1);
     });
 
-    // null is "no number yet", which the card shows as an unquantified step.
-    // Zero would read as stalled.
     it("reports no percentage when the duration is unknown", () => {
       expect(describeDownload(Number.NaN).percent).toBeNull();
       expect(describeDownload(Number.POSITIVE_INFINITY).percent).toBeNull();
@@ -29,9 +27,6 @@ describe("describeDownload", () => {
   });
 
   describe("regressions", () => {
-    // The two paths are paced by different things, and the card claiming the
-    // listener's own buffering was responsible while a hidden player did the
-    // work is how the mechanism came to look broken.
     it("distinguishes the hidden player from the listener's own playback", () => {
       expect(describeDownload(0.5, "hidden-player").label).toBe(HIDDEN_PLAYER_LABEL);
       expect(describeDownload(0.5, "listener-playback").label).toBe(LISTENER_PLAYBACK_LABEL);

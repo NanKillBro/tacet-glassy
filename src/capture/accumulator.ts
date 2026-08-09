@@ -1,12 +1,3 @@
-// Owns retained capture state for exactly one track at a time. Keying off
-// video id means a track change starts a fresh capture without the patch
-// layer having to notice navigation itself: it just calls setActiveVideoId
-// on every append and this decides whether that is a reset.
-//
-// appendCount and totalBytes track the raw stream, uncapped, because "did
-// capture see the bytes" and "can we afford to keep them" are different
-// questions. Only the chunks array (what decode.ts reads) is capped.
-
 import { looksLikeInitSegment } from "@/capture/init-segment";
 
 const DEFAULT_MAX_RETAINED_BYTES = 64 * 1024 * 1024;
@@ -34,11 +25,7 @@ interface CaptureAccumulator {
   addChunk(mimeType: string, bytes: Uint8Array): AddChunkResult;
   getChunks(): CaptureChunk[];
   getStats(): CaptureStats;
-  // Drop what is retained and retain nothing further for this track, for when
-  // its stems are already cached. Counters keep running; a track change re-arms.
   standDown(): void;
-  // Drop what is retained and keep going, for when those bytes turn out to
-  // belong to something other than the track being captured.
   discardRetained(): void;
   keepFromLastInitSegment(): boolean;
 }

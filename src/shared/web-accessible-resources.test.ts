@@ -3,13 +3,6 @@ import { readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
-// Plasmo only copies files under assets/ that web_accessible_resources lists,
-// and its globs do not cross a slash, so every subdirectory needs its own
-// entry. A missing one is not a build error: the offscreen document's import
-// 404s at runtime, the document dies before registering a listener, and the
-// extension goes dark with nothing in the console but ERR_FILE_NOT_FOUND. That
-// has now happened five times, most recently for src/shared.
-
 const ROOT = new URL("../..", import.meta.url).pathname;
 
 function declaredResources(): string[] {

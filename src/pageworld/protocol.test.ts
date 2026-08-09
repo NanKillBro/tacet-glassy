@@ -36,8 +36,6 @@ describe("audio bridge protocol", () => {
     expect(Array.from(cloned.instrumental[1])).toEqual([10, 11, 12]);
     expect(cloned.sampleRate).toBe(48000);
 
-    // Transfer, not structured-clone-by-copy: the sender's buffers are
-    // detached once ownership moves to the receiving world.
     expect(vocals[0].buffer.byteLength).toBe(0);
     expect(instrumental[1].buffer.byteLength).toBe(0);
   });
@@ -80,8 +78,6 @@ describe("audio bridge protocol", () => {
       expect(isLoadStemsMessage(malformed)).toBe(false);
     });
 
-    // Without it the page world cannot tell which track these stems belong to,
-    // and binding them to the wrong element is a permanent mistake.
     it("rejects a load-stems message missing videoId", () => {
       const malformed = { type: "blk-load-stems", vocals: [], instrumental: [], sampleRate: 48000 };
       expect(isLoadStemsMessage(malformed)).toBe(false);

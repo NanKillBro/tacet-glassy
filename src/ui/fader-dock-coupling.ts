@@ -26,10 +26,6 @@ function dockCouplingCardClosed(state: DockCouplingState): DockCouplingCloseResu
   return { state: initialDockCouplingState(), removeExpandedClass: true };
 }
 
-// The card is a fixed-position sibling of the dock, so reaching for it takes the
-// pointer out of the dock, the dock collapses, and the card it was collapsing
-// under went with it. While the pointer is on the card, or in the corridor
-// bridging the gap, a collapse is the dock's business and not the card's.
 function dockCouplingShouldCloseCard(cardOpen: boolean, dockExpanded: boolean, pointerOnCard = false): boolean {
   return cardOpen && !dockExpanded && !pointerOnCard;
 }

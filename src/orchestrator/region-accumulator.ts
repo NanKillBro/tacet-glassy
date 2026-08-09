@@ -1,11 +1,3 @@
-// Assembles the region-by-region output of SeparationHost.process() (see
-// workers/separation-host.ts's onRegion callback) into complete
-// full-track stem buffers. This project ships batch playback only: nothing
-// reads a partial accumulator, everything waits for process() to resolve,
-// at which point every region has landed. Progressive read-as-you-go
-// playback is a known future seam, deliberately not built here (see
-// workers/track-pipeline.ts).
-
 interface RegionAccumulator {
   vocals: Float32Array[];
   instrumental: Float32Array[];

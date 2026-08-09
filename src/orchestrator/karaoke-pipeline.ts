@@ -1,13 +1,4 @@
 // -- ISOLATED-world karaoke pipeline orchestrator ----------------------------
-//
-// Wired into src/contents/fader-control.ts. Owns: polling the current
-// videoId, talking to src/contents/capture-spike.ts (MAIN world) for
-// captured bytes over window.postMessage, talking to the offscreen document
-// over chrome.runtime (relayed through src/background.ts, see
-// workers/protocol2.ts), and talking to src/contents/inject-main-world.ts
-// (MAIN world) to load decoded stems and set the mix level. The state
-// machine that drives all of this (src/orchestrator/karaoke-state.ts) is
-// pure and independently tested; this module is the impure glue around it.
 
 import {
   type CaptureStandDownMessage,
@@ -82,12 +73,8 @@ interface KaraokePipeline {
 }
 
 function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline {
-  // Empty, not the current videoId: checkTrackChange only fires on a change, so
-  // starting at the real one made a page load look like no change at all.
   let state: KaraokeState = initialKaraokeState("");
   let pendingMixLevel = NEUTRAL_MIX_LEVEL;
-  // The queue item being warmed ahead of the listener. It never touches the
-  // state machine, which belongs to the track actually playing.
   let prefetchVideoId: string | null = null;
   let vocalsAssembler: ChunkAssembler | null = null;
   let instrumentalAssembler: ChunkAssembler | null = null;
@@ -129,9 +116,6 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
 
   // -- Track change polling -----------------------------------------------
 
-  // Driven by whichever bridge is publishing, never by the URL: the player
-  // reaches the next track before location.search is read again, and that gap is
-  // what let a previous track's stems stay engaged over the new one.
   function onTrackObserved(videoId: string): void {
     if (videoId === state.videoId) return;
 
@@ -148,9 +132,6 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     resetStemAssembly();
     prefetchVideoId = null;
     dispatch({ type: "track-changed", videoId });
-    // Acquisition waits for the answer. Starting both at once raced the lookup,
-    // and a cold offscreen document loses that race and re-downloads a track
-    // whose stems were already cached.
     probeCacheFor(videoId);
   }
 
@@ -159,8 +140,6 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     cacheProbeTimer = null;
   }
 
-  // The cache lookup used to live only in the capture-completion path, so a
-  // track had to be fully re-captured before anything would even look.
   function probeCacheFor(videoId: string): void {
     const probe: ProbeCacheCommand = { type: "blk-probe-cache", videoId };
     chrome.runtime.sendMessage(probe).catch(error => logError("failed to send cache probe", error));
@@ -350,8 +329,6 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
         dispatch({ type: "stems-loaded", videoId });
         postToPageWorld({ type: "blk-set-mix-level", mixLevel: pendingMixLevel });
         log(`karaoke engaged for ${videoId}`);
-        // Only now: a separation for the next track would otherwise take the
-        // offscreen document's single job away from the one being waited on.
         const nextRequest: RequestNextPrefetchMessage = { type: "blk-request-next-prefetch", videoId };
         postToPageWorld(nextRequest);
       })
@@ -372,8 +349,6 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       if (message.videoId === state.videoId) clearCacheProbeTimer();
       dispatch({ type: "cache-hit", videoId: message.videoId });
       postToPageWorld({ type: "blk-capture-stand-down", videoId: message.videoId });
-      // The relay through background does not guarantee ordering, so the stems
-      // may already be complete and would otherwise sit assembled and unused.
       finishStemsIfReady(message.videoId);
       return;
     }
@@ -386,8 +361,6 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       if (message.videoId !== state.videoId) return;
       clearCacheProbeTimer();
       log(`no cached stems for ${message.videoId}, acquiring`);
-      // From here, not the capture script: this module only exists when the
-      // master switch is on, and that script runs for every track regardless.
       postToPageWorld({ type: "blk-request-prefetch", videoId: message.videoId });
       return;
     }
@@ -432,12 +405,6 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   }
 
   // -- Auto separate -------------------------------------------------------
-  //
-  // autoSeparateEnabled (src/settings/settings.ts, default on) starts
-  // separation the moment capture is ready, without moving the mix level
-  // itself, so stems are already cached by the time the user reaches for the
-  // fader. Reads the setting fresh per track rather than caching it, since a
-  // single pipeline instance lives across many tracks.
 
   function maybeAutoEngage(videoId: string): void {
     loadSettingsFrom(chrome.storage.sync)
@@ -471,8 +438,6 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     window.removeEventListener("message", onWindowMessage);
     chrome.runtime.onMessage.removeListener(onRuntimeMessage);
 
-    // The page world outlives this module, so stems left engaged would keep the
-    // original silenced with nothing able to switch it back.
     postToPageWorld({ type: "blk-stop-stems" });
     if (state.status === "processing") {
       const cancel: CancelSeparationCommand = { type: "blk-cancel-separation" };

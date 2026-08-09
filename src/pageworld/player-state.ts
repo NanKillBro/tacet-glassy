@@ -1,13 +1,3 @@
-// The one answer to "what track is YouTube Music playing right now, and which
-// element is playing it".
-//
-// Modelled on Better Lyrics' page bridge (../better-lyrics/public/script.js),
-// which reads #movie_player rather than inferring anything from the DOM and
-// refuses to publish until the player names a video and reports a positive
-// duration. Asking the player is exact where every previous test here was a
-// proxy: a duration comparison cannot tell two tracks of the same length apart,
-// and a document-wide <video> scan cannot tell whose element it found.
-
 import { MOVIE_PLAYER_ELEMENT_ID } from "@/capture/ad-guard";
 import { readVideoData } from "@/capture/yt-player";
 import type { YtPlayer } from "@/capture/yt-player";
@@ -28,11 +18,6 @@ function readDuration(player: YtPlayer): number {
   }
 }
 
-// null means "not a track": a player that has not loaded one yet, or one that
-// will not answer. Never a guess, and never an ad either, whatever the isAd
-// test below implies: it was measured firing 0 times across 87 ad samples, and
-// the player goes on naming the track it will return to for the whole break.
-// Ads are recognised by isAdPlaying; this is kept only as a free upper bound.
 function readPlayerSnapshot(player: YtPlayer | null): PlayerSnapshot | null {
   if (!player) return null;
 
@@ -51,9 +36,6 @@ function currentPlayerSnapshot(doc: Document): PlayerSnapshot | null {
   return readPlayerSnapshot(player ? (player as unknown as YtPlayer) : null);
 }
 
-// Scoped to the player's own subtree, since a sibling extension's #bls-video
-// sits outside it and sorts first in a document-wide query. selectPlaybackElement
-// still breaks the tie, because YouTube Music keeps a second element in there.
 function playerVideoElement(doc: Document): HTMLVideoElement | null {
   const player = doc.getElementById(MOVIE_PLAYER_ELEMENT_ID);
   if (!player) return null;

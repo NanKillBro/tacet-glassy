@@ -36,9 +36,6 @@ function collectStreamed(channels: Float32Array[], totalFrames: number): Float32
   return output;
 }
 
-// mulberry32, a small deterministic PRNG. Seeded so the noise fixtures below
-// are identical across runs, unlike a ramp, which repeats the same value at
-// the same relative offset in every chunk and can mask boundary errors.
 function makeSeededRandom(seed: number): () => number {
   let state = seed >>> 0;
   return () => {

@@ -76,8 +76,6 @@ describe("readPlayerSnapshot", () => {
   });
 
   describe("invariants", () => {
-    // The whole point of this module: identity, not a length comparison. Two
-    // recordings of the same duration must never be interchangeable.
     it("distinguishes two tracks of identical duration", () => {
       const first = readPlayerSnapshot(playerReporting({ video_id: "first" }, 200));
       const second = readPlayerSnapshot(playerReporting({ video_id: "second" }, 200));

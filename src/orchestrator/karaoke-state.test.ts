@@ -141,8 +141,6 @@ describe("cache-hit", () => {
     expect(next).toBe(state);
   });
 
-  // The separation path checks the same cache and delivers the same stems, so a
-  // hit that lands after the user has already engaged has nothing left to do.
   it("is ignored once the user has already engaged", () => {
     let state = reduceKaraokeState(initialKaraokeState("video-1"), { type: "capture-ready", videoId: "video-1" });
     state = reduceKaraokeState(state, { type: "engage", videoId: "video-1" });
@@ -304,10 +302,6 @@ describe("failed", () => {
   });
 
   describe("regressions", () => {
-    // capture-ready used to be refused here too, back when a failure meant
-    // nothing better was ever coming. The hidden player changed that: it
-    // finishes after the listener's own partial capture has been tried and
-    // rejected, so its announcement has to be able to clear the failure.
     it("a failed state ignores engage, but a fresh acquisition clears it", () => {
       const failed = reduceKaraokeState(initialKaraokeState("video-1"), {
         type: "failed",

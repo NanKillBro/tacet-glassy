@@ -1,26 +1,15 @@
 import { computeCardPosition } from "@/ui/fader-position";
 
 // -- Hover card --------------------------------------------------------------
-//
-// Replaces the native title, which never appeared: the states worth explaining
-// are exactly the ones where the control is unavailable, and a button carrying
-// the disabled attribute fires no pointer events at all. The control now marks
-// itself aria-disabled instead, so it still reports as unavailable and can still
-// be hovered.
 
 const TOOLTIP_CLASS = "blyrics-mix-tip";
 const LINE_CLASS = "blyrics-mix-tip__line";
 const PERCENT_CLASS = "blyrics-mix-tip__pct";
 
-// Long enough that brushing past the control does not flash the card, short
-// enough that a deliberate hover feels immediate.
 const OPEN_DELAY_MS = 120;
 // The safety window: leaving and returning inside it never closes the card.
 const CLOSE_DELAY_MS = 160;
 const ROLL_MS = 320;
-// Further off the control than the fader card sits, so the card the pointer is
-// travelling to is not crowding the control it left. Applied to whichever edge
-// the dock opens from, so it reads the same flipped.
 const TOOLTIP_GAP_PX = 14;
 
 interface TooltipContent {
@@ -54,8 +43,6 @@ function buildLine(content: TooltipContent): HTMLSpanElement {
   const line = document.createElement("span");
   line.className = `${LINE_CLASS} is-entering`;
   fillLine(line, content);
-  // Entering and leaving carry the same specificity, so a line still marked as
-  // entering re-runs that animation instead of leaving, and the two overlap.
   line.addEventListener("animationend", () => line.classList.remove("is-entering"), { once: true });
   return line;
 }
@@ -87,14 +74,6 @@ function createTooltip(trigger: HTMLElement): Tooltip {
     closeTimer = null;
   }
 
-  // Width does not transition from auto, so the line is measured here and
-  // written to the card as pixels. The ruler is built by the same function as
-  // the line and carries the card's padding, so it measures the card's outer
-  // width: as flat text it came out 2px short, because the digits are tabular
-  // in the line and proportional in the ruler. Rounded up for the same reason,
-  // since an integer offsetWidth also shaves the last glyph. A card
-  // mid-transition still reports its old width, so placement reads this rather
-  // than the element.
   function fitTo(next: TooltipContent): void {
     fillLine(ruler, next);
     cardWidth = Math.ceil(ruler.getBoundingClientRect().width);
@@ -140,9 +119,6 @@ function createTooltip(trigger: HTMLElement): Tooltip {
 
     const previous = stack.querySelector<HTMLSpanElement>(`.${LINE_CLASS}:not(.is-leaving)`);
 
-    // The same step with a new number: the line stays put and only its digits
-    // change, or the card strobes for the length of the separation. The card
-    // still resizes, since 0% and 100% are not the same width.
     if (previous && sameStep(content, next) && next.percent !== null) {
       const percent = previous.querySelector(`.${PERCENT_CLASS}`);
       if (percent) {
@@ -157,8 +133,6 @@ function createTooltip(trigger: HTMLElement): Tooltip {
       previous.classList.remove("is-entering");
       previous.classList.add("is-leaving");
       previous.addEventListener("animationend", () => previous.remove(), { once: true });
-      // Without this the line survives whenever the animation does not run, and
-      // the overlap is permanent rather than momentary.
       setTimeout(() => previous.remove(), ROLL_MS + 200);
     }
     stack.appendChild(buildLine(next));

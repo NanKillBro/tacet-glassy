@@ -13,11 +13,6 @@ import { createLogger } from "@/shared/logger";
 const logger = createLogger("page");
 
 // -- Page-world audio graph --------------------------------------------------
-//
-// MAIN world, because only the page world can take a
-// MediaElementAudioSourceNode off YouTube's <video> and share it with a sibling
-// extension over window.__blyricsAudio. src/contents/fader-control.ts talks to
-// this over window.postMessage; see src/pageworld/protocol.ts for the shapes.
 
 export const config: PlasmoCSConfig = {
   matches: ["https://music.youtube.com/*"],
@@ -41,11 +36,7 @@ let cachedElement: HTMLMediaElement | null = null;
 let acquiring: Promise<PlaybackGraph | null> | null = null;
 let pendingMixLevel = 1;
 let pendingStems: LoadedStems | null = null;
-// The stems the graph is actually playing, which is not the same question as
-// whether a graph exists: a track change replaces these and nothing else.
 let engagedStems: LoadedStems | null = null;
-// Reported by the probe. Both silent outcomes of a failed claim look identical
-// from outside, and "holding" versus "trying and failing" is the whole diagnosis.
 let lastAction: EngagementAction = "idle";
 
 logger.log("karaoke page world ready, build 0.0.3");
@@ -54,8 +45,6 @@ function decodedBytes(element: HTMLMediaElement): number {
   return (element as HTMLMediaElement & { webkitAudioDecodedByteCount?: number }).webkitAudioDecodedByteCount ?? 0;
 }
 
-// The player names the track it is on, so a preroll, a queue advance and a
-// second recording of the same length are all excluded by the same test.
 function elementForStems(stems: LoadedStems): HTMLMediaElement | null {
   const snapshot = currentPlayerSnapshot(document);
   if (!snapshot || snapshot.videoId !== stems.videoId) return null;
@@ -63,18 +52,11 @@ function elementForStems(stems: LoadedStems): HTMLMediaElement | null {
   return element?.isConnected ? element : null;
 }
 
-// Measured: the player reaches the next track about a second before the message
-// to stop does, and syncToElement restarts the old stems at the new track's
-// position in the meantime, so the previous song plays over this one with the
-// original silenced.
 function playerOnOtherTrack(stems: LoadedStems): boolean {
   const snapshot = currentPlayerSnapshot(document);
   return snapshot !== null && snapshot.videoId !== stems.videoId;
 }
 
-// The player names no track at all for the first half second of a change, so
-// the element being emptied is the earlier signal. It raises a doubt rather
-// than settling one: reconfirmAfterEmptied resolves it either way.
 let awaitingReconfirmation = false;
 
 function reconfirmIfPossible(stems: LoadedStems): void {
@@ -149,9 +131,6 @@ function buildGraph(element: HTMLMediaElement): Promise<PlaybackGraph | null> {
     const graph = createPlaybackGraph({ context: bus.context, source: bus.source });
     cachedElement = bus.element;
 
-    // A context leaves "running" for recoverable reasons (a backgrounded tab, a
-    // blocked main thread), and treating those as terminal read as karaoke
-    // switching itself off mid-song. Resume first, bypass only if it will not.
     bus.context.addEventListener("statechange", () => {
       if (bus.context.state === "running") return;
       bus.context
@@ -199,8 +178,6 @@ function reconcile(): void {
 
   if (action === "idle" || action === "hold") return;
 
-  // release gives the stems up, suspend keeps them: an ad ends with the same
-  // track still loaded, so the graph resumes rather than copying it again.
   if (action === "release" || action === "suspend") {
     cachedGraph?.stopStems();
     if (action === "release") engagedStems = null;
@@ -212,9 +189,6 @@ function reconcile(): void {
     return;
   }
 
-  // A track change keeps the element, so the graph is reused rather than torn
-  // down and rebuilt: rebuilding would re-claim an element that can only ever
-  // be claimed once.
   if (action === "load" && cachedGraph) {
     applyStems(cachedGraph, stems);
     return;
@@ -235,8 +209,6 @@ function reconcile(): void {
 
   void acquiring.then(graph => {
     if (!graph || pendingStems !== stems) return;
-    // Binding the wrong element is permanent, so only a positively identified
-    // other element counts: "none" is the just-claimed blind spot again.
     if (targetPosition(stems) === "other") {
       logger.warn("the audio bus bound a different element than the stems match, leaving it disengaged");
       discardGraph();
@@ -249,8 +221,6 @@ function reconcile(): void {
 setInterval(reconcile, RECONCILE_INTERVAL_MS);
 startPlayerBridge();
 
-// Media events do not bubble, so this listens in the capture phase. A track
-// change fires them immediately, which closes the gap the timer alone leaves.
 document.addEventListener(
   "emptied",
   () => {

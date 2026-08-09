@@ -1,11 +1,3 @@
-// One prefix for everything the extension prints, so filtering the console on
-// "Tacet" shows all of it and nothing else. The page world, the capture patch,
-// the background worker and the offscreen document all print to consoles a user
-// may be reading, hence the scope after the prefix.
-//
-// Free of chrome.*: the page-world bundle imports this, and any chrome reference
-// there drags in a runtime that throws on load and kills that script silently.
-
 const PREFIX = "[Tacet]";
 
 let enabled = true;

@@ -1,13 +1,3 @@
-// Makes a worker frame incapable of producing sound.
-//
-// Overriding the prototype accessors is in place at document_start, before any
-// element exists, and forces every later write by the player back to silent.
-// Setting video.muted once is not enough: nothing is muted until the element
-// exists, and YouTube Music restores its own volume afterwards.
-//
-// Only ever install this in a hidden worker frame. Muting suppresses output
-// only, so the element still decodes and fetches, which is what capture reads.
-
 interface MediaElementLike {
   muted: boolean;
   volume: number;
@@ -34,8 +24,6 @@ function installForcedSilence(prototype: object): boolean {
   const setMuted = mutedDescriptor?.set as Setter | undefined;
   const setVolume = volumeDescriptor?.set as Setter | undefined;
 
-  // A getter that claims silence with no setter to enforce it would hide the
-  // failure from every check downstream, so refuse instead.
   if (!setMuted || !setVolume) return false;
 
   Object.defineProperty(prototype, "muted", {

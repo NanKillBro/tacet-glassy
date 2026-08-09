@@ -117,14 +117,6 @@ class StreamingStitcher {
       return null;
     }
 
-    // totalFrames is a duration estimate handed to the constructor before any
-    // audio arrives; the pushed chunks are the ground truth and can fall short
-    // of it (a truncated source, a dropped chunk, or a totalFrames estimate
-    // that overshoots the real data). The caller is a progressive decoder
-    // expecting exactly totalFrames samples back, so the gap is padded with
-    // silence here rather than returned short, matching stitchChunks(), whose
-    // output array is zero-initialised up front and only overwritten where
-    // real chunk data lands.
     if (this.pending === null) {
       const silence = Array.from({ length: this.numChannels }, () => new Float32Array(remaining));
       this.emittedFrames += remaining;

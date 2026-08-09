@@ -1,10 +1,3 @@
-// Runs the three measurements this spike exists to produce: does capture
-// work, does a naive concatenation decode, and if not, does trimming later
-// re-initializations to just the first buffer plus media segments decode.
-// Needs OfflineAudioContext.decodeAudioData, so it is a browser-only module
-// like sourcebuffer-patch.ts; the byte-layout logic it calls into
-// (decode-plan.ts) is what carries the tested part.
-
 import type { CaptureAccumulator } from "@/capture/accumulator";
 import { concatenateChunks, countInitSegments, planFirstPlusMedia, planNaiveConcat } from "@/capture/decode-plan";
 import { log } from "@/capture/log";
@@ -54,9 +47,6 @@ async function decodeBytes(
 ): Promise<{ durationSeconds: number; channelCount: number; sampleRate: number; rms: number }> {
   const context = new OfflineAudioContext(1, 1, 44100);
   const audioBuffer = await context.decodeAudioData(toOwnedArrayBuffer(bytes));
-  // Duration alone cannot tell a real decode from a silent one, and a silent
-  // decode is exactly what produced empty stems while every stage reported
-  // success.
   const first = audioBuffer.getChannelData(0);
   let sumOfSquares = 0;
   for (let i = 0; i < first.length; i++) sumOfSquares += first[i] * first[i];

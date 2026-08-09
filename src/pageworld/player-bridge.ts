@@ -2,14 +2,6 @@ import { BETTER_LYRICS_PLAYER_EVENT } from "@/orchestrator/player-source";
 import { currentPlayerSnapshot } from "@/pageworld/player-state";
 
 // -- Player bridge -----------------------------------------------------------
-//
-// Publishes what the player is on so the isolated world stops inferring it from
-// the URL. Modelled on Better Lyrics' own bridge: a snapshot every second plus
-// one on every player and media event, published unconditionally so a listener
-// that starts late is served by the next tick rather than waiting for a change.
-//
-// Stands down the moment Better Lyrics is seen publishing, since it drives the
-// same player object and its event reaches the isolated world directly.
 
 const PUBLISH_INTERVAL_MS = 1000;
 

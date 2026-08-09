@@ -1,8 +1,3 @@
-// Two acquisition paths reach this card, paced by different things: the hidden
-// player runs regardless of what the listener does, the fallback only finishes
-// if they sit through the track. The card is one line, so the distinction lives
-// in the label rather than in a sentence after it.
-
 import type { TooltipContent } from "@/ui/tooltip";
 
 type DownloadSource = "hidden-player" | "listener-playback";

@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { installForcedSilence } from "@/capture/silence-frame";
 
-// A stand-in with the same accessor shape as HTMLMediaElement.prototype:
-// muted and volume are accessors on the prototype, backed by per-instance
-// state, and play() is an ordinary method.
 function createMediaPrototype(): { prototype: object; create: () => Record<string, unknown> } {
   const state = new WeakMap<object, { muted: boolean; volume: number; playCount: number }>();
   const prototype = {
@@ -99,8 +96,6 @@ describe("installForcedSilence", () => {
   });
 
   describe("edge cases", () => {
-    // A getter that claims silence without a setter to enforce it would hide
-    // the failure from every check downstream, which is worse than refusing.
     it("refuses rather than faking it when there are no setters to call", () => {
       const readOnly = {};
       Object.defineProperty(readOnly, "muted", { configurable: true, get: () => false });

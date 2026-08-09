@@ -1,8 +1,4 @@
 // -- Shared audio bus --------------------------------------------------------
-//
-// Published as window.__blyricsAudio. First writer owns it;
-// a sibling extension (better-lyrics-shaders) can attach to the same
-// context and source without either side knowing about the other's graph.
 
 import { decideAudioBusClaim } from "@/pageworld/audio-bus-claim";
 import { createLogger } from "@/shared/logger";
@@ -38,9 +34,6 @@ function writeWindowBus(bus: BlyricsAudioBus): void {
   (window as unknown as Record<string, unknown>)[AUDIO_BUS_KEY] = bus;
 }
 
-// Chrome leaves resume() PENDING rather than rejecting while autoplay policy
-// blocks a context. Awaited bare, that hangs acquireAudioBus, which hangs the
-// caller's engagement loop permanently with nothing logged anywhere.
 const RESUME_TIMEOUT_MS = 3000;
 
 async function resumeOnGesture(context: AudioContext): Promise<boolean> {
@@ -57,17 +50,9 @@ async function resumeOnGesture(context: AudioContext): Promise<boolean> {
   return false;
 }
 
-// createMediaElementSource may be called once per element, ever. A second
-// attempt throws InvalidStateError and leaves that element permanently
-// unroutable, so the listener hears the original for the rest of the page's
-// life. Every claim is remembered and never repeated. Staleness is judged by
-// isConnected, not by a decode counter that reads zero whenever an element is
-// merely quiet, which is what used to trigger that fatal second claim.
 const claimedElements = new WeakSet<HTMLMediaElement>();
 const sourceByElement = new WeakMap<HTMLMediaElement, MediaElementAudioSourceNode>();
 
-// The caller names the element: a second guess here could disagree with it, and
-// binding the wrong element is permanent.
 async function acquireAudioBus(element: HTMLMediaElement): Promise<BlyricsAudioBus | null> {
   const existing = readWindowBus();
   const claim = decideAudioBusClaim(existing, AUDIO_BUS_VERSION, isBlyricsAudioBus);
@@ -97,24 +82,16 @@ async function acquireAudioBus(element: HTMLMediaElement): Promise<BlyricsAudioB
     return null;
   }
 
-  // Closed on the way out, not abandoned: Chrome allows only a handful of
-  // AudioContexts per page, and a caller that retries would exhaust them.
   const context = new AudioContext();
   if (!(await resumeOnGesture(context))) {
     await context.close();
     return null;
   }
 
-  // The binding is permanent and unrepeatable. If something already claimed
-  // this element (an earlier context of ours, another extension, a debug
-  // probe), we cannot route its audio at all, and silently carrying on is
-  // what made this look like a working feature that changed nothing.
   let source: MediaElementAudioSourceNode;
   try {
     source = context.createMediaElementSource(element);
   } catch (error) {
-    // Permanently unroutable now. Remember it so no later attempt wastes
-    // another AudioContext, of which Chrome allows only a handful per page.
     claimedElements.add(element);
     logger.error("cannot capture the audible element, its audio will keep playing untouched. Reload the page.", error);
     await context.close();

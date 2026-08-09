@@ -69,9 +69,6 @@ describe("WebM", () => {
     return buffer;
   }
 
-  // This is the container YouTube Music actually serves. Missing it meant every
-  // chunk was tagged as media, so a mid-stream quality switch spliced a second
-  // header into the bytes and the capture stopped decoding.
   it("recognises an EBML header as an initialization", () => {
     expect(looksLikeInitSegment(ebmlHeader())).toBe(true);
   });

@@ -1,17 +1,7 @@
 import { ALIASES_STORE_NAME, openDB } from "@/cache/idb";
 
 // -- Content hashing -----------------------------------------------------------------
-//
-// The key covers the model as well as the audio. Stems are only meaningful for
-// the model that produced them, and swapping the model without changing the key
-// leaves every older entry reachable forever: the fp16 to fp32 switch fixed
-// separation but left silent NaN-derived stems cached under keys the fixed build
-// still hit, so tracks kept playing silence long after the bug was gone.
 
-// Names the model, deliberately not the file it is served from. Deriving this
-// from MODEL_FILENAME meant renaming the object for CDN cache busting threw away
-// every cached stem, for a file whose bytes had not changed at all. Bump this
-// only when the weights or the pipeline actually change.
 const SEPARATION_VERSION = "htdemucs-fp32:v1";
 
 async function computeContentKey(bytes: BufferSource): Promise<string> {
