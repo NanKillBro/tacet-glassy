@@ -4,6 +4,7 @@ import { createBypassController } from "@/pageworld/bypass";
 import { gainsForMixLevel, listenerGain } from "@/pageworld/gain-law";
 import { playerCurrentTime } from "@/pageworld/player-state";
 import { resolveStemStart } from "@/pageworld/stem-offset";
+import { shouldRestartStems } from "@/pageworld/stem-restart";
 import type { StemStart } from "@/pageworld/stem-offset";
 import { createLogger } from "@/shared/logger";
 
@@ -100,6 +101,9 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     instrumentalSource = null;
   }
 
+  let startedAtOffsetSeconds = 0;
+  let startedAtContextTime = 0;
+
   const bypass = createBypassController({
     restoreOriginal() {
       originalGainNode.gain.value = 1;
@@ -143,13 +147,28 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
     instrumentalSource.connect(instrumentalGainNode);
     vocalsSource.start(0, offset);
     instrumentalSource.start(0, offset);
+    startedAtOffsetSeconds = offset;
+    startedAtContextTime = context.currentTime;
     applyMixLevel(currentMixLevel);
+  }
+
+  function stemPositionNow(): number {
+    if (instrumentalSource === null) return Number.NaN;
+    return startedAtOffsetSeconds + (context.currentTime - startedAtContextTime);
   }
 
   function syncToElement(): void {
     if (!loadedStems || bypass.isBypassed()) return;
-    if (element.paused) stopActiveSources();
-    else startSourcesAtPlayhead();
+    if (element.paused) {
+      stopActiveSources();
+      return;
+    }
+    const restart = shouldRestartStems({
+      hasActiveSources: instrumentalSource !== null,
+      stemPositionSeconds: stemPositionNow(),
+      playerPositionSeconds: playerCurrentTime(document),
+    });
+    if (restart) startSourcesAtPlayhead();
   }
 
   function attachTransportListeners(): void {
