@@ -62,3 +62,6 @@ assets/src/
 # Manual stress harness. Drives a real browser against real YouTube Music, so
 # it cannot run in CI and is kept out of the tree deliberately.
 scripts/stress/
+
+# Python side-venv for tooling/convert-fp16.py.
+.venv-onnx/

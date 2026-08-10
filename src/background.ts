@@ -1,4 +1,4 @@
-import { getModelUrl } from "@/cache/model-url";
+import { DEFAULT_MODEL_VARIANT, getModelSha256, getModelUrl } from "@/cache/model-url";
 import { createTabRegistry } from "@/orchestrator/tab-registry";
 import { SETTINGS_STORAGE_KEY } from "@/settings/settings";
 import { loadSettingsFrom } from "@/settings/storage";
@@ -50,9 +50,21 @@ function delay(ms: number): Promise<void> {
 
 chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
   if (!isGetModelUrlCommand(message)) return undefined;
-  const response: ModelUrlMessage = { type: "blk-model-url", modelUrl: getModelUrl() };
-  sendResponse(response);
-  return undefined;
+  loadSettingsFrom(chrome.storage.sync)
+    .then(settings => settings.modelVariant)
+    .catch(error => {
+      logger.error("failed to read the model variant, falling back", error);
+      return DEFAULT_MODEL_VARIANT;
+    })
+    .then(variant => {
+      const response: ModelUrlMessage = {
+        type: "blk-model-url",
+        modelUrl: getModelUrl(variant),
+        modelSha256: getModelSha256(variant),
+      };
+      sendResponse(response);
+    });
+  return true;
 });
 
 // -- Track pipeline relay --------------------------------------------------

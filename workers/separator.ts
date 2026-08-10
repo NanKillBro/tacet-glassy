@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 import { type Chunk, SEGMENT_SAMPLES, chunkCount, iterateChunks } from "../src/separation/chunker.js";
 import { extractVocalsStem, normalizeForDemucs } from "../src/separation/demucs-postprocess.js";
+import { describeNonFinite, inspectFinite } from "../src/separation/finite-guard.js";
 import { MAGSPEC_DIMS, computeMagspec } from "../src/separation/demucs-spec.js";
 import { deriveRegionStems } from "../src/separation/region-stems.js";
 import { StreamingStitcher } from "../src/separation/streaming-stitcher.js";
@@ -154,6 +155,8 @@ async function runChecks(ortBaseUrl: string): Promise<WorkerResultMessage> {
 
 // -- Real separation: htdemucs over the webgpu execution provider -----------
 
+const ORT_LOG_SEVERITY_ERROR = 3;
+
 const FREQ_OUTPUT_NAME = "output";
 const TIME_OUTPUT_NAME = "add_67";
 const WAVEFORM_INPUT_NAME = "input";
@@ -163,7 +166,7 @@ interface SeparationOrt {
   InferenceSession: {
     create(
       bytes: ArrayBuffer | Uint8Array,
-      opts: { executionProviders: string[]; graphOptimizationLevel?: string }
+      opts: { executionProviders: string[]; graphOptimizationLevel?: string; logSeverityLevel?: number }
     ): Promise<SeparationOrtSession>;
   };
   Tensor: new (dtype: "float32", data: Float32Array, dims: readonly number[]) => SeparationOrtTensor;
@@ -230,6 +233,7 @@ async function handleSeparateInit(
     separationSession = await runtime.InferenceSession.create(modelBytes, {
       executionProviders: providers,
       graphOptimizationLevel: "all",
+      logSeverityLevel: ORT_LOG_SEVERITY_ERROR,
     });
     separationOrt = runtime;
     logger.log(`model bytes=${modelBytes.byteLength}`);
@@ -341,6 +345,16 @@ async function handleSeparateProcess(channels: Float32Array[], totalFrames: numb
     }
 
     const vocalsChunk: Chunk = { start: chunk.start, end: chunk.end, data: extractVocalsStem(timeTensor, freqTensor) };
+
+    const finiteReport = inspectFinite(vocalsChunk.data);
+    if (!finiteReport.finite) {
+      postSeparate({
+        type: "separate-error",
+        code: "ort-failed",
+        message: describeNonFinite(finiteReport, chunkIndex),
+      });
+      return;
+    }
 
     if (chunkIndex === 0) {
       logger.log(probe("normalized input L", chunk.data[0]));

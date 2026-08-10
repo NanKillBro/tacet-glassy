@@ -31,12 +31,14 @@ describe("loadSettingsFrom", () => {
         singAlongEnabled: true,
         autoSeparateEnabled: false,
         cacheBudgetBytes: 500 * 1024 * 1024,
+        modelVariant: "fp16",
       },
     });
     expect(await loadSettingsFrom(storage)).toEqual({
       singAlongEnabled: true,
       autoSeparateEnabled: false,
       cacheBudgetBytes: 500 * 1024 * 1024,
+      modelVariant: "fp16",
     });
   });
 
@@ -63,6 +65,7 @@ describe("saveSettingsFrom", () => {
       singAlongEnabled: true,
       autoSeparateEnabled: false,
       cacheBudgetBytes: 500 * 1024 * 1024,
+      modelVariant: DEFAULT_SETTINGS.modelVariant,
     });
   });
 

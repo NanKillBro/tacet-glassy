@@ -1,5 +1,4 @@
 import { fetchAndCacheModel, readCachedModel } from "../src/cache/model-cache.js";
-import { MODEL_SHA256 } from "../src/cache/model-url.js";
 import {
   type SeparateInitCommand,
   type SeparateProcessCommand,
@@ -20,6 +19,7 @@ interface RegionEvent {
 
 interface InitOptions {
   modelUrl: string;
+  modelSha256: string;
   forceWasm?: boolean;
   onDownloadProgress?: (loaded: number, total: number) => void;
 }
@@ -109,7 +109,7 @@ class SeparationHost {
           opts.modelUrl,
           this.downloadAbortController.signal,
           opts.onDownloadProgress ?? (() => {}),
-          MODEL_SHA256
+          opts.modelSha256
         );
       } finally {
         this.downloadAbortController = null;

@@ -48,9 +48,11 @@ function post(message: TrackPipelineOutboundMessage): void {
   });
 }
 
-async function fetchModelUrl(): Promise<string | null> {
+async function fetchModelUrl(): Promise<{ modelUrl: string; modelSha256: string } | null> {
   const response: unknown = await chrome.runtime.sendMessage({ type: "blk-get-model-url" });
-  return isModelUrlMessage(response) ? response.modelUrl : null;
+  if (!isModelUrlMessage(response)) return null;
+  if (response.modelUrl === null || response.modelSha256 === null) return null;
+  return { modelUrl: response.modelUrl, modelSha256: response.modelSha256 };
 }
 
 async function sendStemChunks(videoId: string, stem: StemName, blob: Blob): Promise<void> {
@@ -247,16 +249,16 @@ class TrackPipeline {
   }
 
   private async separate(videoId: string, contentKey: string, decoded: DecodedTrack): Promise<void> {
-    const modelUrl = await fetchModelUrl();
+    const model = await fetchModelUrl();
     if (this.isStale(videoId)) return;
-    if (!modelUrl) {
+    if (!model) {
       this.sendError(videoId, "no-base-url", "No separation model URL is configured.");
       return;
     }
 
-    this.sendStage(videoId, (await hasCachedModel(modelUrl)) ? "loading-model" : "downloading-model");
+    this.sendStage(videoId, (await hasCachedModel(model.modelUrl)) ? "loading-model" : "downloading-model");
 
-    await this.separationHost.init({ modelUrl });
+    await this.separationHost.init(model);
     if (this.isStale(videoId)) return;
 
     this.sendStage(videoId, "separating");

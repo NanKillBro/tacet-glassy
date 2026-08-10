@@ -9,6 +9,7 @@ export interface GetModelUrlCommand {
 export interface ModelUrlMessage {
   type: "blk-model-url";
   modelUrl: string | null;
+  modelSha256: string | null;
 }
 
 export interface CancelSeparationCommand {
@@ -25,7 +26,9 @@ export function isModelUrlMessage(data: unknown): data is ModelUrlMessage {
     data !== null &&
     (data as { type?: unknown }).type === "blk-model-url" &&
     (typeof (data as { modelUrl?: unknown }).modelUrl === "string" ||
-      (data as { modelUrl?: unknown }).modelUrl === null)
+      (data as { modelUrl?: unknown }).modelUrl === null) &&
+    (typeof (data as { modelSha256?: unknown }).modelSha256 === "string" ||
+      (data as { modelSha256?: unknown }).modelSha256 === null)
   );
 }
 

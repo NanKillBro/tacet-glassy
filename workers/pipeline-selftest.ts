@@ -60,12 +60,16 @@ function judge(report: Omit<SelfTestReport, "verdict">): string {
   return "OK: signal survives the worker, the stitcher, the accumulator and the codec";
 }
 
-async function runPipelineSelfTest(host: SeparationHost, modelUrl: string, forceWasm = false): Promise<SelfTestReport> {
+async function runPipelineSelfTest(
+  host: SeparationHost,
+  model: { modelUrl: string; modelSha256: string },
+  forceWasm = false
+): Promise<SelfTestReport> {
   const { channels, totalFrames } = buildTestSignal();
   const inputRms = rms(channels[0]);
   logger.log(`input: frames=${totalFrames}, rms=${inputRms.toExponential(3)}, forceWasm=${forceWasm}`);
 
-  await host.init({ modelUrl, forceWasm });
+  await host.init({ ...model, forceWasm });
 
   const accumulator = createRegionAccumulator(totalFrames, channels.length);
   let regionsReceived = 0;

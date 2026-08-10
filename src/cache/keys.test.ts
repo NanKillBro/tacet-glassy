@@ -9,7 +9,7 @@ import {
   getContentKeyForVideoId,
   setVideoIdAlias,
 } from "@/cache/keys";
-import { MODEL_FILENAME } from "@/cache/model-url";
+import { MODEL_VARIANTS, getModelDescriptor } from "@/cache/model-url";
 
 // -- Test helpers -----------------------------------------------------------------
 
@@ -139,8 +139,10 @@ describe("clearAllAliases", () => {
 });
 
 describe("separation version", () => {
-  it("does not depend on the model's filename", () => {
-    expect(SEPARATION_VERSION).not.toContain(MODEL_FILENAME);
+  it("does not depend on any model's filename", () => {
+    for (const variant of MODEL_VARIANTS) {
+      expect(SEPARATION_VERSION).not.toContain(getModelDescriptor(variant).filename);
+    }
     expect(SEPARATION_VERSION).not.toContain(".onnx");
   });
 

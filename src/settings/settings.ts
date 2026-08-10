@@ -1,3 +1,4 @@
+import { DEFAULT_MODEL_VARIANT, type ModelVariant, isModelVariant } from "@/cache/model-url";
 import { DEFAULT_BUDGET_BYTES } from "@/cache/stem-store";
 
 // -- Storage key --------------------------------------------------------------
@@ -19,12 +20,14 @@ interface Settings {
   singAlongEnabled: boolean;
   autoSeparateEnabled: boolean;
   cacheBudgetBytes: number;
+  modelVariant: ModelVariant;
 }
 
 const DEFAULT_SETTINGS: Settings = {
   singAlongEnabled: true,
   autoSeparateEnabled: true,
   cacheBudgetBytes: DEFAULT_BUDGET_BYTES,
+  modelVariant: DEFAULT_MODEL_VARIANT,
 };
 
 // -- Validation -----------------------------------------------------------------
@@ -51,6 +54,7 @@ function sanitizeSettings(raw: unknown): Settings {
     cacheBudgetBytes: isValidCacheBudgetBytes(record.cacheBudgetBytes)
       ? record.cacheBudgetBytes
       : DEFAULT_SETTINGS.cacheBudgetBytes,
+    modelVariant: isModelVariant(record.modelVariant) ? record.modelVariant : DEFAULT_SETTINGS.modelVariant,
   };
 }
 

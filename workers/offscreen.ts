@@ -104,8 +104,8 @@ chrome.runtime.onMessage.addListener(message => {
 
 async function fetchCacheStatus(): Promise<CacheStatusMessage> {
   const stemCacheBytes = await getTotalStemBytes();
-  const modelUrl = await fetchModelUrl();
-  const modelCacheBytes = modelUrl ? await getCachedModelSize(modelUrl) : null;
+  const model = await fetchModelUrl();
+  const modelCacheBytes = model ? await getCachedModelSize(model.modelUrl) : null;
   return {
     type: "blk-cache-status",
     stemCacheBytes,
@@ -123,11 +123,11 @@ async function clearStemCache(): Promise<ClearCacheResultMessage> {
 
 async function clearModelCache(): Promise<ClearCacheResultMessage> {
   trackPipeline.cancelActive();
-  const modelUrl = await fetchModelUrl();
-  if (!modelUrl) {
+  const model = await fetchModelUrl();
+  if (!model) {
     return { type: "blk-clear-cache-result", target: "model", ok: false, reason: "No model URL is configured." };
   }
-  await clearCachedModel(modelUrl);
+  await clearCachedModel(model.modelUrl);
   return { type: "blk-clear-cache-result", target: "model", ok: true };
 }
 
@@ -271,9 +271,9 @@ chrome.runtime.onMessage.addListener(message => {
 
 async function runSelfTest(forceWasm = false): Promise<unknown> {
   const { runPipelineSelfTest } = await import("./pipeline-selftest.js");
-  const modelUrl = await fetchModelUrl();
-  if (!modelUrl) return { verdict: "FAILED: no separation model URL is configured" };
-  return runPipelineSelfTest(separationHost, modelUrl, forceWasm);
+  const model = await fetchModelUrl();
+  if (!model) return { verdict: "FAILED: no separation model URL is configured" };
+  return runPipelineSelfTest(separationHost, model, forceWasm);
 }
 
 (self as unknown as Record<string, unknown>).blkRunPipelineSelfTest = runSelfTest;

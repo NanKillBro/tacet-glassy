@@ -114,13 +114,29 @@ describe("sanitizeSettings", () => {
   });
 
   it("passes through a fully valid object unchanged", () => {
-    const valid = { singAlongEnabled: true, autoSeparateEnabled: false, cacheBudgetBytes: 500 * 1024 * 1024 };
+    const valid = {
+      singAlongEnabled: true,
+      autoSeparateEnabled: false,
+      cacheBudgetBytes: 500 * 1024 * 1024,
+      modelVariant: "fp16" as const,
+    };
     expect(sanitizeSettings(valid)).toEqual(valid);
   });
 
   it("fills in a missing field with its default", () => {
     const partial = { singAlongEnabled: true };
     expect(sanitizeSettings(partial)).toEqual({ ...DEFAULT_SETTINGS, singAlongEnabled: true });
+  });
+
+  it("keeps a known model variant", () => {
+    expect(sanitizeSettings({ modelVariant: "fp16" }).modelVariant).toBe("fp16");
+    expect(sanitizeSettings({ modelVariant: "fp32" }).modelVariant).toBe("fp32");
+  });
+
+  it("falls back to full precision for an unknown model variant", () => {
+    for (const value of ["fp8", "", null, 16, {}]) {
+      expect(sanitizeSettings({ modelVariant: value }).modelVariant).toBe(DEFAULT_SETTINGS.modelVariant);
+    }
   });
 
   it("falls back to the default for a wrong-typed boolean field", () => {
