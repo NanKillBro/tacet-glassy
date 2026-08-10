@@ -1,3 +1,4 @@
+import { resolveCardAnchor } from "@/ui/card-anchor";
 import { computeCardPosition } from "@/ui/fader-position";
 
 // -- Hover card --------------------------------------------------------------
@@ -102,13 +103,15 @@ function createTooltip(trigger: HTMLElement): Tooltip {
   function place(): void {
     const triggerRect = trigger.getBoundingClientRect();
     const dock = trigger.closest<HTMLElement>("[data-position]");
+    const anchor = resolveCardAnchor(trigger, trigger, TOOLTIP_GAP_PX);
+    const anchorRect = anchor.element.getBoundingClientRect();
     const position = computeCardPosition(
       { left: triggerRect.left, width: triggerRect.width },
-      { top: triggerRect.top, bottom: triggerRect.bottom },
+      { top: anchorRect.top, bottom: anchorRect.bottom },
       { width: cardWidth, height: card.offsetHeight },
       { width: window.innerWidth, height: window.innerHeight },
       dock?.dataset.position ?? null,
-      TOOLTIP_GAP_PX
+      anchor.gap
     );
     card.style.left = `${position.left}px`;
     card.style.top = position.top;

@@ -7,6 +7,7 @@ import {
   initialDockCouplingState,
 } from "@/ui/fader-dock-coupling";
 import {
+  CARD_GAP_PX,
   HOLD_MS,
   LABEL_EXIT_FALLBACK_MS,
   LABEL_HIDE_MS,
@@ -15,6 +16,7 @@ import {
   stepValue,
   valueFromPointerOffset,
 } from "@/ui/fader-geometry";
+import { type CardAnchor, DOCK_PILL_SELECTOR, resolveCardAnchor } from "@/ui/card-anchor";
 import { createFilledGlyphSvg, createGlyphMaskUrl } from "@/ui/fader-icons";
 import { computeCardPosition } from "@/ui/fader-position";
 import { createSpring } from "@/ui/spring";
@@ -175,9 +177,9 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
   const isMarkedDisabled = (): boolean => button.getAttribute("aria-disabled") === "true";
 
   // -- Placement --------------------------------------------------------------
-  function anchorRect(): DOMRect {
-    const pill = button.closest(".blyrics-dock__inner");
-    return (pill ?? button).getBoundingClientRect();
+  function cardAnchor(): CardAnchor {
+    const pill = button.closest<HTMLElement>(DOCK_PILL_SELECTOR);
+    return resolveCardAnchor(button, pill ?? button, CARD_GAP_PX);
   }
 
   function currentDataPosition(): string | null {
@@ -187,12 +189,14 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
   }
 
   function place(): void {
+    const anchor = cardAnchor();
     const position = computeCardPosition(
       button.getBoundingClientRect(),
-      anchorRect(),
+      anchor.element.getBoundingClientRect(),
       { width: menu.offsetWidth, height: menu.offsetHeight },
       { width: window.innerWidth, height: window.innerHeight },
-      currentDataPosition()
+      currentDataPosition(),
+      anchor.gap
     );
     menu.style.left = `${position.left}px`;
     menu.style.top = position.top;
