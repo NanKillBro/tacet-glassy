@@ -216,7 +216,7 @@ function createModelVariantRow(
   const row = createElement("div", "blk-row");
   const { text, labelId } = createTextRow(
     "Model precision",
-    "Half is half the download and sounds the same. If a track fails to separate, switch to Full. Applies from the next track."
+    "Sounds pretty much the same and is slightly faster, at half the download. Applies from the next track. Switch to Full if one fails to separate."
   );
 
   const select = createSelect<ModelVariant>(
