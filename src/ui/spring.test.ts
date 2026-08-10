@@ -92,6 +92,22 @@ describe("stepSpring", () => {
       const peak = simulatePeak(1, "drag", 1 / 240, 5000);
       expect(peak).toBeLessThan(1.02);
     });
+
+    it.each(Object.keys(SPRING_PROFILES) as Array<keyof typeof SPRING_PROFILES>)(
+      "%s converges on a held target at the largest step it will ever integrate",
+      profile => {
+        let state: SpringState = { x: 0, vel: 0 };
+        let peak = 0;
+        for (let i = 0; i < 500; i++) {
+          const stepped = stepSpring(state, -0.5, SPRING_PROFILES[profile], MAX_STEP_SECONDS);
+          state = { x: stepped.x, vel: stepped.vel };
+          peak = Math.max(peak, Math.abs(state.x));
+          if (stepped.settled) break;
+        }
+        expect(peak).toBeLessThanOrEqual(1);
+        expect(state.x).toBeCloseTo(-0.5, 3);
+      }
+    );
   });
 
   describe("invariants", () => {

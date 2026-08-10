@@ -123,6 +123,7 @@ function createGlyphStack(initialSize: number): GlyphStack {
 
 interface Track {
   track: HTMLDivElement;
+  clip: HTMLDivElement;
   fill: HTMLDivElement;
   thumb: HTMLDivElement;
 }
@@ -149,7 +150,7 @@ function createTrack(): Track {
   well.appendChild(clip);
   track.appendChild(well);
 
-  return { track, fill, thumb };
+  return { track, clip, fill, thumb };
 }
 
 // -- The control ---------------------------------------------------------------
@@ -178,7 +179,7 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
   menu.setAttribute("role", "group");
   menu.setAttribute("aria-label", "Sing-along level");
 
-  const { track, fill, thumb } = createTrack();
+  const { track, clip, fill, thumb } = createTrack();
   const readout = document.createElement("div");
   readout.className = "blyrics-mix-readout";
 
@@ -439,7 +440,7 @@ function createFaderControl(options: CreateFaderControlOptions): FaderControl {
     track.setPointerCapture(event.pointerId);
 
     function apply(pointerEvent: PointerEvent): void {
-      const rect = track.getBoundingClientRect();
+      const rect = clip.getBoundingClientRect();
       v = valueFromPointerOffset(pointerEvent.clientY, rect.top, rect.height);
       commit("drag");
     }
