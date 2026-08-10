@@ -20,7 +20,7 @@ html,
 body {
   margin: 0;
   padding: 0;
-  width: 320px;
+  width: 420px;
   background: var(--blk-bg);
   color: hsla(0, 0%, 100%, 0.9);
   font-family: "Satoshi", Avenir, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -45,10 +45,19 @@ body {
 }
 
 .blk-popup__title {
+  display: flex;
   flex: 1;
+  align-items: baseline;
+  gap: 6px;
   font-size: 15px;
   font-weight: 600;
   color: hsla(0, 0%, 100%, 0.95);
+}
+
+.blk-popup__version {
+  font-size: 11px;
+  font-weight: 400;
+  color: hsla(0, 0%, 100%, 0.5);
 }
 
 .blk-popup__brand,
@@ -273,6 +282,126 @@ body {
   cursor: not-allowed;
 }
 
+/* -- Select --------------------------------------------------------------------- */
+
+.blk-select {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.blk-select__trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 116px;
+  padding: 6px 8px 6px 12px;
+  border: 1px solid var(--blk-line);
+  border-radius: 9px;
+  background-color: var(--blk-recessed);
+  color: hsla(0, 0%, 100%, 0.85);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background-color 160ms var(--blk-ease),
+    border-color 160ms var(--blk-ease);
+}
+
+.blk-select__trigger:hover {
+  background-color: var(--blk-hover);
+  border-color: hsla(0, 0%, 100%, 0.16);
+}
+
+.blk-select__trigger:focus-visible {
+  outline: 2px solid var(--blk-accent);
+  outline-offset: 2px;
+}
+
+.blk-select__chevron {
+  flex: none;
+  opacity: 0.5;
+  transition: transform 160ms var(--blk-ease);
+}
+
+.blk-select--open .blk-select__chevron {
+  transform: rotate(180deg);
+}
+
+.blk-select__panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 100%;
+  padding: 4px;
+  border: 1px solid var(--blk-line);
+  border-radius: 11px;
+  background-color: #303134;
+  box-shadow: rgba(0, 0, 0, 0.45) 0 8px 24px 0;
+}
+
+.blk-select__panel[hidden] {
+  display: none;
+}
+
+.blk-select__option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 9px;
+  border: none;
+  border-radius: 8px;
+  background-color: transparent;
+  color: hsla(0, 0%, 100%, 0.85);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms var(--blk-ease);
+}
+
+.blk-select__option:hover {
+  background-color: var(--blk-hover);
+}
+
+.blk-select__option:focus-visible {
+  outline: 2px solid var(--blk-accent);
+  outline-offset: -2px;
+}
+
+.blk-select__option[aria-selected="true"] {
+  background-color: hsla(0, 0%, 100%, 0.1);
+  font-weight: 600;
+}
+
+.blk-select__option-label {
+  flex: 1;
+  white-space: nowrap;
+}
+
+.blk-select__option-note {
+  flex: none;
+  font-size: 11px;
+  font-weight: 400;
+  color: hsla(0, 0%, 100%, 0.45);
+}
+
+.blk-select__check {
+  flex: none;
+  color: var(--blk-accent);
+  visibility: hidden;
+}
+
+.blk-select__option[aria-selected="true"] .blk-select__check {
+  visibility: visible;
+}
+
 /* -- Status line --------------------------------------------------------------- */
 
 .blk-popup__status {
@@ -287,7 +416,10 @@ body {
   .blk-toggle,
   .blk-toggle::after,
   .blk-slider::-webkit-slider-thumb,
-  .blk-button {
+  .blk-button,
+  .blk-select__trigger,
+  .blk-select__chevron,
+  .blk-select__option {
     transition: none;
   }
 }

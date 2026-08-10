@@ -1,6 +1,8 @@
 import "./popup.css";
 import betterLyricsIconUrl from "data-base64:../assets/brand/better-lyrics.png";
+import { type ModelVariant, getModelDescriptor } from "@/cache/model-url";
 import { formatBytes } from "@/settings/format-bytes";
+import { createSelect } from "@/settings/select";
 import { CACHE_BUDGET_PRESETS_BYTES, DEFAULT_SETTINGS } from "@/settings/settings";
 import { loadSettingsFrom, saveSettingsFrom } from "@/settings/storage";
 import {
@@ -101,6 +103,9 @@ function createHeader(): HTMLElement {
 
   const title = createElement("span", "blk-popup__title");
   title.textContent = "Tacet";
+  const version = createElement("span", "blk-popup__version");
+  version.textContent = chrome.runtime.getManifest().version;
+  title.append(version);
 
   const repository = createExternalLink(REPOSITORY_URL, "View source on GitHub", "blk-popup__icon-button");
   repository.append(createGithubIcon());
@@ -198,6 +203,36 @@ function createBudgetSlider(
   return { row };
 }
 
+// -- Model precision row -------------------------------------------------------
+
+function approxMegabytes(variant: ModelVariant): string {
+  return `${Math.round(getModelDescriptor(variant).approxBytes / (1024 * 1024))} MB`;
+}
+
+function createModelVariantRow(
+  initial: ModelVariant,
+  onChange: (next: ModelVariant) => void
+): { row: HTMLElement; setValue(value: ModelVariant): void } {
+  const row = createElement("div", "blk-row");
+  const { text, labelId } = createTextRow(
+    "Model precision",
+    "Half is half the download and sounds the same. If a track fails to separate, switch to Full. Applies from the next track."
+  );
+
+  const select = createSelect<ModelVariant>(
+    [
+      { value: "fp32", label: "Full", note: approxMegabytes("fp32") },
+      { value: "fp16", label: "Half", note: approxMegabytes("fp16") },
+    ],
+    initial,
+    onChange,
+    labelId
+  );
+
+  row.append(text, select.element);
+  return { row, setValue: select.setValue };
+}
+
 // -- Cache row (readout + clear button) ----------------------------------------
 
 interface CacheRow {
@@ -276,6 +311,16 @@ async function main(): Promise<void> {
     }
   );
 
+  const modelVariantRow = createModelVariantRow(settings.modelVariant, next => {
+    saveSettingsFrom(chrome.storage.sync, { modelVariant: next })
+      .then(() => refreshCacheStatus())
+      .catch(error => {
+        console.error(`${LOG_PREFIX} failed to save the model precision`, error);
+        showStatus("Could not save that change.");
+        modelVariantRow.setValue(settings.modelVariant);
+      });
+  });
+
   const budgetSlider = createBudgetSlider(CACHE_BUDGET_PRESETS_BYTES, settings.cacheBudgetBytes, bytes => {
     saveSettingsFrom(chrome.storage.sync, { cacheBudgetBytes: bytes })
       .then(() => refreshCacheStatus())
@@ -292,7 +337,16 @@ async function main(): Promise<void> {
     clearModelCache();
   });
 
-  root.append(header, singAlongToggle.row, autoSeparateToggle.row, budgetSlider.row, stemRow.row, modelRow.row, status);
+  root.append(
+    header,
+    singAlongToggle.row,
+    autoSeparateToggle.row,
+    modelVariantRow.row,
+    budgetSlider.row,
+    stemRow.row,
+    modelRow.row,
+    status
+  );
   document.body.append(root);
 
   async function refreshCacheStatus(): Promise<void> {
