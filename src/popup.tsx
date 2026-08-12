@@ -288,7 +288,7 @@ function createFaderPlacementRow(
 ): { row: HTMLElement; setValue(value: FaderPlacement): void } {
   const row = createElement("div", "blk-row");
   const { text, labelId } = createTextRow(
-    "Fader position",
+    "Sing-along position",
     "Where the sing-along button sits. The lyrics dock falls back to the player bar whenever it is not on screen."
   );
 
@@ -317,25 +317,42 @@ function createCrossfadeRow(
   initialSeconds: number,
   onChange: (next: number) => void
 ): { row: HTMLElement; setValue(value: number): void } {
-  const row = createElement("div", "blk-row");
-  const { text, labelId } = createTextRow(
-    "Crossfade",
-    "Blend the end of one separated track into the start of the next. Takes effect immediately, except during a fade already under way."
-  );
+  const row = createElement("div", "blk-row blk-row--stack");
+  const { text, hint, labelId } = createTextRow("Crossfade", "");
+  text.classList.add("blk-row__text--slider");
+  hint.textContent = "Blend the end of one track into the start of the next";
 
-  const select = createSelect<string>(
-    presets.map(seconds =>
-      seconds === 0
-        ? { value: "0", label: "Off", note: "hard cut" }
-        : { value: String(seconds), label: describeCrossfade(seconds) }
-    ),
-    String(presets[closestPresetIndex(presets, initialSeconds)]),
-    value => onChange(Number(value)),
-    labelId
-  );
+  const value = createElement("span", "blk-row__value");
+  text.insertBefore(value, hint);
 
-  row.append(text, select.element);
-  return { row, setValue: value => select.setValue(String(value)) };
+  const slider = createElement("input", "blk-slider");
+  slider.type = "range";
+  slider.setAttribute("aria-labelledby", labelId);
+  slider.min = "0";
+  slider.max = String(presets.length - 1);
+  slider.step = "1";
+  slider.value = String(closestPresetIndex(presets, initialSeconds));
+
+  function paint(): void {
+    value.textContent = describeCrossfade(presets[Number(slider.value)]);
+    slider.setAttribute("aria-valuetext", describeCrossfade(presets[Number(slider.value)]));
+    const span = presets.length - 1;
+    const fraction = span === 0 ? 0 : Number(slider.value) / span;
+    slider.style.setProperty("--blk-fill", `${(fraction * 100).toFixed(2)}%`);
+  }
+  paint();
+
+  slider.addEventListener("input", paint);
+  slider.addEventListener("change", () => onChange(presets[Number(slider.value)]));
+
+  row.append(text, slider);
+  return {
+    row,
+    setValue: seconds => {
+      slider.value = String(closestPresetIndex(presets, seconds));
+      paint();
+    },
+  };
 }
 
 // -- Better Lyrics presence ----------------------------------------------------
@@ -485,11 +502,11 @@ function createAboutPanel(): HTMLElement {
     hero,
     createAboutSection("What it is", body => {
       body.textContent =
-        "Tacet sits inside YouTube Music and adds the controls the player does not have. Today that means a fader that lifts the voice out of a track, and a crossfade that stops songs ending cold. More will follow.";
+        "Tacet sits inside YouTube Music and adds the controls the player does not have. Today that means a slider that lifts the voice out of a track, and a crossfade that stops songs ending cold. More will follow.";
     }),
     createAboutSection("Sing-along", body => {
       body.textContent =
-        "The fader runs from the song as recorded down to the instrumental on its own. All the way down is karaoke. Anywhere in between is a guide vocal.";
+        "It runs from the song as recorded down to the instrumental on its own. All the way down is karaoke. Anywhere in between is a guide vocal.";
     }),
     createAboutSection("Crossfade", body => {
       body.textContent =
@@ -506,7 +523,7 @@ function createAboutPanel(): HTMLElement {
 
     createAboutSection("Better Lyrics", body => {
       body.append(
-        "Optional, but the two are built to sit together: with it installed the fader docks into the lyrics controls instead of the player bar. ",
+        "Optional, but the two are built to sit together: with it installed the sing-along button docks into the lyrics controls instead of the player bar. ",
         aboutLink(BETTER_LYRICS_URL, "Install Better Lyrics"),
         "."
       );
@@ -766,7 +783,7 @@ async function main(): Promise<void> {
 
   const singAlongToggle = createToggle(
     "Sing-along",
-    "Master switch. Reload YouTube Music after changing this.",
+    "Sing-along and everything behind it, crossfade included. Reload YouTube Music after changing this.",
     settings.singAlongEnabled,
     next => {
       saveSettingsFrom(chrome.storage.sync, { singAlongEnabled: next }).catch(error => {
