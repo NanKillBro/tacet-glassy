@@ -1,5 +1,6 @@
 // -- ISOLATED-world karaoke pipeline orchestrator ----------------------------
 
+import { decodeOpusToPcm } from "@/cache/opus-codec";
 import {
   type CaptureStandDownMessage,
   type RequestCapturedAudioMessage,
@@ -13,6 +14,8 @@ import {
 } from "@/capture/bridge-protocol";
 import { decideCrossfadeLanding } from "@/orchestrator/crossfade-landing";
 import type { LandingKind } from "@/orchestrator/crossfade-landing";
+import { initialKaraokeState, reduceKaraokeState } from "@/orchestrator/karaoke-state";
+import type { KaraokeState } from "@/orchestrator/karaoke-state";
 import {
   BETTER_LYRICS_PLAYER_EVENT,
   durationForTrack,
@@ -20,26 +23,24 @@ import {
   playerStateFromOwnBridge,
 } from "@/orchestrator/player-source";
 import type { PlayerState } from "@/orchestrator/player-source";
-import { createLogger } from "@/shared/logger";
-import { NEUTRAL_MIX_LEVEL } from "@/pageworld/gain-law";
-import { decodeOpusToPcm } from "@/cache/opus-codec";
-import { initialKaraokeState, reduceKaraokeState } from "@/orchestrator/karaoke-state";
-import type { KaraokeState } from "@/orchestrator/karaoke-state";
 import { decideShortStems, judgeStemCoverage, stemDurationSeconds } from "@/orchestrator/stem-coverage";
+import { trackStatusStore } from "@/orchestrator/track-status-store";
+import { NEUTRAL_MIX_LEVEL } from "@/pageworld/gain-law";
 import {
   type LoadStemsMessage,
+  type SetCrossfadeMessage,
   type SetMixLevelMessage,
   type StageDeckMessage,
   type StagedReadyMessage,
-  type SetCrossfadeMessage,
   type StopStemsMessage,
   isCrossfadeAbortedMessage,
   isCrossfadeStartedMessage,
   isRequestStagedDeckMessage,
 } from "@/pageworld/protocol";
-import { loadSettingsFrom } from "@/settings/storage";
 import { base64ToBytes, bytesToBase64 } from "@/relay/base64";
 import { type ChunkAssembler, createChunkAssembler, splitIntoChunks } from "@/relay/chunk-transfer";
+import { loadSettingsFrom } from "@/settings/storage";
+import { createLogger } from "@/shared/logger";
 import type {
   CancelSeparationCommand,
   CaptureChunkMessage,
@@ -402,6 +403,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     stagedDoneReceived = false;
     staged = { videoId, vocals, instrumental };
 
+    trackStatusStore.setCached(videoId, true);
     const kilobytes = Math.round((vocals.size + instrumental.size) / 1024);
     log(`staged ${videoId} for a transition, ${kilobytes} kB of Opus held`);
     const ready: StagedReadyMessage = { type: "blk-staged-ready", videoId };
@@ -521,6 +523,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
 
   function onRuntimeMessage(message: unknown): void {
     if (isCacheHitMessage(message)) {
+      trackStatusStore.setCached(message.videoId, true);
       if (isStagingTarget(message.videoId)) {
         log(`next track ${message.videoId} is already separated, staging it`);
         return;
@@ -533,6 +536,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       return;
     }
     if (isCacheMissMessage(message)) {
+      trackStatusStore.setCached(message.videoId, false);
       if (message.videoId === prefetchVideoId) {
         log(`next track ${message.videoId} is not separated yet, warming it`);
         postToPageWorld({ type: "blk-request-prefetch", videoId: message.videoId, ahead: true });
