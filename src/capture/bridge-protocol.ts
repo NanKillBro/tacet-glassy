@@ -14,6 +14,17 @@ export interface CapturedAudioMessage {
   bytes: ArrayBuffer;
 }
 
+export interface RequestPrefetchedAudioMessage {
+  type: "blk-request-prefetched-audio";
+  videoId: string;
+}
+
+export interface PrefetchedAudioMessage {
+  type: "blk-prefetched-audio";
+  videoId: string;
+  bytes: ArrayBuffer;
+}
+
 export interface CapturedAudioUnavailableMessage {
   type: "blk-captured-audio-unavailable";
   videoId: string;
@@ -23,6 +34,13 @@ export interface CapturedAudioUnavailableMessage {
 export interface CaptureReadyMessage {
   type: "blk-capture-ready";
   videoId: string;
+}
+
+export interface PartialCaptureMessage {
+  type: "blk-partial-capture";
+  videoId: string;
+  coveredSeconds: number;
+  trackSeconds: number;
 }
 
 export interface RequestPrefetchMessage {
@@ -51,7 +69,6 @@ export interface DownloadProgressMessage {
   type: "blk-download-progress";
   videoId: string;
   fraction: number;
-  // The two are paced by different things and the tooltip must say which.
   source: DownloadSource;
 }
 
@@ -97,6 +114,25 @@ export function isCapturedAudioMessage(data: unknown): data is CapturedAudioMess
     (data as { type?: unknown }).type === "blk-captured-audio" &&
     typeof (data as { videoId?: unknown }).videoId === "string" &&
     typeof (data as { mimeType?: unknown }).mimeType === "string" &&
+    (data as { bytes?: unknown }).bytes instanceof ArrayBuffer
+  );
+}
+
+export function isRequestPrefetchedAudioMessage(data: unknown): data is RequestPrefetchedAudioMessage {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: unknown }).type === "blk-request-prefetched-audio" &&
+    typeof (data as { videoId?: unknown }).videoId === "string"
+  );
+}
+
+export function isPrefetchedAudioMessage(data: unknown): data is PrefetchedAudioMessage {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: unknown }).type === "blk-prefetched-audio" &&
+    typeof (data as { videoId?: unknown }).videoId === "string" &&
     (data as { bytes?: unknown }).bytes instanceof ArrayBuffer
   );
 }
@@ -153,6 +189,17 @@ export function isCaptureReadyMessage(data: unknown): data is CaptureReadyMessag
     data !== null &&
     (data as { type?: unknown }).type === "blk-capture-ready" &&
     typeof (data as { videoId?: unknown }).videoId === "string"
+  );
+}
+
+export function isPartialCaptureMessage(data: unknown): data is PartialCaptureMessage {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: unknown }).type === "blk-partial-capture" &&
+    typeof (data as { videoId?: unknown }).videoId === "string" &&
+    typeof (data as { coveredSeconds?: unknown }).coveredSeconds === "number" &&
+    typeof (data as { trackSeconds?: unknown }).trackSeconds === "number"
   );
 }
 

@@ -4,15 +4,16 @@ import { describeBusy } from "@/orchestrator/busy-tooltip";
 import { createKaraokePipeline } from "@/orchestrator/karaoke-pipeline";
 import type { KaraokeState } from "@/orchestrator/karaoke-state";
 import { SETTINGS_STORAGE_KEY, sanitizeSettings } from "@/settings/settings";
-import type { FaderPlacement } from "@/settings/settings";
+import type { FaderPlacement, Settings } from "@/settings/settings";
 import { loadSettingsFrom } from "@/settings/storage";
 import { NEUTRAL_MIX_LEVEL } from "@/pageworld/gain-law";
+import type { SetLoggingMessage } from "@/pageworld/protocol";
 import { createFaderControl } from "@/ui/fader";
 import type { FaderControl } from "@/ui/fader";
 import { attachFaderMount, hasBetterLyrics } from "@/ui/mount";
 import { createTooltip } from "@/ui/tooltip";
 import type { Tooltip } from "@/ui/tooltip";
-import { createLogger } from "@/shared/logger";
+import { createLogger, setLoggingEnabled } from "@/shared/logger";
 import { extensionVersion } from "@/shared/version";
 import { type BetterLyricsPresenceMessage, isHasBetterLyricsCommand } from "../../workers/protocol2";
 
@@ -55,7 +56,6 @@ function markAvailable(button: HTMLButtonElement): void {
 
 function renderKaraokeState(control: FaderControl, tooltip: Tooltip, state: KaraokeState, armed: boolean): void {
   const button = control.button;
-  // The shimmer, not a grey-out, is the working state. Grey reads as broken.
   control.setBusy(state.status === "waiting-for-capture" || state.status === "processing");
   switch (state.status) {
     case "waiting-for-capture":
@@ -77,7 +77,13 @@ function renderKaraokeState(control: FaderControl, tooltip: Tooltip, state: Kara
 
 // -- Master switch ---------------------------------------------------------
 
-function mountFader(placement: FaderPlacement): { destroy(): void; setPlacement(next: FaderPlacement): void } {
+interface MountedFader {
+  destroy(): void;
+  setPlacement(next: FaderPlacement): void;
+  setCrossfadeSeconds(seconds: number): void;
+}
+
+function mountFader(placement: FaderPlacement, crossfadeSeconds: number): MountedFader {
   injectStylesheet();
 
   let pipeline: ReturnType<typeof createKaraokePipeline> | undefined;
@@ -106,15 +112,17 @@ function mountFader(placement: FaderPlacement): { destroy(): void; setPlacement(
       latest = state;
       render();
     },
+    onCrossfadeStarted: durationSeconds => control.showCrossfade(durationSeconds),
   });
 
   const mount = attachFaderMount({ button: control.button, setHost: control.setHost }, { placement });
+  pipeline.setCrossfadeSeconds(crossfadeSeconds);
 
   return {
     setPlacement: mount.setPlacement,
+    setCrossfadeSeconds: seconds => pipeline?.setCrossfadeSeconds(seconds),
     destroy() {
       mount.disconnect();
-      // First, since it is what hands the audio back to the original.
       pipeline?.destroy();
       tooltip.destroy();
       control.destroy();
@@ -122,15 +130,24 @@ function mountFader(placement: FaderPlacement): { destroy(): void; setPlacement(
   };
 }
 
-let mounted: { destroy(): void; setPlacement(next: FaderPlacement): void } | null = null;
+let mounted: MountedFader | null = null;
 
-function applySettings(enabled: boolean, placement: FaderPlacement): void {
-  if (enabled === (mounted !== null)) {
-    mounted?.setPlacement(placement);
+function applyLogging(enabled: boolean): void {
+  setLoggingEnabled(enabled);
+  const message: SetLoggingMessage = { type: "blk-set-logging", enabled };
+  window.postMessage(message, window.location.origin);
+}
+
+function applySettings(settings: Settings): void {
+  applyLogging(settings.debugLoggingEnabled);
+  const { singAlongEnabled, faderPlacement, crossfadeSeconds } = settings;
+  if (singAlongEnabled === (mounted !== null)) {
+    mounted?.setPlacement(faderPlacement);
+    mounted?.setCrossfadeSeconds(crossfadeSeconds);
     return;
   }
-  if (enabled) {
-    mounted = mountFader(placement);
+  if (singAlongEnabled) {
+    mounted = mountFader(faderPlacement, crossfadeSeconds);
     logger.log("sing-along on");
     return;
   }
@@ -140,15 +157,14 @@ function applySettings(enabled: boolean, placement: FaderPlacement): void {
 }
 
 loadSettingsFrom(chrome.storage.sync)
-  .then(settings => applySettings(settings.singAlongEnabled, settings.faderPlacement))
+  .then(applySettings)
   .catch(error => {
     logger.error("failed to check the sing-along setting", error);
   });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName !== "sync" || !(SETTINGS_STORAGE_KEY in changes)) return;
-  const settings = sanitizeSettings(changes[SETTINGS_STORAGE_KEY].newValue);
-  applySettings(settings.singAlongEnabled, settings.faderPlacement);
+  applySettings(sanitizeSettings(changes[SETTINGS_STORAGE_KEY].newValue));
 });
 
 // -- Better Lyrics probe, answered whether or not the fader is mounted ---------

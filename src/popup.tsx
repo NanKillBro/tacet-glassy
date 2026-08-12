@@ -4,7 +4,12 @@ import { type ModelVariant, getModelDescriptor } from "@/cache/model-url";
 import { formatBytes } from "@/settings/format-bytes";
 import { extensionVersion } from "@/shared/version";
 import { createSelect } from "@/settings/select";
-import { CACHE_BUDGET_PRESETS_BYTES, DEFAULT_SETTINGS, type FaderPlacement } from "@/settings/settings";
+import {
+  CACHE_BUDGET_PRESETS_BYTES,
+  CROSSFADE_PRESETS_SECONDS,
+  DEFAULT_SETTINGS,
+  type FaderPlacement,
+} from "@/settings/settings";
 import { loadSettingsFrom, saveSettingsFrom } from "@/settings/storage";
 import {
   type ClearModelCacheCommand,
@@ -17,13 +22,6 @@ import {
 } from "../workers/protocol2";
 
 // -- Popup: settings and cache management --------------------------------------
-//
-// Plain HTML/TS popup (Plasmo auto-detects src/popup.ts as the popup entry
-// and, since it is not a .tsx/.vue/.svelte file, ships it without a UI
-// framework). Preferences round-trip through chrome.storage.sync via
-// src/settings/storage.ts; cache byte totals and clears are read live from
-// IndexedDB by routing through src/background.ts to the offscreen document,
-// which is the only place that holds the connection (see workers/offscreen.ts).
 
 const LOG_PREFIX = "[BLK-POPUP]";
 
@@ -262,6 +260,38 @@ function createFaderPlacementRow(
   return { row, setValue: select.setValue };
 }
 
+// -- Crossfade length row ------------------------------------------------------
+
+function describeCrossfade(seconds: number): string {
+  return seconds === 0 ? "Off" : `${seconds}s`;
+}
+
+function createCrossfadeRow(
+  presets: readonly number[],
+  initialSeconds: number,
+  onChange: (next: number) => void
+): { row: HTMLElement; setValue(value: number): void } {
+  const row = createElement("div", "blk-row");
+  const { text, labelId } = createTextRow(
+    "Crossfade",
+    "Blend the end of one separated track into the start of the next. Takes effect immediately, except during a fade already under way."
+  );
+
+  const select = createSelect<string>(
+    presets.map(seconds =>
+      seconds === 0
+        ? { value: "0", label: "Off", note: "hard cut" }
+        : { value: String(seconds), label: describeCrossfade(seconds) }
+    ),
+    String(presets[closestPresetIndex(presets, initialSeconds)]),
+    value => onChange(Number(value)),
+    labelId
+  );
+
+  row.append(text, select.element);
+  return { row, setValue: value => select.setValue(String(value)) };
+}
+
 // -- Better Lyrics presence ----------------------------------------------------
 
 async function probeBetterLyrics(): Promise<boolean> {
@@ -360,6 +390,19 @@ async function main(): Promise<void> {
     }
   );
 
+  const debugLoggingToggle = createToggle(
+    "Console logging",
+    "Print what the extension is doing to the console. Off unless you are debugging.",
+    settings.debugLoggingEnabled,
+    next => {
+      saveSettingsFrom(chrome.storage.sync, { debugLoggingEnabled: next }).catch(error => {
+        console.error(`${LOG_PREFIX} failed to save the logging setting`, error);
+        showStatus("Could not save that change.");
+        debugLoggingToggle.setChecked(!next);
+      });
+    }
+  );
+
   const modelVariantRow = createModelVariantRow(settings.modelVariant, next => {
     saveSettingsFrom(chrome.storage.sync, { modelVariant: next })
       .then(() => refreshCacheStatus())
@@ -380,6 +423,14 @@ async function main(): Promise<void> {
   faderPlacementRow.row.hidden = true;
   probeBetterLyrics().then(present => {
     faderPlacementRow.row.hidden = !present;
+  });
+
+  const crossfadeRow = createCrossfadeRow(CROSSFADE_PRESETS_SECONDS, settings.crossfadeSeconds, next => {
+    saveSettingsFrom(chrome.storage.sync, { crossfadeSeconds: next }).catch(error => {
+      console.error(`${LOG_PREFIX} failed to save the crossfade length`, error);
+      showStatus("Could not save that change.");
+      crossfadeRow.setValue(settings.crossfadeSeconds);
+    });
   });
 
   const budgetSlider = createBudgetSlider(CACHE_BUDGET_PRESETS_BYTES, settings.cacheBudgetBytes, bytes => {
@@ -403,10 +454,12 @@ async function main(): Promise<void> {
     singAlongToggle.row,
     autoSeparateToggle.row,
     faderPlacementRow.row,
+    crossfadeRow.row,
     modelVariantRow.row,
     budgetSlider.row,
     stemRow.row,
     modelRow.row,
+    debugLoggingToggle.row,
     status
   );
   document.body.append(root);
