@@ -16,6 +16,7 @@
   --blk-sunk: rgba(0, 0, 0, 0.28);
   --blk-line: rgba(255, 255, 255, 0.07);
   --blk-text: rgba(255, 255, 255, 0.92);
+  --blk-text-1: rgba(255, 255, 255, 0.8);
   --blk-text-2: rgba(255, 255, 255, 0.55);
   --blk-text-3: rgba(255, 255, 255, 0.38);
   --blk-accent: #f20c32;
@@ -634,7 +635,12 @@ body {
 
 .blk-status__row--next {
   margin-top: 2px;
+  gap: 5px;
   background: transparent;
+}
+
+.blk-status__row--next .blk-roll {
+  margin-left: 5px;
 }
 
 .blk-status__row--promoted {
@@ -702,15 +708,36 @@ body {
   text-overflow: ellipsis;
 }
 
-.blk-status__row--next .blk-status__title {
-  font-size: 11.5px;
-  font-weight: 400;
-  color: var(--blk-text-2);
+.blk-status__row--next .blk-status__text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.blk-status__label {
-  flex: none;
+.blk-status__row--next .blk-status__title,
+.blk-status__row--next .blk-status__artist {
+  display: inline;
   font-size: 11.5px;
+}
+
+.blk-status__row--next .blk-status__title {
+  font-weight: 400;
+  color: var(--blk-text-1);
+}
+
+.blk-status__row--next .blk-status__artist::before {
+  content: "·";
+  margin: 0 5px;
+}
+
+.blk-status__artist:empty {
+  display: none;
+}
+
+.blk-status__glyph {
+  display: flex;
+  flex: none;
+  transform: translateY(1px);
   color: var(--blk-text-3);
 }
 

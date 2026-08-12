@@ -1,4 +1,12 @@
-import { POPUP_TABS, activePanel, initialView, isTabBarVisible, selectTab, toggleAbout } from "@/settings/popup-tabs";
+import {
+  POPUP_TABS,
+  activePanel,
+  initialView,
+  isStatusVisible,
+  isTabBarVisible,
+  selectTab,
+  toggleAbout,
+} from "@/settings/popup-tabs";
 import { describe, expect, it } from "vitest";
 
 describe("popup tabs", () => {
@@ -49,6 +57,14 @@ describe("popup tabs", () => {
         const view = selectTab(initialView(), tab);
         expect(isTabBarVisible(view)).toBe(true);
         expect(isTabBarVisible(toggleAbout(view))).toBe(false);
+      }
+    });
+
+    it("what is playing is visible exactly when About is closed", () => {
+      for (const tab of POPUP_TABS) {
+        const view = selectTab(initialView(), tab);
+        expect(isStatusVisible(view)).toBe(true);
+        expect(isStatusVisible(toggleAbout(view))).toBe(false);
       }
     });
 

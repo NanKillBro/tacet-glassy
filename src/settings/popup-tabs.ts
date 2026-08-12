@@ -29,9 +29,15 @@ function isTabBarVisible(view: PopupView): boolean {
   return !view.aboutOpen;
 }
 
+// What is playing belongs to the tabs rather than to About, so it goes with the
+// tab bar.
+function isStatusVisible(view: PopupView): boolean {
+  return !view.aboutOpen;
+}
+
 function activePanel(view: PopupView): PopupTab | "about" {
   return view.aboutOpen ? "about" : view.tab;
 }
 
-export { POPUP_TABS, initialView, selectTab, toggleAbout, isTabBarVisible, activePanel };
+export { POPUP_TABS, initialView, selectTab, toggleAbout, isTabBarVisible, isStatusVisible, activePanel };
 export type { PopupTab, PopupView };

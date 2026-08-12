@@ -10,6 +10,7 @@ import {
   type PopupView,
   activePanel,
   initialView,
+  isStatusVisible,
   isTabBarVisible,
   selectTab,
   toggleAbout,
@@ -85,6 +86,13 @@ const GITHUB_MARK_PATH =
   "2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 22.092 24 17.592 24 " +
   "12.297c0-6.627-5.373-12-12-12";
 
+const QUEUE_MARK_PATH =
+  "M14 6H4c-.55 0-1 .45-1 1s.45 1 1 1h10c.55 0 1-.45 1-1s-.45-1-1-1m0 4H4c-.55 0-1 .45-1 " +
+  "1s.45 1 1 1h10c.55 0 1-.45 1-1s-.45-1-1-1M4 16h6c.55 0 1-.45 1-1s-.45-1-1-1H4c-.55 " +
+  "0-1 .45-1 1s.45 1 1 1M19 6c-1.1 0-2 .9-2 2v6.18c-.31-.11-.65-.18-1-.18c-1.84 0-3.28 " +
+  "1.64-2.95 3.54c.21 1.21 1.2 2.2 2.41 2.41c1.9.33 3.54-1.11 3.54-2.95V8h2c.55 0 " +
+  "1-.45 1-1s-.45-1-1-1z";
+
 function createExternalLink(href: string, label: string, className: string): HTMLAnchorElement {
   const link = createElement("a", className);
   link.href = href;
@@ -95,7 +103,7 @@ function createExternalLink(href: string, label: string, className: string): HTM
   return link;
 }
 
-function createGithubIcon(size: number): SVGSVGElement {
+function createFilledIcon(pathData: string, size: number): SVGSVGElement {
   const svg = document.createElementNS(SVG_NS, "svg");
   svg.setAttribute("viewBox", "0 0 24 24");
   svg.setAttribute("width", String(size));
@@ -104,7 +112,7 @@ function createGithubIcon(size: number): SVGSVGElement {
   svg.setAttribute("aria-hidden", "true");
   svg.setAttribute("focusable", "false");
   const path = document.createElementNS(SVG_NS, "path");
-  path.setAttribute("d", GITHUB_MARK_PATH);
+  path.setAttribute("d", pathData);
   svg.append(path);
   return svg;
 }
@@ -146,7 +154,7 @@ function createHeader(): HTMLElement {
   title.append(version);
 
   const repository = createExternalLink(REPOSITORY_URL, "View source on GitHub", "blk-icon-button");
-  repository.append(createGithubIcon(16));
+  repository.append(createFilledIcon(GITHUB_MARK_PATH, 16));
 
   header.append(brand, title, repository);
   return header;
@@ -527,6 +535,7 @@ const STATUS_POLL_MS = 1000;
 
 const NOW_ART_PX = 34;
 const NEXT_ART_PX = 20;
+const NEXT_GLYPH_PX = 14;
 
 type StatusTrack = NonNullable<TrackStatusMessage["now"]>;
 type TrackStatus = Pick<TrackStatusMessage, "now" | "next" | "separation">;
@@ -619,6 +628,7 @@ function createStatusRow(modifier: string, artPx: number): StatusRow {
 interface StatusSection {
   element: HTMLElement;
   render(status: TrackStatus | null): void;
+  setVisible(visible: boolean): void;
 }
 
 function nextTrackState(track: StatusTrack): string {
@@ -638,16 +648,25 @@ function createStatusSection(): StatusSection {
   now.element.append(fill, now.artwork.element, nowText, now.roll.element);
 
   const next = createStatusRow("next", NEXT_ART_PX);
-  const nextLabel = createElement("span", "blk-status__label");
-  nextLabel.textContent = "Next";
+  const nextGlyph = createElement("span", "blk-status__glyph");
+  nextGlyph.setAttribute("role", "img");
+  nextGlyph.setAttribute("aria-label", "Up next");
+  nextGlyph.append(createFilledIcon(QUEUE_MARK_PATH, NEXT_GLYPH_PX));
   const nextText = createElement("span", "blk-status__text");
-  nextText.append(next.title);
-  next.element.append(next.artwork.element, nextLabel, nextText, next.roll.element);
+  const nextArtist = createElement("span", "blk-status__artist");
+  nextText.append(next.title, nextArtist);
+  next.element.append(next.artwork.element, nextGlyph, nextText, next.roll.element);
 
   element.append(now.element, next.element);
 
   let shownNowId: string | null = null;
   let shownNextId: string | null = null;
+  let visible = true;
+  let occupied = false;
+
+  function paint(): void {
+    element.hidden = !visible || !occupied;
+  }
 
   function renderRow(row: StatusRow, track: StatusTrack | null, state: string): void {
     row.element.hidden = track === null;
@@ -664,13 +683,13 @@ function createStatusSection(): StatusSection {
   return {
     element,
     render(status) {
-      if (status === null || (status.now === null && status.next === null)) {
-        element.hidden = true;
+      occupied = status !== null && (status.now !== null || status.next !== null);
+      paint();
+      if (status === null || !occupied) {
         shownNowId = null;
         shownNextId = null;
         return;
       }
-      element.hidden = false;
 
       const advanced = status.now !== null && status.now.videoId !== shownNowId && status.now.videoId === shownNextId;
 
@@ -679,6 +698,7 @@ function createStatusSection(): StatusSection {
       fill.style.width = `${(separationFill(status.separation) * 100).toFixed(2)}%`;
 
       renderRow(next, status.next, status.next === null ? "" : nextTrackState(status.next));
+      nextArtist.textContent = status.next?.artist ?? "";
 
       if (advanced) {
         now.replay();
@@ -686,6 +706,10 @@ function createStatusSection(): StatusSection {
       }
       shownNowId = status.now?.videoId ?? null;
       shownNextId = status.next?.videoId ?? null;
+    },
+    setVisible(next) {
+      visible = next;
+      paint();
     },
   };
 }
@@ -871,8 +895,11 @@ async function main(): Promise<void> {
     render();
   });
 
+  const statusSection = createStatusSection();
+
   function render(): void {
     tabs.hidden = !isTabBarVisible(view);
+    statusSection.setVisible(isStatusVisible(view));
     for (const { tab, button } of tabButtons) {
       button.setAttribute("aria-selected", String(!view.aboutOpen && view.tab === tab));
     }
@@ -880,8 +907,6 @@ async function main(): Promise<void> {
     scroll.replaceChildren(panels[activePanel(view)]);
     scroll.scrollTop = 0;
   }
-
-  const statusSection = createStatusSection();
 
   root.append(header, statusSection.element, tabs, scroll, footer);
   document.body.append(root);
