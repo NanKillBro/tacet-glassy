@@ -72,7 +72,7 @@ npm run build
 
 That leaves the same folder at `build/chrome-mv3-prod` to load unpacked.
 
-The first track fetches the separation model, which is a 170 MB one time
+The first track fetches the separation model, which is a 163 MB one time
 download. Sing-along can be switched off from the popup, which takes effect on
 the next page load.
 
@@ -89,6 +89,69 @@ The popup groups these under General, Separation and Storage.
 | Start separating automatically | on | Gets each track ready before you touch the fader |
 | Model precision | Full | Half is a smaller download that sounds much the same |
 | Cache budget | 250 MB | How many separated songs to keep |
+
+## FAQ
+
+### Does it work on Spotify, or anywhere other than YouTube Music?
+
+No, and it never will. Every Better Lyrics extension is built on YouTube Music,
+and that is deliberate rather than a starting point. Years have gone into
+working out how that player actually behaves, between us and the other
+developers who have worked on these, and we only ship things we understand at
+that depth. A shallower version of this pointed at another service would be
+worse than not shipping one at all.
+
+### Why is there no Firefox version?
+
+Tacet patches `SourceBuffer.appendBuffer` inside the page itself, before
+YouTube Music's player exists, and then passes raw audio back and forth across
+the page and extension boundary. Firefox wraps objects crossing that boundary in
+Xray wrappers, and the hops Tacet is built on do not survive them. We looked at
+it and stopped. It is not a packaging problem, so a Firefox manifest would not
+fix it.
+
+### Does any of my audio leave my machine?
+
+No. The track is captured from what the page is already streaming, separated on
+your own GPU, and cached in your own browser. The only thing Tacet fetches is
+the separation model, once, from `models.betterlyrics.org`.
+
+### Why is the first track so slow?
+
+The separation model downloads the first time you need it. That is 163 MB, or
+83 MB if you set Model precision to Half in the popup. It is kept afterwards, so
+it happens once rather than once a track. After that each new song is separated
+as it plays and the result is cached, so anything you have heard before starts
+instantly.
+
+### Do I need a GPU?
+
+It asks for WebGPU first and falls back to CPU if that is unavailable, so it
+will still work without one, just a lot slower.
+
+### Do I need Better Lyrics?
+
+No. With Better Lyrics installed the fader docks into the lyrics controls, and
+without it the fader sits in the player bar. Nothing else changes.
+
+### Why did sing-along stop when I changed the playback speed?
+
+Because stems cannot follow a speed change without going out of tune. YouTube
+Music pitch corrects its own audio at 1.25x, but the stems are audio buffers
+whose only speed control resamples them, so matching the rate would play them
+sharp against a player that does not. At any speed other than 1x, Tacet stands
+down and hands you the original audio.
+
+### Does crossfade need separation?
+
+No. If stems are ready it fades between those, and if not it fades the original
+audio. It works with sing-along switched off entirely.
+
+### Where do the separated songs live, and how do I clear them?
+
+In IndexedDB in your browser, keyed by the audio itself rather than by video id.
+The Storage tab in the popup shows how much room they take, sets the budget, and
+clears either the stems or the model.
 
 ## How it works
 
