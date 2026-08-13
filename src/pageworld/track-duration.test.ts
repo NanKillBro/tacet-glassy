@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  CLOCK_JITTER_S,
   CLOCK_SETTLE_MS,
   chooseTrackDuration,
   clockDurationSettled,
@@ -135,6 +136,51 @@ describe("a settled bar clock", () => {
     });
   });
 
+  describe("rounding jitter", () => {
+    it("a total flickering between two adjacent seconds stays settled", () => {
+      expect(
+        settleOver([
+          [218, 0],
+          [218, CLOCK_SETTLE_MS],
+          [219, CLOCK_SETTLE_MS + 500],
+          [218, CLOCK_SETTLE_MS + 1000],
+        ])
+      ).toBe(true);
+    });
+
+    it("a total flickering before it ever settles still settles on time", () => {
+      expect(
+        settleOver([
+          [218, 0],
+          [219, 500],
+          [218, 1000],
+          [219, CLOCK_SETTLE_MS],
+        ])
+      ).toBe(true);
+    });
+
+    it("a total creeping a second at a time is not jitter and resets", () => {
+      expect(
+        settleOver([
+          [218, 0],
+          [219, 500],
+          [220, 1000],
+          [220, 1500],
+        ])
+      ).toBe(false);
+    });
+
+    it("a change of exactly the slack is absorbed and anything past it is not", () => {
+      const held = (to: number): boolean =>
+        settleOver([
+          [200, 0],
+          [to, CLOCK_SETTLE_MS],
+        ]);
+      expect(held(200 + CLOCK_JITTER_S)).toBe(true);
+      expect(held(200 + CLOCK_JITTER_S + 0.01)).toBe(false);
+    });
+  });
+
   describe("regressions", () => {
     // The whole reason the player's own duration is no longer consulted.
     it("regression: a gapless append never unsettles the bar", () => {
@@ -168,6 +214,18 @@ describe("a settled bar clock", () => {
         settleOver([
           [14, 0],
           [237, 500],
+        ])
+      ).toBe(false);
+    });
+
+    it("regression: an ad handing over is a jump, so the slack never absorbs it", () => {
+      expect(
+        settleOver([
+          [13, 0],
+          [14, 1000],
+          [46, 2000],
+          [237, 3000],
+          [237, 3000 + CLOCK_SETTLE_MS - 1],
         ])
       ).toBe(false);
     });

@@ -3,6 +3,8 @@ const MAX_MIX_LEVEL = 1;
 const NEUTRAL_MIX_LEVEL = MAX_MIX_LEVEL;
 const INSTRUMENTAL_GAIN = 1;
 
+const MIX_GLIDE_SECONDS = 0.3;
+
 interface StemGains {
   vocalsGain: number;
   instrumentalGain: number;
@@ -30,6 +32,7 @@ export {
   MAX_MIX_LEVEL,
   NEUTRAL_MIX_LEVEL,
   INSTRUMENTAL_GAIN,
+  MIX_GLIDE_SECONDS,
   clampMixLevel,
   gainsForMixLevel,
   listenerGain,

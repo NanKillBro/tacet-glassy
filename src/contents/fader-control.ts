@@ -109,9 +109,9 @@ function mountFader(placement: FaderPlacement, crossfadeSeconds: number): Mounte
 
   const control = createFaderControl({
     host: placement === "dock" && hasBetterLyrics() ? "dock" : "bar",
-    onChange: mixLevel => {
+    onChange: (mixLevel, glideSeconds) => {
       armed = mixLevel !== NEUTRAL_MIX_LEVEL;
-      pipeline?.engage(mixLevel);
+      pipeline?.engage(mixLevel, glideSeconds);
       render();
     },
     onOpenChange: open => tooltip?.setSuppressed(open),
@@ -127,7 +127,10 @@ function mountFader(placement: FaderPlacement, crossfadeSeconds: number): Mounte
     onCrossfadeStarted: durationSeconds => control.showCrossfade(durationSeconds),
   });
 
-  const mount = attachFaderMount({ button: control.button, setHost: control.setHost }, { placement });
+  const mount = attachFaderMount(
+    { button: control.button, setHost: control.setHost, reanchorWipe: control.reanchorWipe },
+    { placement }
+  );
   pipeline.setCrossfadeSeconds(crossfadeSeconds);
 
   return {

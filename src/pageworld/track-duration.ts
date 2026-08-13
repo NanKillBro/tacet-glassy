@@ -31,7 +31,6 @@ function chooseTrackDuration(clockSeconds: number, playerSeconds: number): numbe
 // on the track after it read 29.9, 49.9, 59.9, 79.8 against a steady bar of 134.
 // A symmetric tolerance refuses both, and a one-sided one still refuses the tail,
 // which is precisely where a fade is armed and waiting.
-//
 // What separates the one case this guard exists for is not size but movement.
 // The bar still timing an ad the attribute has released reads its total as the
 // ad's and then changes it when the real track starts, measured as 0:13, 0:14,
@@ -40,6 +39,8 @@ function chooseTrackDuration(clockSeconds: number, playerSeconds: number): numbe
 // not consulted at all.
 const CLOCK_SETTLE_MS = 3000;
 
+const CLOCK_JITTER_S = 1;
+
 interface ClockSettling {
   seconds: number;
   changedAtMs: number;
@@ -47,8 +48,9 @@ interface ClockSettling {
 
 function noteClockDuration(previous: ClockSettling | null, seconds: number, nowMs: number): ClockSettling | null {
   if (!Number.isFinite(seconds) || seconds <= 0) return null;
-  if (previous === null || previous.seconds !== seconds) return { seconds, changedAtMs: nowMs };
-  return previous;
+  if (previous === null) return { seconds, changedAtMs: nowMs };
+  if (Math.abs(seconds - previous.seconds) <= CLOCK_JITTER_S) return previous;
+  return { seconds, changedAtMs: nowMs };
 }
 
 function clockDurationSettled(settling: ClockSettling | null, nowMs: number): boolean {
@@ -57,6 +59,7 @@ function clockDurationSettled(settling: ClockSettling | null, nowMs: number): bo
 }
 
 export {
+  CLOCK_JITTER_S,
   CLOCK_SETTLE_MS,
   PLAYER_BAR_CLOCK_SELECTOR,
   chooseTrackDuration,

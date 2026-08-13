@@ -17,7 +17,7 @@ function hasBetterLyrics(root: ParentNode = document): boolean {
   return root.querySelector(BETTER_LYRICS_STYLE_LINK_SELECTOR) !== null;
 }
 
-type FaderMountControl = Pick<FaderControl, "button" | "setHost">;
+type FaderMountControl = Pick<FaderControl, "button" | "setHost" | "reanchorWipe">;
 
 interface AttachFaderMountOptions {
   placement?: FaderPlacement;
@@ -81,6 +81,7 @@ function attachFaderMount(control: FaderMountControl, options: AttachFaderMountO
     requestFrame(() => {
       queued = false;
       resolver.resolve();
+      control.reanchorWipe();
     });
   });
   observer.observe(observeRoot, { childList: true, subtree: true });

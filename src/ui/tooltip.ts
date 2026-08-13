@@ -120,8 +120,8 @@ function createTooltip(trigger: HTMLElement): Tooltip {
   function show(): void {
     if (open || suppressed || !content) return;
     open = true;
-    card.classList.add("is-open");
     place();
+    card.classList.add("is-open");
   }
 
   function setSuppressed(next: boolean): void {
