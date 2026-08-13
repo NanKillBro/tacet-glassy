@@ -1,5 +1,7 @@
 // -- Capture (MAIN world) to fader (ISOLATED world) bridge protocol --------
 
+import { isSourceId } from "@/acquisition/sources";
+import type { SourceId } from "@/acquisition/sources";
 import type { DownloadSource } from "@/orchestrator/download-tooltip";
 
 export interface RequestCapturedAudioMessage {
@@ -53,11 +55,16 @@ export interface RequestPrefetchMessage {
 export interface RequestNextPrefetchMessage {
   type: "blk-request-next-prefetch";
   videoId: string;
+  // Anything speculative competes with the listener's own stream, so warming the
+  // next track belongs in the tail of a track rather than the head. Only the
+  // page world can say when that is, because only it has the clock.
+  warm?: boolean;
 }
 
 export interface NextTrackMessage {
   type: "blk-next-track";
   videoId: string;
+  warm?: boolean;
 }
 
 export interface RequestQueueTracksMessage {
@@ -104,6 +111,54 @@ export interface SliceCapturedMessage {
   trackDurationSeconds: number;
   mimeType: string;
   bytes: ArrayBuffer;
+}
+
+export interface RequestShadowUrlMessage {
+  type: "blk-request-shadow-url";
+  videoId: string;
+}
+
+export interface ListeningToMessage {
+  type: "blk-listening-to";
+  videoId: string;
+}
+
+export function isListeningToMessage(data: unknown): data is ListeningToMessage {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: unknown }).type === "blk-listening-to" &&
+    typeof (data as { videoId?: unknown }).videoId === "string"
+  );
+}
+
+export interface AcquisitionResultMessage {
+  type: "blk-acquisition-result";
+  videoId: string;
+  source: SourceId;
+  url: string | null;
+  reason: string;
+}
+
+export function isRequestShadowUrlMessage(data: unknown): data is RequestShadowUrlMessage {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: unknown }).type === "blk-request-shadow-url" &&
+    typeof (data as { videoId?: unknown }).videoId === "string"
+  );
+}
+
+export function isAcquisitionResultMessage(data: unknown): data is AcquisitionResultMessage {
+  if (typeof data !== "object" || data === null) return false;
+  const url: unknown = (data as { url?: unknown }).url;
+  return (
+    (data as { type?: unknown }).type === "blk-acquisition-result" &&
+    typeof (data as { videoId?: unknown }).videoId === "string" &&
+    isSourceId((data as { source?: unknown }).source) &&
+    (url === null || (typeof url === "string" && url.length > 0)) &&
+    typeof (data as { reason?: unknown }).reason === "string"
+  );
 }
 
 export function isSliceCapturedMessage(data: unknown): data is SliceCapturedMessage {

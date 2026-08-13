@@ -1,4 +1,9 @@
-import { FALLBACK_ELEMENT_SELECTOR, selectPlaybackElement } from "@/pageworld/select-media-element";
+import {
+  FALLBACK_ELEMENT_SELECTOR,
+  SHADOW_ELEMENT_SELECTOR,
+  capturesFrom,
+  selectPlaybackElement,
+} from "@/pageworld/select-media-element";
 import type { MediaElementCandidate } from "@/pageworld/select-media-element";
 import { describe, expect, it } from "vitest";
 
@@ -7,6 +12,14 @@ function candidate(id: string, byteCount: number, matchesFallback: boolean): Med
     id,
     webkitAudioDecodedByteCount: byteCount,
     matches: (selector: string) => matchesFallback && selector === FALLBACK_ELEMENT_SELECTOR,
+  };
+}
+
+function shadowCandidate(id: string, byteCount: number): MediaElementCandidate & { id: string } {
+  return {
+    id,
+    webkitAudioDecodedByteCount: byteCount,
+    matches: (selector: string) => selector === SHADOW_ELEMENT_SELECTOR || selector === FALLBACK_ELEMENT_SELECTOR,
   };
 }
 
@@ -41,7 +54,9 @@ describe("selectPlaybackElement", () => {
     });
 
     it("treats a missing webkitAudioDecodedByteCount as zero, not a crash", () => {
-      const noCountProperty: MediaElementCandidate = { matches: () => true };
+      const noCountProperty: MediaElementCandidate = {
+        matches: (selector: string) => selector === FALLBACK_ELEMENT_SELECTOR,
+      };
       expect(selectPlaybackElement([noCountProperty])).toBe(noCountProperty);
     });
 
@@ -58,6 +73,49 @@ describe("selectPlaybackElement", () => {
       const snapshot = [...list];
       selectPlaybackElement(list);
       expect(list).toEqual(snapshot);
+    });
+  });
+
+  describe("regressions", () => {
+    it("regression: a shadow player's element never wins, even though it decodes bytes", () => {
+      const listener = candidate("listener", 4096, true);
+      const shadow = shadowCandidate("shadow", 999_999);
+      expect(selectPlaybackElement([shadow, listener])).toBe(listener);
+    });
+
+    it("regression: the shadow does not win the fallback either, when nothing has decoded yet", () => {
+      const listener = candidate("listener", 0, true);
+      const shadow = shadowCandidate("shadow", 0);
+      expect(selectPlaybackElement([shadow, listener])).toBe(listener);
+    });
+
+    it("regression: a shadow alone selects nothing rather than itself", () => {
+      expect(selectPlaybackElement([shadowCandidate("shadow", 4096)])).toBeNull();
+    });
+  });
+});
+
+describe("capturesFrom", () => {
+  const element = (selector: string) => ({ matches: (query: string) => query === selector });
+
+  it("captures the listener's own player", () => {
+    expect(capturesFrom(element(FALLBACK_ELEMENT_SELECTOR))).toBe(true);
+  });
+
+  it("refuses the shadow player's own media", () => {
+    expect(capturesFrom(element(SHADOW_ELEMENT_SELECTOR))).toBe(false);
+  });
+
+  describe("edge cases", () => {
+    it("captures an append it cannot attribute, because losing the listener's capture is worse", () => {
+      expect(capturesFrom(null)).toBe(true);
+    });
+  });
+
+  describe("regressions", () => {
+    it("regression: a shadow's stream is a second stream under the listener's videoId", () => {
+      expect(capturesFrom(element(SHADOW_ELEMENT_SELECTOR))).toBe(false);
+      expect(capturesFrom(element(FALLBACK_ELEMENT_SELECTOR))).toBe(true);
     });
   });
 });

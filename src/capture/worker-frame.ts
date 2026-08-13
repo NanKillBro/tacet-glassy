@@ -1,4 +1,5 @@
 const WORKER_PARAM = "blk-slice";
+const MINT_PARAM = "blk-mint";
 const WATCH_URL = "https://music.youtube.com/watch";
 
 interface WorkerAssignment {
@@ -36,5 +37,9 @@ function isWorkerFrame(search: string): boolean {
   return readWorkerAssignment(search) !== null;
 }
 
-export { buildWorkerUrl, readWorkerAssignment, isWorkerFrame, WORKER_PARAM };
+function isHiddenFrame(search: string): boolean {
+  return isWorkerFrame(search);
+}
+
+export { buildWorkerUrl, isHiddenFrame, isWorkerFrame, MINT_PARAM, readWorkerAssignment, WORKER_PARAM };
 export type { WorkerAssignment };

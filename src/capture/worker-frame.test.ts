@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { buildWorkerUrl, isWorkerFrame, readWorkerAssignment, WORKER_PARAM } from "@/capture/worker-frame";
+import {
+  buildWorkerUrl,
+  isHiddenFrame,
+  isWorkerFrame,
+  readWorkerAssignment,
+  WORKER_PARAM,
+} from "@/capture/worker-frame";
 
 describe("buildWorkerUrl", () => {
   it("carries the video and the slice assignment", () => {
@@ -58,5 +64,14 @@ describe("isWorkerFrame", () => {
 
   it("treats a malformed marker as the real page, never as a worker", () => {
     expect(isWorkerFrame(`?v=x&${WORKER_PARAM}=broken`)).toBe(false);
+  });
+});
+
+describe("isHiddenFrame", () => {
+  it("recognises a worker frame and nothing else", () => {
+    expect(isHiddenFrame(new URL(buildWorkerUrl("abc", { index: 0, fromSeconds: 0, toSeconds: 10 })).search)).toBe(
+      true
+    );
+    expect(isHiddenFrame("?v=abc")).toBe(false);
   });
 });

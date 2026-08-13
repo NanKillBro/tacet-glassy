@@ -1,11 +1,18 @@
 // -- ISOLATED-world karaoke pipeline orchestrator ----------------------------
 
+import { enabledOrder, nextSource, sanitizeSourcePreferences } from "@/acquisition/sources";
+import type { SourceId } from "@/acquisition/sources";
+import { AheadStaging } from "@/orchestrator/ahead-staging";
 import { decodeOpusToPcm } from "@/cache/opus-codec";
+import { deliveredBy } from "@/orchestrator/delivery";
 import {
   type CaptureStandDownMessage,
+  type ListeningToMessage,
   type RequestCapturedAudioMessage,
+  type RequestShadowUrlMessage,
   type RequestNextPrefetchMessage,
   type RequestPrefetchMessage,
+  isAcquisitionResultMessage,
   isCaptureReadyMessage,
   isCapturedAudioMessage,
   isCapturedAudioUnavailableMessage,
@@ -42,6 +49,7 @@ import { type ChunkAssembler, createChunkAssembler, splitIntoChunks } from "@/re
 import { loadSettingsFrom } from "@/settings/storage";
 import { createLogger } from "@/shared/logger";
 import type {
+  AcquireTrackCommand,
   CancelSeparationCommand,
   CaptureChunkMessage,
   ForgetTrackCommand,
@@ -49,6 +57,7 @@ import type {
   StemChunkMessage,
 } from "../../workers/protocol2";
 import {
+  isAcquireFailedMessage,
   isCacheHitMessage,
   isCacheMissMessage,
   isStemChunkMessage,
@@ -84,6 +93,7 @@ interface KaraokePipelineOptions {
 interface KaraokePipeline {
   engage(mixLevel: number): void;
   setCrossfadeSeconds(seconds: number): void;
+  deliveredSource(videoId: string): SourceId | null;
   destroy(): void;
 }
 
@@ -91,18 +101,18 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   let state: KaraokeState = initialKaraokeState("");
   let pendingMixLevel = NEUTRAL_MIX_LEVEL;
   let prefetchVideoId: string | null = null;
+  let warmAllowedFor: string | null = null;
   let vocalsAssembler: ChunkAssembler | null = null;
   let instrumentalAssembler: ChunkAssembler | null = null;
   let doneReceived = false;
-  let staged: { videoId: string; vocals: Blob; instrumental: Blob } | null = null;
-  let stagedVocals: ChunkAssembler | null = null;
-  let stagedInstrumental: ChunkAssembler | null = null;
-  let stagedDoneReceived = false;
+  const aheadStaging = new AheadStaging();
   let crossfadingInto: string | null = null;
   let crossfadingIntoKind: LandingKind = "stems";
   let crossfadeArmTimer: ReturnType<typeof setTimeout> | null = null;
   let cacheProbeTimer: ReturnType<typeof setTimeout> | null = null;
   let observedTrack: PlayerState | null = null;
+  let climb: { videoId: string; tried: SourceId[]; inFlight: boolean; exhausted: boolean } | null = null;
+  let delivery: { videoId: string; source: SourceId } | null = null;
   const reacquiredVideoIds = new Set<string>();
 
   options.onStateChange(state);
@@ -146,10 +156,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   }
 
   function resetStaging(): void {
-    staged = null;
-    stagedVocals = null;
-    stagedInstrumental = null;
-    stagedDoneReceived = false;
+    aheadStaging.clear();
   }
 
   function postToPageWorld(
@@ -158,7 +165,9 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       | LoadStemsMessage
       | StopStemsMessage
       | CaptureStandDownMessage
+      | ListeningToMessage
       | RequestPrefetchMessage
+      | RequestShadowUrlMessage
       | RequestNextPrefetchMessage
       | StagedReadyMessage
       | StageDeckMessage
@@ -175,12 +184,16 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     const { videoId } = observed;
     if (videoId === state.videoId) return;
 
+    postToPageWorld({ type: "blk-listening-to", videoId });
+
     if (videoId === crossfadingInto) {
       const landing = decideCrossfadeLanding({ kind: crossfadingIntoKind, status: state.status });
       disarmCrossfade();
       resetStemAssembly();
       resetStaging();
       prefetchVideoId = null;
+      warmAllowedFor = null;
+      climb = null;
 
       if (landing === "release") {
         log(`crossfaded into ${videoId} while karaoke was ${state.status}, handing the audio back`);
@@ -217,6 +230,8 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     resetStemAssembly();
     resetStaging();
     prefetchVideoId = null;
+    warmAllowedFor = null;
+    climb = null;
     dispatch({ type: "track-changed", videoId });
     probeCacheFor(videoId);
   }
@@ -331,9 +346,20 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     }
 
     if (isNextTrackMessage(data)) {
-      if (data.videoId === state.videoId || data.videoId === prefetchVideoId) return;
+      if (data.videoId === state.videoId) return;
+      // The same next track is announced repeatedly. Once the page world's clock
+      // reaches the tail it announces it again with permission to warm, and that
+      // permission is the only new information, so re-probe rather than ignore.
+      if (data.videoId === prefetchVideoId) {
+        if (data.warm !== true || warmAllowedFor === data.videoId) return;
+        warmAllowedFor = data.videoId;
+        probeCacheFor(data.videoId);
+        return;
+      }
       resetStaging();
       prefetchVideoId = data.videoId;
+      warmAllowedFor = data.warm === true ? data.videoId : null;
+      trackStatusStore.setActivity(data.videoId, "queued");
       log(`next up is ${data.videoId}, checking whether it needs separating`);
       probeCacheFor(data.videoId);
       return;
@@ -345,12 +371,26 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
         return;
       }
       log(`capture ready for ${data.videoId}`);
+      recordDelivery(data.videoId, null);
       dispatch({ type: "capture-ready", videoId: data.videoId });
       maybeAutoEngage(data.videoId);
       return;
     }
 
+    if (isAcquisitionResultMessage(data)) {
+      if (data.url === null) {
+        onSourceSpent(data.videoId, data.source, data.reason);
+        return;
+      }
+      if (data.videoId !== state.videoId) return;
+      log(`${data.source} answered for ${data.videoId}, pulling the track`);
+      recordDelivery(data.videoId, data.source);
+      acquireFromUrl(data.videoId, data.url);
+      return;
+    }
+
     if (isDownloadProgressMessage(data)) {
+      if (isStagingTarget(data.videoId)) trackStatusStore.setActivity(data.videoId, "downloading", data.fraction);
       dispatch({ type: "download-progress", videoId: data.videoId, fraction: data.fraction, source: data.source });
       return;
     }
@@ -379,47 +419,39 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   }
 
   function stageStemChunk(message: StemChunkMessage): void {
-    const target =
-      message.stem === "vocals"
-        ? (stagedVocals ??= createChunkAssembler())
-        : (stagedInstrumental ??= createChunkAssembler());
-    try {
-      target.addChunk(message.index, message.total, message.data);
-    } catch (error) {
-      logError(`could not stage ${message.stem} for ${message.videoId}`, error);
-      resetStaging();
+    const took = aheadStaging.addChunk(message.videoId, message.stem, message.index, message.total, message.data);
+    if (!took) {
+      logError(
+        `could not stage ${message.stem} for ${message.videoId}`,
+        new Error(`chunk ${message.index} of ${message.total} was refused`)
+      );
       return;
     }
     finishStagingIfReady(message.videoId);
   }
 
   function finishStagingIfReady(videoId: string): void {
-    if (!stagedDoneReceived || !stagedVocals?.isComplete() || !stagedInstrumental?.isComplete()) return;
+    const blobs = aheadStaging.finish(videoId);
+    if (blobs === null) return;
 
-    const vocals = decodeStemBlob(stagedVocals);
-    const instrumental = decodeStemBlob(stagedInstrumental);
-    stagedVocals = null;
-    stagedInstrumental = null;
-    stagedDoneReceived = false;
-    staged = { videoId, vocals, instrumental };
-
+    trackStatusStore.setActivity(videoId, "ready");
     trackStatusStore.setCached(videoId, true);
-    const kilobytes = Math.round((vocals.size + instrumental.size) / 1024);
+    const kilobytes = Math.round((blobs.vocals.size + blobs.instrumental.size) / 1024);
     log(`staged ${videoId} for a transition, ${kilobytes} kB of Opus held`);
     const ready: StagedReadyMessage = { type: "blk-staged-ready", videoId };
     postToPageWorld(ready);
   }
 
   function sendStagedDeck(videoId: string): void {
-    const held = staged;
-    if (!held || held.videoId !== videoId) {
+    const held = aheadStaging.heldFor(videoId);
+    if (held === null) {
       log(`the page world asked for ${videoId} but nothing is staged under it`);
       return;
     }
 
     Promise.all([decodeOpusToPcm(held.vocals), decodeOpusToPcm(held.instrumental)])
       .then(([vocals, instrumental]) => {
-        if (staged?.videoId !== videoId) return;
+        if (aheadStaging.heldVideoId !== videoId) return;
         const message: StageDeckMessage = {
           type: "blk-stage-deck",
           videoId,
@@ -430,7 +462,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
         const frames = vocals.channels[0]?.length ?? 0;
         const transfer = [...vocals.channels, ...instrumental.channels].map(channel => channel.buffer);
         postToPageWorld(message, transfer);
-        staged = null;
+        aheadStaging.releaseHeld(videoId);
         log(`handed ${videoId} to the idle deck, ${frames} frames`);
       })
       .catch(error => {
@@ -522,9 +554,17 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   }
 
   function onRuntimeMessage(message: unknown): void {
+    if (isAcquireFailedMessage(message)) {
+      if (message.videoId !== state.videoId) return;
+      dispatch({ type: "reacquire", videoId: message.videoId });
+      const spent = climb?.videoId === message.videoId ? climb.tried[climb.tried.length - 1] : null;
+      if (spent) onSourceSpent(message.videoId, spent, message.reason);
+      return;
+    }
     if (isCacheHitMessage(message)) {
       trackStatusStore.setCached(message.videoId, true);
       if (isStagingTarget(message.videoId)) {
+        trackStatusStore.setActivity(message.videoId, "ready");
         log(`next track ${message.videoId} is already separated, staging it`);
         return;
       }
@@ -538,6 +578,11 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     if (isCacheMissMessage(message)) {
       trackStatusStore.setCached(message.videoId, false);
       if (message.videoId === prefetchVideoId) {
+        if (warmAllowedFor !== message.videoId) {
+          log(`next track ${message.videoId} is not separated yet, waiting for the tail of this track to warm it`);
+          return;
+        }
+        trackStatusStore.setActivity(message.videoId, "downloading");
         log(`next track ${message.videoId} is not separated yet, warming it`);
         postToPageWorld({ type: "blk-request-prefetch", videoId: message.videoId, ahead: true });
         return;
@@ -553,6 +598,9 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       return;
     }
     if (isTrackProgressMessage(message)) {
+      if (isStagingTarget(message.videoId) && message.total > 0) {
+        trackStatusStore.setActivity(message.videoId, "separating", message.processed / message.total);
+      }
       dispatch({ type: "progress", videoId: message.videoId, processed: message.processed, total: message.total });
       return;
     }
@@ -562,7 +610,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     }
     if (isTrackDoneMessage(message)) {
       if (isStagingTarget(message.videoId)) {
-        stagedDoneReceived = true;
+        aheadStaging.markDone(message.videoId);
         finishStagingIfReady(message.videoId);
         return;
       }
@@ -572,6 +620,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       return;
     }
     if (isTrackErrorMessage(message)) {
+      if (isStagingTarget(message.videoId)) trackStatusStore.setActivity(message.videoId, "unavailable");
       logError(`pipeline failed for ${message.videoId}: ${message.code}`, message.message);
       dispatch({ type: "failed", videoId: message.videoId, reason: message.message });
     }
@@ -598,14 +647,62 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     loadSettingsFrom(chrome.storage.sync)
       .then(settings => {
         if (videoId !== state.videoId) return;
-        if (settings.autoSeparateEnabled || pendingMixLevel !== NEUTRAL_MIX_LEVEL) {
-          log(`no cached stems for ${videoId}, acquiring`);
-          postToPageWorld({ type: "blk-request-prefetch", videoId });
+        if (!settings.autoSeparateEnabled && pendingMixLevel === NEUTRAL_MIX_LEVEL) {
+          log(`not acquiring ${videoId}, separation is off and the fader is neutral`);
           return;
         }
-        log(`not acquiring ${videoId}, separation is off and the fader is neutral`);
+        if (climb?.videoId !== videoId) climb = { videoId, tried: [], inFlight: false, exhausted: false };
+        if (climb.inFlight || climb.exhausted) return;
+
+        const order = enabledOrder(sanitizeSourcePreferences(settings.sources));
+        for (;;) {
+          const source = nextSource({ order, playingTrack: true, tried: climb.tried });
+          if (!source) {
+            climb.exhausted = true;
+            log(`every source has been tried for ${videoId}`);
+            return;
+          }
+          climb.tried.push(source);
+          if (source === "player-capture") {
+            log(`${videoId} is covered by the listener's own playback once it buffers`);
+            continue;
+          }
+          climb.inFlight = true;
+          startSource(videoId, source);
+          return;
+        }
       })
-      .catch(error => logError("failed to read the auto-separate setting", error));
+      .catch(error => logError("failed to read the source order", error));
+  }
+
+  function recordDelivery(videoId: string, announcedSource: SourceId | null): void {
+    const inFlightSource =
+      climb?.videoId === videoId && climb.inFlight ? climb.tried[climb.tried.length - 1] ?? null : null;
+    delivery = { videoId, source: deliveredBy({ inFlightSource, announcedSource }) };
+  }
+
+  function startSource(videoId: string, source: SourceId): void {
+    if (source === "shadow-url") {
+      log(`acquiring ${videoId} from a url a shadow player mints in this page`);
+      postToPageWorld({ type: "blk-request-shadow-url", videoId });
+      return;
+    }
+    log(`acquiring ${videoId} in a hidden player`);
+    postToPageWorld({ type: "blk-request-prefetch", videoId });
+  }
+
+  function onSourceSpent(videoId: string, source: SourceId, reason: string): void {
+    if (videoId !== state.videoId || climb?.videoId !== videoId) return;
+    if (!climb.tried.includes(source)) return;
+    log(`${source} could not get ${videoId}: ${reason}`);
+    climb.inFlight = false;
+    maybeAcquireCurrent(videoId);
+  }
+
+  function acquireFromUrl(videoId: string, url: string): void {
+    const command: AcquireTrackCommand = { type: "blk-acquire-track", videoId, url };
+    chrome.runtime.sendMessage(command).catch(error => logError("failed to send an acquire command", error));
+    dispatch({ type: "acquiring", videoId });
   }
 
   function maybeSeparateAhead(videoId: string): void {
@@ -620,6 +717,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
           log(`next track ${videoId} acquired, waiting for ${state.videoId} to finish before separating it`);
           return;
         }
+        trackStatusStore.setActivity(videoId, "separating");
         log(`next track ${videoId} acquired, separating it ahead of time`);
         const request: RequestCapturedAudioMessage = { type: "blk-request-captured-audio", videoId };
         window.postMessage(request, window.location.origin);
@@ -648,7 +746,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     if (mixLevel === NEUTRAL_MIX_LEVEL) return;
     if (state.status === "waiting-for-capture") {
       log(`arming ${state.videoId}, acquiring it now that the fader asked for it`);
-      postToPageWorld({ type: "blk-request-prefetch", videoId: state.videoId });
+      maybeAcquireCurrent(state.videoId);
       return;
     }
     if (state.status !== "ready-to-engage") return;
@@ -677,7 +775,11 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     postToPageWorld({ type: "blk-set-crossfade", seconds });
   }
 
-  return { engage, setCrossfadeSeconds, destroy };
+  function deliveredSource(videoId: string): SourceId | null {
+    return delivery?.videoId === videoId ? delivery.source : null;
+  }
+
+  return { engage, setCrossfadeSeconds, deliveredSource, destroy };
 }
 
 export { createKaraokePipeline };

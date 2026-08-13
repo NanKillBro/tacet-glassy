@@ -95,5 +95,7 @@ function captureTrackInSlices(options: SliceCaptureOptions): Promise<CapturedSli
   });
 }
 
+// -- Minting a url in a frame that dies straight afterwards ---------------------
+
 export { captureTrackInSlices, FRAME_ID_PREFIX };
-export type { CapturedSlice, SliceCaptureOptions };
+export type { CapturedSlice };

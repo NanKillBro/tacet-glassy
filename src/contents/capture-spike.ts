@@ -2,6 +2,7 @@ import { DEFAULT_MAX_RETAINED_BYTES, createCaptureAccumulator } from "@/capture/
 import { isAdPlaying } from "@/capture/ad-state";
 import { albumArtUrlForVideoId, createArtworkResolver, loadImageSizeInPage } from "@/capture/artwork-url";
 import type {
+  AcquisitionResultMessage,
   CaptureReadyMessage,
   CapturedAudioMessage,
   CapturedAudioUnavailableMessage,
@@ -19,7 +20,13 @@ import {
   isRequestPrefetchMessage,
   isRequestPrefetchedAudioMessage,
   isRequestQueueTracksMessage,
+  isListeningToMessage,
+  isRequestShadowUrlMessage,
 } from "@/capture/bridge-protocol";
+import { freshBudget, mayMint, recordMintOutcome, recordMintStarted } from "@/acquisition/shadow-budget";
+import { SHADOW_HOST_ID, mintShadowUrl } from "@/capture/shadow-player";
+import type { SourceId } from "@/acquisition/sources";
+
 import { computeBufferedFraction } from "@/capture/buffered-fraction";
 import { decideRetry, judgeCapture, missingSeconds, retryDelayMs, shouldHoldCapture } from "@/capture/capture-coverage";
 import { runCaptureDecodeExperiment } from "@/capture/decode-experiment";
@@ -62,6 +69,10 @@ const accumulator = createCaptureAccumulator();
 
 let announcedListenedVideoId: string | null = null;
 
+function noteListenedTrack(videoId: string): void {
+  announcedListenedVideoId = videoId;
+}
+
 function listenedVideoId(): string | null {
   return announcedListenedVideoId ?? getVideoIdFromSearch(window.location.search);
 }
@@ -93,12 +104,18 @@ const workerAssignment = readWorkerAssignment(window.location.search);
 
 const SILENCE_SWEEP_MS = 250;
 
-if (workerAssignment) {
+function silenceThisFrame(label: string): boolean {
   if (!installForcedSilence(HTMLMediaElement.prototype)) {
-    logError("worker frame could not be silenced, refusing to capture in it", new Error("no media setters"));
+    logError(`${label} could not be silenced, refusing to run in it`, new Error("no media setters"));
+    return false;
   }
   silenceMediaIn(document);
   setInterval(() => silenceMediaIn(document), SILENCE_SWEEP_MS);
+  return true;
+}
+
+if (workerAssignment) {
+  silenceThisFrame("worker frame");
 
   const workerVideoId = getVideoIdFromSearch(window.location.search);
   log(
@@ -133,6 +150,12 @@ function announceCaptureReady(videoId: string): void {
   const message: CaptureReadyMessage = { type: "blk-capture-ready", videoId };
   window.postMessage(message, window.location.origin);
   log(`capture-ready broadcast for videoId=${videoId}`);
+}
+
+function announceAcquisitionResult(videoId: string, source: SourceId, url: string | null, reason: string): void {
+  const message: AcquisitionResultMessage = { type: "blk-acquisition-result", videoId, source, url, reason };
+  window.postMessage(message, window.location.origin);
+  log(`${source} finished with videoId=${videoId}: ${url ? "a url for the track" : "nothing"}, ${reason}`);
 }
 
 function announcePartialCapture(videoId: string, coveredSeconds: number, trackSeconds: number): void {
@@ -196,7 +219,22 @@ function bufferedEndSeconds(element: HTMLVideoElement): number {
   return element.buffered.length === 0 ? 0 : element.buffered.end(element.buffered.length - 1);
 }
 
+function announceAheadDownloadProgress(): void {
+  const videoId = slicedPrefetchVideoId;
+  if (videoId === null || !slicedPrefetchIsAhead || !hiddenPlayerOwns(videoId)) return;
+  const fraction = hiddenPlayerProgress();
+  if (!Number.isFinite(fraction)) return;
+  const message: DownloadProgressMessage = {
+    type: "blk-download-progress",
+    videoId,
+    fraction,
+    source: "hidden-player",
+  };
+  window.postMessage(message, window.location.origin);
+}
+
 function announceDownloadProgress(element: HTMLVideoElement): void {
+  announceAheadDownloadProgress();
   const videoId = listenedVideoId();
   if (!videoId || stoodDownVideoIds.has(videoId) || isAdPlayingHere()) return;
   if (prefetchStateByVideoId.get(videoId) === "done") return;
@@ -348,6 +386,7 @@ function abandonPrefetch(videoId: string, ahead: boolean, reason: string): void 
   if (decideRetry(attempts, ahead) === "give-up") {
     prefetchStateByVideoId.set(videoId, "unavailable");
     log(`prefetch for videoId=${videoId} gave up after ${attempts} attempt(s): ${reason}`);
+    announceAcquisitionResult(videoId, "hidden-player", null, `gave up after ${attempts} attempt(s), ${reason}`);
     return;
   }
 
@@ -446,6 +485,38 @@ function startPrefetchFor(videoId: string, { ahead = false, fresh = false } = {}
   }, PREFETCH_DELAY_MS);
 }
 
+// -- Minting a url on request ------------------------------------------------
+
+let shadowInFlightVideoId: string | null = null;
+let shadowBudget = freshBudget();
+
+function mintShadowUrlFor(videoId: string): void {
+  if (shadowInFlightVideoId !== null) {
+    log(`already minting a shadow url for ${shadowInFlightVideoId}, ignoring the request for ${videoId}`);
+    return;
+  }
+  const verdict = mayMint(shadowBudget, Date.now());
+  if (!verdict.allowed) {
+    announceAcquisitionResult(videoId, "shadow-url", null, verdict.reason);
+    return;
+  }
+
+  shadowInFlightVideoId = videoId;
+  shadowBudget = recordMintStarted(shadowBudget, Date.now());
+  mintShadowUrl({ videoId })
+    .then(result => {
+      shadowInFlightVideoId = null;
+      shadowBudget = recordMintOutcome(shadowBudget, result.minted !== null, Date.now());
+      announceAcquisitionResult(videoId, "shadow-url", result.minted?.url ?? null, result.reason);
+    })
+    .catch(error => {
+      shadowInFlightVideoId = null;
+      shadowBudget = recordMintOutcome(shadowBudget, false, Date.now());
+      logError(`minting a shadow url for videoId=${videoId} threw`, error);
+      announceAcquisitionResult(videoId, "shadow-url", null, "the shadow player crashed");
+    });
+}
+
 // -- Handing the bytes over --------------------------------------------------
 
 function respondToCapturedAudioRequest(videoId: string): void {
@@ -515,26 +586,23 @@ function respondToPrefetchedAudioRequest(videoId: string): void {
 }
 
 function standDownFor(videoId: string): void {
+  if (runsOrchestration) noteListenedTrack(videoId);
   if (stoodDownVideoIds.has(videoId)) return;
   stoodDownVideoIds.add(videoId);
-  if (accumulator.getStats().videoId !== videoId) return;
-  const retainedBefore = accumulator.getStats().retainedChunkCount;
+  const held = accumulator.getStats();
+  accumulator.setActiveVideoId(videoId);
   accumulator.standDown();
-  log(`capture stood down for videoId=${videoId}, dropped ${retainedBefore} retained chunk(s)`);
+  log(
+    held.videoId === videoId
+      ? `capture stood down for videoId=${videoId}, dropped ${held.retainedChunkCount} retained chunk(s)`
+      : `capture stood down for videoId=${videoId}, dropped ${held.retainedChunkCount} chunk(s) held under ${held.videoId ?? "no track"}`
+  );
 }
 
 // -- The queue's own artwork, and the fallback for rows without it -------------
-//
-// A queue row carries its own square cover, which is the picture we want and
-// the one Better Lyrics Shaders shows for the same track. The ytimg resolver
-// below is only for a row that arrived without one, and it runs here rather
-// than in the popup because only this world can probe an image against
-// music.youtube.com.
 
 const artworkResolver = createArtworkResolver(loadImageSizeInPage);
 
-// Asked for by the popup rather than pushed, so the queue is only read while
-// somebody is looking at it.
 function answerQueueTracksRequest(): void {
   const items = readQueueItems(document);
   const listened = listenedVideoId();
@@ -562,8 +630,8 @@ function resolveFallbackArtwork(videoId: string): void {
     });
 }
 
-function announceNextTrack(next: QueueTrack): void {
-  const message: NextTrackMessage = { type: "blk-next-track", videoId: next.videoId };
+function announceNextTrack(next: QueueTrack, warm: boolean): void {
+  const message: NextTrackMessage = { type: "blk-next-track", videoId: next.videoId, warm };
   window.postMessage(message, window.location.origin);
 }
 
@@ -573,8 +641,13 @@ window.addEventListener("message", event => {
   if (isSetLoggingMessage(data)) setLoggingEnabled(data.enabled);
   if (isRequestCapturedAudioMessage(data)) respondToCapturedAudioRequest(data.videoId);
   if (isRequestPrefetchedAudioMessage(data) && runsOrchestration) respondToPrefetchedAudioRequest(data.videoId);
+  if (isListeningToMessage(data) && runsOrchestration) noteListenedTrack(data.videoId);
+  if (isRequestShadowUrlMessage(data) && runsOrchestration) {
+    noteListenedTrack(data.videoId);
+    mintShadowUrlFor(data.videoId);
+  }
   if (isRequestPrefetchMessage(data) && runsOrchestration) {
-    if (data.ahead !== true) announcedListenedVideoId = data.videoId;
+    if (data.ahead !== true) noteListenedTrack(data.videoId);
     startPrefetchFor(data.videoId, { ahead: data.ahead === true, fresh: data.fresh === true });
   }
 
@@ -586,7 +659,7 @@ window.addEventListener("message", event => {
       log(`no next track in the queue after ${data.videoId}`);
       return;
     }
-    announceNextTrack(next);
+    announceNextTrack(next, data.warm === true);
   }
   if (isRequestQueueTracksMessage(data) && runsOrchestration) answerQueueTracksRequest();
   if (isCaptureStandDownMessage(data)) standDownFor(data.videoId);
@@ -598,13 +671,48 @@ declare global {
     blkDisableCapture: () => void;
     blkPrefetchTrackInSlices: (workerCount?: number) => Promise<unknown>;
     blkCaptureProbe: () => unknown;
+    blkShadowUrlProbe: (videoId: string) => Promise<unknown>;
   }
 }
 
-window.blkCaptureProbe = () => {
-  const videoId = listenedVideoId();
+window.blkShadowUrlProbe = async (videoId: string) => {
+  const started = performance.now();
+  const result = await mintShadowUrl({ videoId });
+  const stream = result.minted;
   return {
     videoId,
+    elapsedMs: Math.round(performance.now() - started),
+    reason: result.reason,
+    observed: result.observed,
+    shadowsLeft: document.querySelectorAll(`#${SHADOW_HOST_ID}`).length,
+    budget: mayMint(shadowBudget, Date.now()),
+    minted: stream
+      ? {
+          itag: stream.itag,
+          contentLengthBytes: stream.contentLengthBytes,
+          durationSeconds: stream.durationSeconds,
+          mimeType: stream.mimeType,
+          tokenBytes: stream.poToken?.byteLength ?? 0,
+        }
+      : null,
+  };
+};
+
+window.blkCaptureProbe = () => {
+  const videoId = listenedVideoId();
+  const stats = accumulator.getStats();
+  return {
+    videoId,
+    accumulator: {
+      videoId: stats.videoId,
+      totalBytes: stats.totalBytes,
+      appendCount: stats.appendCount,
+      retainedChunkCount: stats.retainedChunkCount,
+      initSegmentCount: stats.initSegmentCount,
+      hitCap: stats.hitCap,
+      stoodDown: stats.stoodDown,
+      plannedBytes: planFirstPlusMedia(accumulator.getChunks()).reduce((sum, part) => sum + part.byteLength, 0),
+    },
     prefetchState: videoId ? prefetchStateByVideoId.get(videoId) ?? null : null,
     hiddenPlayerOwnsCurrent: videoId ? hiddenPlayerOwns(videoId) : false,
     attempts: videoId ? prefetchAttemptsByVideoId.get(videoId) ?? 0 : 0,
