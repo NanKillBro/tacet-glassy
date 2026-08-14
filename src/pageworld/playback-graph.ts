@@ -7,11 +7,12 @@ import type { AudibleSource } from "@/pageworld/audible-source";
 import { createBypassController } from "@/pageworld/bypass";
 import { createDeck } from "@/pageworld/deck";
 import type { Deck, DeckLoad, DeckState } from "@/pageworld/deck";
-import { listenerGain } from "@/pageworld/gain-law";
+import { MIX_GLIDE_SECONDS, NEUTRAL_MIX_LEVEL, listenerGain } from "@/pageworld/gain-law";
 import { GAIN_RAMP_SECONDS, rampGainTo, scheduleGainCurve } from "@/pageworld/gain-ramp";
 import { playerCurrentTime } from "@/pageworld/player-state";
 import { describeStandDown, standDownReason } from "@/pageworld/stand-down";
 import { resolveStemStart } from "@/pageworld/stem-offset";
+import { FRAME_SECONDS, chooseSwapDelaySeconds } from "@/pageworld/swap-window";
 import type { StemStart } from "@/pageworld/stem-offset";
 import { DRIFT_SEEK_SETTLE_S, decideDriftCorrection } from "@/pageworld/stem-restart";
 import { createLogger } from "@/shared/logger";
@@ -20,6 +21,8 @@ const logger = createLogger("page");
 
 const PAUSE_SETTLE_MS = 600;
 const SWAP_SECONDS = 0.12;
+const HANDOVER_SECONDS = 0.02;
+const SWAP_SEARCH_SECONDS = 3;
 const ELEMENT_STALL_SECONDS = 2;
 const PAUSE_CHECK_ATTEMPTS = 20;
 
@@ -99,7 +102,7 @@ interface PlaybackGraph {
     trackId: string | null
   ): void;
   loadMix(mix: AudioBuffer, trackId: string | null): void;
-  setMixLevel(mixLevel: number): void;
+  setMixLevel(mixLevel: number, seconds?: number): void;
   stopStems(reason?: string): void;
   resumeStems(): void;
   crossfadeTo(request: CrossfadeRequest): CrossfadeResult;
@@ -183,6 +186,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   let transportAttached = false;
   let lastStart: StemStart | null = null;
   let driftSuppressedUntilContextTime = 0;
+  let deferredHandover: ReturnType<typeof setTimeout> | null = null;
   let lastElementTime = Number.NaN;
   let elementMovedAtContextTime = 0;
 
@@ -254,6 +258,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
 
   function startSourcesAtPlayhead(): void {
     if (!deck().hasStems()) return;
+    cancelDeferredHandover();
     deck().stop();
 
     const start = resolveStemStart({
@@ -270,10 +275,16 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
       return;
     }
 
-    setOriginalGain(0);
+    setOriginalGain(0, HANDOVER_SECONDS);
     deck().startAt(start.offsetSeconds);
-    deck().fadeIn();
-    deck().setMixLevel(currentMixLevel);
+    deck().fadeIn(HANDOVER_SECONDS);
+    if (currentMixLevel === NEUTRAL_MIX_LEVEL) {
+      deck().setMixLevel(currentMixLevel);
+      return;
+    }
+    deck().setMixLevel(NEUTRAL_MIX_LEVEL, 0);
+    deck().setMixLevel(currentMixLevel, MIX_GLIDE_SECONDS);
+    logger.log(`easing the vocals to ${currentMixLevel.toFixed(2)} over ${MIX_GLIDE_SECONDS} s`);
   }
 
   function stopDeck(): void {
@@ -417,15 +428,45 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
 
   function resumeStems(): void {
     if (!deck().hasStems()) return;
-    setOriginalGain(0);
     bypass.exitBypass();
     attachTransportListeners();
-    if (!element.paused) startSourcesAtPlayhead();
+    if (element.paused) {
+      setOriginalGain(0, HANDOVER_SECONDS);
+      return;
+    }
+
+    const delay = chooseSwapDelaySeconds({
+      envelope: deck().envelope(),
+      frameSeconds: FRAME_SECONDS,
+      fromSeconds: playerCurrentTime(document),
+      withinSeconds: SWAP_SEARCH_SECONDS,
+      fadeSeconds: HANDOVER_SECONDS,
+    });
+    if (delay <= 0) {
+      startSourcesAtPlayhead();
+      return;
+    }
+
+    const waitingFor = deck().trackId();
+    logger.log(`holding the handover ${delay.toFixed(2)} s for a quieter passage`);
+    deferredHandover = setTimeout(() => {
+      deferredHandover = null;
+      if (bypass.isBypassed() || isCrossfading() || element.paused) return;
+      if (deck().trackId() !== waitingFor) return;
+      if (deps.playerTrackId() !== null && deps.playerTrackId() !== waitingFor) return;
+      startSourcesAtPlayhead();
+    }, delay * 1000);
   }
 
-  function setMixLevel(mixLevel: number): void {
+  function cancelDeferredHandover(): void {
+    if (deferredHandover === null) return;
+    clearTimeout(deferredHandover);
+    deferredHandover = null;
+  }
+
+  function setMixLevel(mixLevel: number, seconds?: number): void {
     currentMixLevel = mixLevel;
-    deck().setMixLevel(mixLevel);
+    deck().setMixLevel(mixLevel, seconds);
   }
 
   function recoverIfStopped(): boolean {
@@ -447,6 +488,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   }
 
   function stopStems(reason = "the deck was released"): void {
+    cancelDeferredHandover();
     if (abortCrossfade(`the stems were released mid fade, ${reason}`)) return;
     if (!bypass.isBypassed()) logger.log(`bypassing to the original, ${reason}`);
     bypass.enterBypass();
@@ -586,6 +628,7 @@ function createPlaybackGraph(deps: PlaybackGraphDeps): PlaybackGraph {
   }
 
   function dispose(): void {
+    cancelDeferredHandover();
     crossfade = null;
     for (const each of decks) each.dispose();
     element.removeEventListener("volumechange", syncListenerVolume);

@@ -5,6 +5,7 @@ import type { StagedKind } from "@/automix/staged-source";
 export interface SetMixLevelMessage {
   type: "blk-set-mix-level";
   mixLevel: number;
+  glideSeconds?: number;
 }
 
 export interface LoadStemsMessage {

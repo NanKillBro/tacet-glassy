@@ -1,21 +1,44 @@
 const QUEUE_ITEM_SELECTOR = "ytmusic-player-queue-item";
+const COUNTERPART_SELECTOR = "#counterpart-renderer";
+const WRAPPER_SELECTOR = "ytmusic-playlist-panel-video-wrapper-renderer";
 const SELECTED_ATTRIBUTE = "selected";
+const PLAY_STATE_ATTRIBUTE = "play-button-state";
+const IDLE_PLAY_STATE = "default";
 
 interface QueueItem {
   videoId: string | null;
   selected: boolean;
+  playState?: string | null;
   title?: string | null;
   artist?: string | null;
   artworkUrl?: string | null;
+  wrapper?: number | null;
+  counterpart?: boolean;
+}
+
+// -- One row per track, not one per rendering ----------------------------------
+
+function isPlayingRow(item: QueueItem): boolean {
+  return typeof item.playState === "string" && item.playState !== "" && item.playState !== IDLE_PLAY_STATE;
+}
+
+function dropSpareCounterparts(items: readonly QueueItem[]): QueueItem[] {
+  const chosen = new Map<number, QueueItem>();
+  for (const item of items) {
+    if (typeof item.wrapper !== "number") continue;
+    const held = chosen.get(item.wrapper);
+    if (held !== undefined && isPlayingRow(held)) continue;
+    if (held === undefined || isPlayingRow(item) || (item.counterpart !== true && held.counterpart === true)) {
+      chosen.set(item.wrapper, item);
+    }
+  }
+  return items.filter(item => typeof item.wrapper !== "number" || chosen.get(item.wrapper) === item);
 }
 
 function nextVideoIdInQueue(items: readonly QueueItem[], currentVideoId: string | null): string | null {
   if (items.length === 0) return null;
 
-  let currentIndex = items.findIndex(item => item.selected);
-  if (currentIndex === -1 && currentVideoId) {
-    currentIndex = items.findIndex(item => item.videoId === currentVideoId);
-  }
+  const currentIndex = currentIndexInQueue(items, currentVideoId);
   if (currentIndex === -1 || currentIndex >= items.length - 1) return null;
 
   const next = items[currentIndex + 1].videoId;
@@ -109,12 +132,21 @@ function readQueueItemArtwork(element: PolymerQueueItem): string | null {
 }
 
 function readQueueItems(doc: Document): QueueItem[] {
-  return Array.from(doc.querySelectorAll<PolymerQueueItem>(QUEUE_ITEM_SELECTOR)).map(element => ({
-    videoId: readQueueItemVideoId(element),
-    selected: element.hasAttribute(SELECTED_ATTRIBUTE),
-    artworkUrl: readQueueItemArtwork(element),
-    ...readQueueItemText(element),
-  }));
+  const wrappers = Array.from(doc.querySelectorAll(WRAPPER_SELECTOR));
+  return dropSpareCounterparts(
+    Array.from(doc.querySelectorAll<PolymerQueueItem>(QUEUE_ITEM_SELECTOR)).map(element => {
+      const wrapper = element.closest(WRAPPER_SELECTOR);
+      return {
+        videoId: readQueueItemVideoId(element),
+        selected: element.hasAttribute(SELECTED_ATTRIBUTE),
+        playState: element.getAttribute(PLAY_STATE_ATTRIBUTE),
+        artworkUrl: readQueueItemArtwork(element),
+        wrapper: wrapper === null ? null : wrappers.indexOf(wrapper),
+        counterpart: element.closest(COUNTERPART_SELECTOR) !== null,
+        ...readQueueItemText(element),
+      };
+    })
+  );
 }
 
 interface QueueTrack {
@@ -133,11 +165,21 @@ function describeQueueItem(item: QueueItem | undefined, videoId: string): QueueT
   };
 }
 
+// -- Which row the listener is on ----------------------------------------------
+
 function currentIndexInQueue(items: readonly QueueItem[], currentVideoId: string | null): number {
-  const selected = items.findIndex(item => item.selected);
-  if (selected !== -1) return selected;
-  if (!currentVideoId) return -1;
-  return items.findIndex(item => item.videoId === currentVideoId);
+  const playing = items.findIndex(isPlayingRow);
+  if (playing !== -1) return playing;
+
+  const selected = items.map((item, index) => (item.selected ? index : -1)).filter(index => index !== -1);
+  if (selected.length === 1) return selected[0];
+
+  if (currentVideoId) {
+    const match = items.findIndex(item => item.videoId === currentVideoId);
+    if (match !== -1) return match;
+  }
+
+  return selected.length > 0 ? selected[selected.length - 1] : -1;
 }
 
 function currentTrackInQueue(items: readonly QueueItem[], currentVideoId: string | null): QueueTrack | null {
@@ -161,8 +203,13 @@ export {
   nextVideoIdInQueue,
   nextTrackInQueue,
   currentTrackInQueue,
+  dropSpareCounterparts,
   readQueueItems,
+  COUNTERPART_SELECTOR,
+  IDLE_PLAY_STATE,
+  PLAY_STATE_ATTRIBUTE,
   QUEUE_ITEM_SELECTOR,
   SELECTED_ATTRIBUTE,
+  WRAPPER_SELECTOR,
 };
 export type { QueueItem, QueueTrack };

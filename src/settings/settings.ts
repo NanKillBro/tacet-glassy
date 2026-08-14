@@ -1,3 +1,5 @@
+import { SOURCE_IDS, sanitizeSourcePreferences } from "@/acquisition/sources";
+import type { SourcePreference } from "@/acquisition/sources";
 import { DEFAULT_MODEL_VARIANT, type ModelVariant, isModelVariant } from "@/cache/model-url";
 import { DEFAULT_BUDGET_BYTES } from "@/cache/stem-store";
 
@@ -42,6 +44,7 @@ interface Settings {
   modelVariant: ModelVariant;
   faderPlacement: FaderPlacement;
   crossfadeSeconds: number;
+  sources: SourcePreference[];
   debugLoggingEnabled: boolean;
 }
 
@@ -52,6 +55,7 @@ const DEFAULT_SETTINGS: Settings = {
   modelVariant: DEFAULT_MODEL_VARIANT,
   faderPlacement: "dock",
   crossfadeSeconds: 8,
+  sources: SOURCE_IDS.map(id => ({ id, enabled: true })),
   debugLoggingEnabled: false,
 };
 
@@ -84,6 +88,7 @@ function sanitizeSettings(raw: unknown): Settings {
     crossfadeSeconds: isValidCrossfadeSeconds(record.crossfadeSeconds)
       ? record.crossfadeSeconds
       : DEFAULT_SETTINGS.crossfadeSeconds,
+    sources: sanitizeSourcePreferences(record.sources),
     debugLoggingEnabled:
       typeof record.debugLoggingEnabled === "boolean"
         ? record.debugLoggingEnabled

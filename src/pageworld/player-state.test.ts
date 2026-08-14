@@ -1,4 +1,7 @@
+import { remainingForCue } from "@/automix/cue-clock";
+import { mayArmStaging } from "@/automix/staged-source";
 import { readPlayerSnapshot } from "@/pageworld/player-state";
+import type { PlayerSnapshot } from "@/pageworld/player-state";
 import type { YtPlayer } from "@/capture/yt-player";
 import { describe, expect, it } from "vitest";
 
@@ -11,9 +14,10 @@ function playerReporting(videoData: unknown, duration: number): YtPlayer {
 
 describe("readPlayerSnapshot", () => {
   it("reports the track the player names, with its duration", () => {
-    expect(readPlayerSnapshot(playerReporting({ video_id: "abc123" }, 215.16))).toEqual({
+    expect(readPlayerSnapshot(playerReporting({ video_id: "abc123" }, 215.16), 216, false, true)).toEqual({
       videoId: "abc123",
-      durationSeconds: 215.16,
+      durationSeconds: 216,
+      durationTrusted: true,
     });
   });
 
@@ -28,10 +32,38 @@ describe("readPlayerSnapshot", () => {
   it("regression: an ad's clock is never returned as the next track's length", () => {
     const duringAnAdBlock = readPlayerSnapshot(playerReporting({ video_id: "oodQMZLjoBU", isAd: null }, 237), 46, true);
     expect(duringAnAdBlock).toBeNull();
-    expect(readPlayerSnapshot(playerReporting({ video_id: "oodQMZLjoBU" }, 237), 237, false)).toEqual({
+    expect(readPlayerSnapshot(playerReporting({ video_id: "oodQMZLjoBU" }, 237), 237, false, true)).toEqual({
       videoId: "oodQMZLjoBU",
       durationSeconds: 237,
+      durationTrusted: true,
     });
+  });
+
+  it("distrusts the length while the bar is still timing an ad the attribute has released", () => {
+    // The bar's total is still moving there, so it never reports as settled.
+    const barStillOnTheAd = readPlayerSnapshot(
+      playerReporting({ video_id: "oodQMZLjoBU", isAd: null }, 237),
+      14,
+      false,
+      false
+    );
+    expect(barStillOnTheAd?.durationSeconds).toBe(14);
+    expect(barStillOnTheAd?.durationTrusted).toBe(false);
+  });
+
+  it("trusts a settled bar however far the player's own duration has drifted", () => {
+    expect(readPlayerSnapshot(playerReporting({ video_id: "abc123" }, 49.9), 315, false, true)?.durationTrusted).toBe(
+      true
+    );
+    expect(readPlayerSnapshot(playerReporting({ video_id: "abc123" }, 304.9), 289, false, true)?.durationTrusted).toBe(
+      true
+    );
+  });
+
+  it("never trusts a duration the bar did not supply", () => {
+    const noBar = readPlayerSnapshot(playerReporting({ video_id: "abc123" }, 215.16), Number.NaN, false, true);
+    expect(noBar?.durationSeconds).toBe(215.16);
+    expect(noBar?.durationTrusted).toBe(false);
   });
 
   it("refuses a player that has not loaded a track yet", () => {
@@ -93,6 +125,42 @@ describe("readPlayerSnapshot", () => {
       const first = readPlayerSnapshot(playerReporting({ video_id: "first" }, 200));
       const second = readPlayerSnapshot(playerReporting({ video_id: "second" }, 200));
       expect(first?.videoId).not.toBe(second?.videoId);
+    });
+  });
+
+  // A snapshot the cue cannot use is worth nothing, and distrust does not
+  // announce itself: it arrives as NaN, nothing stages, no fade ever arms, and
+  // the only symptom is a listener saying crossfade works sometimes. So the
+  // chain is driven end to end here rather than left to the unit tests either
+  // side of it.
+  describe("what the cue can do with the snapshot", () => {
+    const remainingFor = (snapshot: PlayerSnapshot | null, positionSeconds: number): number =>
+      remainingForCue({
+        trackDurationSeconds: snapshot?.durationTrusted === true ? snapshot.durationSeconds : Number.NaN,
+        trackPositionSeconds: positionSeconds,
+        deckDurationSeconds: Number.NaN,
+        deckPositionSeconds: Number.NaN,
+      });
+
+    it("regression: a gapless append still lets a fade arm", () => {
+      // Measured on a real session: a 315 s track fifteen seconds in read 49.9
+      // from getDuration() while the player bar showed 0:15 / 5:15.
+      const appended = readPlayerSnapshot(playerReporting({ video_id: "appended" }, 49.9), 315, false, true);
+      expect(appended?.durationSeconds).toBe(315);
+      expect(remainingFor(appended, 307)).toBeCloseTo(8);
+      expect(mayArmStaging(remainingFor(appended, 307), 8, 6)).toBe(true);
+    });
+
+    it("regression: a bar still timing an ad arms nothing", () => {
+      const barOnTheAd = readPlayerSnapshot(playerReporting({ video_id: "afterAnAd" }, 237), 14, false, false);
+      expect(remainingFor(barOnTheAd, 5)).toBeNaN();
+      expect(mayArmStaging(remainingFor(barOnTheAd, 5), 8, 6)).toBe(false);
+    });
+
+    it("an ordinary track arms only inside the decode window", () => {
+      const ordinary = readPlayerSnapshot(playerReporting({ video_id: "ordinary" }, 215.11), 216, false, true);
+      expect(mayArmStaging(remainingFor(ordinary, 10), 8, 6)).toBe(false);
+      expect(mayArmStaging(remainingFor(ordinary, 205), 8, 6)).toBe(true);
     });
   });
 });
