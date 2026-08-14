@@ -13,7 +13,7 @@
     "lint": "biome lint . && biome format .",
     "lint:fix": "biome lint --write . && biome format --write .",
     "test": "vitest run",
-    "sync:ort": "cp node_modules/onnxruntime-web/dist/ort.webgpu.bundle.min.mjs assets/ort/ && cp node_modules/onnxruntime-web/dist/ort-wasm*.mjs assets/ort/ && cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.wasm assets/ort/"
+    "sync:ort": "shx cp node_modules/onnxruntime-web/dist/ort.webgpu.bundle.min.mjs assets/ort/ && shx cp node_modules/onnxruntime-web/dist/ort-wasm*.mjs assets/ort/ && shx cp node_modules/onnxruntime-web/dist/ort-wasm-simd-threaded.asyncify.wasm assets/ort/"
   },
   "dependencies": {
     "plasmo": "0.90.5"
@@ -25,14 +25,21 @@
     "@types/trusted-types": "^2.0.7",
     "fake-indexeddb": "^6.2.5",
     "onnxruntime-web": "1.26.0",
+    "shx": "^0.4.0",
     "tsc-alias": "^1.9.1",
     "typescript": "^5.9.3",
     "vitest": "^4.1.10"
   },
   "manifest": {
-    "host_permissions": ["https://music.youtube.com/*", "https://models.betterlyrics.org/*"],
+    "host_permissions": [
+      "https://music.youtube.com/*",
+      "https://models.betterlyrics.org/*"
+    ],
     "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArXxvekuv4grdgbAaCvcFhRUZElp2sLdzc4c+qKQ8JSk6miRUrME+gx1pPHUxPjtC3zBUftn/CJXoU6LG3cE+R3VvfbhNTurSEq09NaPzFPqne3UBhOd2nDlOUf2WIIuTN1rt21W6FMwoJEwetJvP3RkfEQAicmaSZlW9VzGD071Nl2OpGktArtedOQKSx5F/S7+hRpBlR7fTErWHjcBVvUtUYGF/1qFgbTbAppuzq2+Kg0W39Sf291zB4GPnFTi6zhvJ1JQayNthurKmP4qr3GXA/Hcc8UMcOckbhwGcxGDj+HNUhahsWNcM+7liSTvba8YIVzrBa77n0iyd9BEDdwIDAQAB",
-    "permissions": ["storage", "offscreen"],
+    "permissions": [
+      "storage",
+      "offscreen"
+    ],
     "content_security_policy": {
       "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
     },
@@ -49,7 +56,9 @@
           "assets/src/shared/*",
           "assets/offscreen.html"
         ],
-        "matches": ["https://music.youtube.com/*"]
+        "matches": [
+          "https://music.youtube.com/*"
+        ]
       }
     ]
   }

@@ -595,7 +595,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   // -- Auto separate -------------------------------------------------------
 
   function maybeAcquireCurrent(videoId: string): void {
-    loadSettingsFrom(chrome.storage.sync)
+    loadSettingsFrom(chrome.storage.local)
       .then(settings => {
         if (videoId !== state.videoId) return;
         if (settings.autoSeparateEnabled || pendingMixLevel !== NEUTRAL_MIX_LEVEL) {
@@ -609,7 +609,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   }
 
   function maybeSeparateAhead(videoId: string): void {
-    loadSettingsFrom(chrome.storage.sync)
+    loadSettingsFrom(chrome.storage.local)
       .then(settings => {
         if (videoId !== prefetchVideoId) return;
         if (!settings.autoSeparateEnabled && pendingMixLevel === NEUTRAL_MIX_LEVEL) {
@@ -628,7 +628,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   }
 
   function maybeAutoEngage(videoId: string): void {
-    loadSettingsFrom(chrome.storage.sync)
+    loadSettingsFrom(chrome.storage.local)
       .then(settings => {
         const armed = pendingMixLevel !== NEUTRAL_MIX_LEVEL;
         if (!settings.autoSeparateEnabled && !armed) return;

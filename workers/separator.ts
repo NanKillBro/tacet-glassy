@@ -176,6 +176,7 @@ interface SeparationOrt {
 interface SeparationOrtTensor {
   data: Float32Array;
   dims: number[];
+  dispose?(): void;
 }
 
 interface SeparationOrtSession {
@@ -210,11 +211,18 @@ async function probeWithZeros(runtime: SeparationOrt, session: SeparationOrtSess
       for (let i = 0; i < waveformData.length; i++) waveformData[i] = amplitude * Math.sin(i * 0.01);
       for (let i = 0; i < magspecData.length; i++) magspecData[i] = amplitude * Math.sin(i * 0.017);
 
+      const input1 = new runtime.Tensor("float32", waveformData, [1, 2, SEGMENT_SAMPLES]);
+      const input2 = new runtime.Tensor("float32", magspecData, MAGSPEC_DIMS);
       const result = await session.run({
-        [WAVEFORM_INPUT_NAME]: new runtime.Tensor("float32", waveformData, [1, 2, SEGMENT_SAMPLES]),
-        [MAGSPEC_INPUT_NAME]: new runtime.Tensor("float32", magspecData, MAGSPEC_DIMS),
+        [WAVEFORM_INPUT_NAME]: input1,
+        [MAGSPEC_INPUT_NAME]: input2,
       });
       logger.log(`amp=${amplitude}`, probe(TIME_OUTPUT_NAME, result[TIME_OUTPUT_NAME].data));
+      input1.dispose?.();
+      input2.dispose?.();
+      for (const key of Object.keys(result)) {
+        result[key].dispose?.();
+      }
     } catch (error) {
       logger.log(`amp=${amplitude} run failed`, toErrorMessage(error));
     }
@@ -371,6 +379,12 @@ async function handleSeparateProcess(channels: Float32Array[], totalFrames: numb
     const regionStart = stitcher.finalisedFrames;
     const region = stitcher.push(vocalsChunk);
     if (region) emitRegion(regionStart, region, channels, normalized, totalFrames);
+
+    waveformTensor.dispose?.();
+    magspecTensor.dispose?.();
+    for (const key of Object.keys(result)) {
+      result[key].dispose?.();
+    }
   }
 
   const tailStart = stitcher.finalisedFrames;

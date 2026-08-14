@@ -775,7 +775,7 @@ async function main(): Promise<void> {
     status.textContent = message;
   }
 
-  const settings = await loadSettingsFrom(chrome.storage.sync).catch(error => {
+  const settings = await loadSettingsFrom(chrome.storage.local).catch(error => {
     console.error(`${LOG_PREFIX} failed to load settings`, error);
     showStatus("Could not load settings.");
     return DEFAULT_SETTINGS;
@@ -786,7 +786,7 @@ async function main(): Promise<void> {
     "Sing-along and everything behind it, crossfade included. Reload YouTube Music after changing this.",
     settings.singAlongEnabled,
     next => {
-      saveSettingsFrom(chrome.storage.sync, { singAlongEnabled: next }).catch(error => {
+      saveSettingsFrom(chrome.storage.local, { singAlongEnabled: next }).catch(error => {
         console.error(`${LOG_PREFIX} failed to save the sing-along setting`, error);
         showStatus("Could not save that change.");
         singAlongToggle.setChecked(!next);
@@ -799,7 +799,7 @@ async function main(): Promise<void> {
     "Begin separation as soon as a track is captured, instead of waiting for a tap.",
     settings.autoSeparateEnabled,
     next => {
-      saveSettingsFrom(chrome.storage.sync, { autoSeparateEnabled: next }).catch(error => {
+      saveSettingsFrom(chrome.storage.local, { autoSeparateEnabled: next }).catch(error => {
         console.error(`${LOG_PREFIX} failed to save the auto-separate setting`, error);
         showStatus("Could not save that change.");
         autoSeparateToggle.setChecked(!next);
@@ -812,7 +812,7 @@ async function main(): Promise<void> {
     "Print what the extension is doing to the console. Off unless you are debugging.",
     settings.debugLoggingEnabled,
     next => {
-      saveSettingsFrom(chrome.storage.sync, { debugLoggingEnabled: next }).catch(error => {
+      saveSettingsFrom(chrome.storage.local, { debugLoggingEnabled: next }).catch(error => {
         console.error(`${LOG_PREFIX} failed to save the logging setting`, error);
         showStatus("Could not save that change.");
         debugLoggingToggle.setChecked(!next);
@@ -821,7 +821,7 @@ async function main(): Promise<void> {
   );
 
   const modelVariantRow = createModelVariantRow(settings.modelVariant, next => {
-    saveSettingsFrom(chrome.storage.sync, { modelVariant: next })
+    saveSettingsFrom(chrome.storage.local, { modelVariant: next })
       .then(() => refreshCacheStatus())
       .catch(error => {
         console.error(`${LOG_PREFIX} failed to save the model precision`, error);
@@ -831,7 +831,7 @@ async function main(): Promise<void> {
   });
 
   const faderPlacementRow = createFaderPlacementRow(settings.faderPlacement, next => {
-    saveSettingsFrom(chrome.storage.sync, { faderPlacement: next }).catch(error => {
+    saveSettingsFrom(chrome.storage.local, { faderPlacement: next }).catch(error => {
       console.error(`${LOG_PREFIX} failed to save the fader position`, error);
       showStatus("Could not save that change.");
       faderPlacementRow.setValue(settings.faderPlacement);
@@ -843,7 +843,7 @@ async function main(): Promise<void> {
   });
 
   const crossfadeRow = createCrossfadeRow(CROSSFADE_PRESETS_SECONDS, settings.crossfadeSeconds, next => {
-    saveSettingsFrom(chrome.storage.sync, { crossfadeSeconds: next }).catch(error => {
+    saveSettingsFrom(chrome.storage.local, { crossfadeSeconds: next }).catch(error => {
       console.error(`${LOG_PREFIX} failed to save the crossfade length`, error);
       showStatus("Could not save that change.");
       crossfadeRow.setValue(settings.crossfadeSeconds);
@@ -851,7 +851,7 @@ async function main(): Promise<void> {
   });
 
   const budgetSlider = createBudgetSlider(CACHE_BUDGET_PRESETS_BYTES, settings.cacheBudgetBytes, bytes => {
-    saveSettingsFrom(chrome.storage.sync, { cacheBudgetBytes: bytes })
+    saveSettingsFrom(chrome.storage.local, { cacheBudgetBytes: bytes })
       .then(() => refreshCacheStatus())
       .catch(error => {
         console.error(`${LOG_PREFIX} failed to save the cache budget`, error);

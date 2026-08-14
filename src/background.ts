@@ -27,6 +27,12 @@ const OFFSCREEN_JUSTIFICATION = "Separating vocals from the track the listener i
 const ALREADY_EXISTS_MESSAGE = "single offscreen document";
 
 async function ensureOffscreenDocument(): Promise<void> {
+  if (!chrome.offscreen) {
+    (chrome as any).offscreen = {
+      hasDocument: async () => true,
+      createDocument: async () => {},
+    };
+  }
   const hasDocument = await chrome.offscreen.hasDocument();
   if (hasDocument) return;
 
@@ -135,7 +141,7 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
 chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
   if (!isGetSettingsCommand(message)) return undefined;
 
-  loadSettingsFrom(chrome.storage.sync)
+  loadSettingsFrom(chrome.storage.local)
     .then(settings => {
       const response: SettingsMessage = { type: "blk-settings", settings, model: modelChoiceFor(settings) };
       sendResponse(response);
@@ -146,19 +152,19 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
   return true;
 });
 
-loadSettingsFrom(chrome.storage.sync)
+loadSettingsFrom(chrome.storage.local)
   .then(settings => setLoggingEnabled(settings.debugLoggingEnabled))
   .catch(error => logger.error("failed to read the logging setting", error));
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName !== "sync" || !(SETTINGS_STORAGE_KEY in changes)) return;
+  if (areaName !== "local" || !(SETTINGS_STORAGE_KEY in changes)) return;
   setLoggingEnabled(sanitizeSettings(changes[SETTINGS_STORAGE_KEY].newValue).debugLoggingEnabled);
 
   chrome.offscreen
     .hasDocument()
     .then(async hasDocument => {
       if (!hasDocument) return;
-      const settings = await loadSettingsFrom(chrome.storage.sync);
+      const settings = await loadSettingsFrom(chrome.storage.local);
       const message: SettingsChangedMessage = {
         type: "blk-settings-changed",
         settings,

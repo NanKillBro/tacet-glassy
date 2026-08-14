@@ -166,14 +166,14 @@ function applySettings(settings: Settings): void {
   logger.log("sing-along off");
 }
 
-loadSettingsFrom(chrome.storage.sync)
+loadSettingsFrom(chrome.storage.local)
   .then(applySettings)
   .catch(error => {
     logger.error("failed to check the sing-along setting", error);
   });
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName !== "sync" || !(SETTINGS_STORAGE_KEY in changes)) return;
+  if (areaName !== "local" || !(SETTINGS_STORAGE_KEY in changes)) return;
   applySettings(sanitizeSettings(changes[SETTINGS_STORAGE_KEY].newValue));
 });
 
