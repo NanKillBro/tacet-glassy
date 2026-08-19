@@ -53,8 +53,14 @@ function patchNames() {
 
 // [{ path, pre, post }] — pre/post are blob hashes as git abbreviated them, with
 // all-zeros meaning the file does not exist at that point in the series.
+//
+// The patch files are generated with LF, but a Windows checkout hands them back with
+// CRLF unless .gitattributes says otherwise, and a stray CR breaks this parse in a way
+// that is not obvious: in a JS regex `.` does not match \r, so `(.+)$` on a `diff --git`
+// line fails, no path is ever picked up, and the patch reads as having no steps at all.
+// So normalise first and do not rely on the checkout being configured.
 function readPatch(name) {
-  const text = readFileSync(join(patchDir, name), "utf8");
+  const text = readFileSync(join(patchDir, name), "utf8").replace(/\r\n/g, "\n");
   const steps = [];
   let path = null;
   for (const line of text.split("\n")) {

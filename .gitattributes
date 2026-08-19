@@ -1,0 +1,6 @@
+# Diff files are data whose bytes matter: they are generated with LF, they carry the
+# blob hashes of LF content, and whatever reads them is entitled to the endings the
+# generator chose. A Windows checkout with core.autocrlf=true rewrites them to CRLF
+# otherwise, which is how a build that was green here failed in CI.
+*.patch text eol=lf
+*.diff text eol=lf

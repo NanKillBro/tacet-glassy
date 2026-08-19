@@ -34,6 +34,17 @@ stops existing the moment 03 edits the same file, and passing the whole series t
 `--check` does not help either (git only carries a patch's result forward to the next
 when it is really applying).
 
+**Patch files must stay LF**, which `.gitattributes` here pins (`*.patch text eol=lf`).
+This bit once: the generator wrote them with LF, so every local build was green, but a
+fresh Windows checkout smudged them to CRLF and the CI build died in the applier's
+parser — in a JS regex `.` does not match `\r`, so `(.+)$` on a `diff --git` line quietly
+matched nothing and the patch read as empty. The parser normalises line endings now as
+well, so either half of that would have been enough; `git apply` itself was never the
+problem, it takes a CRLF patch happily. The general lesson for this checkout: anything
+whose *bytes* matter needs an attribute, because the working tree here is CRLF while the
+blobs are LF.
+
+
 
 Consequence to remember: **after any build the working tree is dirty on purpose.**
 Only ever commit `patches/`, `tooling/apply-patches.mjs`, `package.json`,
