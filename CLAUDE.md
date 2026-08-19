@@ -64,6 +64,7 @@ The series, in apply order (order matters where two patches touch one file):
 | 07 | `force-wasm-provider` | the host's "Force WASM (CPU) Mode" toggle reaching the worker |
 | 08 | `electron-player-tab` | the popup finding the player tab under Electron's `tabs.query` |
 | 09 | `windows-test-paths` | two tests that only passed on posix path separators |
+| 10 | `early-staged-decode` | crossfades lost at the last second to a staged decode that started too late |
 
 ## What Electron does not give the extension
 
@@ -134,6 +135,19 @@ repeated ~30 000 times.
    `warmRequestedFor` sends that request once per target. Alongside it, a rolling
    probe census (see below) so a storm like that shows up as one summary line rather
    than thirty thousand identical ones.
+8. **Crossfades lost to their own decode.** Separation, staging and the cue all worked;
+   the fade was armed (`<id> is staged, a transition into it is possible`) and then
+   abandoned a second from the end with `the staged track was still decoding with 1.2 s
+   left`. The cue asks the orchestrator for the decode at `fade + poll +
+   DECODE_LEAD_SECONDS` — about 14 s out — and gives up below `MINIMUM_FADE_SECONDS`,
+   so the decode has ~13 s to turn ~7 minutes of Opus into PCM. Fine in a browser tab;
+   here the tail of a track is also where the next one is warmed and separated, so the
+   budget is missed at random. Read the log by elimination: `sendStagedDeck` has exactly
+   three outcomes and **none of their lines was present**, which is what places the
+   failure inside a decode that never settled in time rather than anywhere upstream.
+   Patch 10 asks for the decode when the stems are staged instead, which is a minute or
+   so earlier and costs only holding the frames longer, and times the decode so the next
+   overrun says so itself.
 
 ## Diagnostics available
 
@@ -176,6 +190,11 @@ system gitconfig) while the blobs are LF. `npx biome lint .` alone is clean. Do 
 
 ## Known open items
 
+- The stems deck under-runs mid-track: `the deck stopped while the track kept playing,
+  restarting it at the playhead`, sometimes repeatedly, and `the deck reached the end of
+  its audio before the track did`. Seen alongside the crossfade misses of patch 10 but
+  independent of them — that fade failed in the orchestrator's decode, not in the graph.
+  Not diagnosed.
 - Long-term stability is unproven: confirmed working over ~4 tracks per session.
 - `PRODUCTION_WORKER_COUNT = 1` (`src/contents/capture-spike.ts`) spawns hidden
   YouTube Music iframes for prefetch. Untouched, and a plausible source of memory
@@ -183,4 +202,13 @@ system gitconfig) while the blobs are LF. `npx biome lint .` alone is clean. Do 
 - `DEFAULT_MAX_RETAINED_BYTES = 64 * 1024 * 1024` (`src/capture/accumulator.ts`)
   caps retained capture bytes; chunks past it are dropped from decode input but
   still counted in totals. Untouched.
-- VRAM usage was explicitly deprioritised by the user in favour of "it works".
+- **VRAM sits at 6–7 GB while separating** (measured 2026-08-19, after the session-reuse
+  and release fixes). Deliberately left alone: the user deprioritised it in favour of
+  "it works", so do not trade stability for it unopened. For whoever picks it up, the
+  163 MB of weights are not the story — that much VRAM is activations and ONNX Runtime's
+  WebGPU buffer cache, which reuses freed buffers rather than returning them to the
+  driver, so the high-water mark of one segment's intermediates is held for as long as
+  the session is. Levers, roughly cheapest first: shrink the segment/overlap the
+  pipeline feeds `separate-chunk`, drop the 90 s idle retention so the arena goes back
+  between tracks, or move to an fp16 model. Each one costs latency or quality, which is
+  exactly why none of them were taken.

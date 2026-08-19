@@ -26,6 +26,7 @@ one is written against the tree an earlier one produced.
 | 07 | `force-wasm-provider` | lets the host's "Force WASM (CPU) Mode" reach the worker, through the offscreen document's url |
 | 08 | `electron-player-tab` | Electron ignores `tabs.query({currentWindow})`, so the popup has to find the player by url |
 | 09 | `windows-test-paths` | two tests assumed posix path separators |
+| 10 | `early-staged-decode` | the staged stems were decoded ~14 s before the fade, and a decode that overran cost the whole transition |
 
 ## How the applier knows what is applied
 
