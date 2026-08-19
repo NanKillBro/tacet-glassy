@@ -1,0 +1,391 @@
+diff --git a/src/orchestrator/ahead-staging.ts b/src/orchestrator/ahead-staging.ts
+index 9edbc7c..f36d5f9 100644
+--- a/src/orchestrator/ahead-staging.ts
++++ b/src/orchestrator/ahead-staging.ts
+@@ -1,6 +1,5 @@
+ // -- The ahead track's stems, from chunks to blobs to the page world ----------
+ 
+-import { base64ToBytes } from "@/relay/base64";
+ import { type ChunkAssembler, createChunkAssembler } from "@/relay/chunk-transfer";
+ 
+ type AheadStem = "vocals" | "instrumental";
+@@ -76,8 +75,8 @@ class AheadStaging {
+     if (!assembly.vocals?.isComplete() || !assembly.instrumental?.isComplete()) return null;
+ 
+     const blobs = {
+-      vocals: new Blob([base64ToBytes(assembly.vocals.assemble())]),
+-      instrumental: new Blob([base64ToBytes(assembly.instrumental.assemble())]),
++      vocals: new Blob([assembly.vocals.assembleBytes()]),
++      instrumental: new Blob([assembly.instrumental.assembleBytes()]),
+     };
+     this.assembly = null;
+     this.held = { videoId, ...blobs };
+diff --git a/src/orchestrator/karaoke-pipeline.ts b/src/orchestrator/karaoke-pipeline.ts
+index 792b6ee..707539c 100644
+--- a/src/orchestrator/karaoke-pipeline.ts
++++ b/src/orchestrator/karaoke-pipeline.ts
+@@ -44,8 +44,7 @@ import {
+   isCrossfadeStartedMessage,
+   isRequestStagedDeckMessage,
+ } from "@/pageworld/protocol";
+-import { base64ToBytes, bytesToBase64 } from "@/relay/base64";
+-import { type ChunkAssembler, createChunkAssembler, splitIntoChunks } from "@/relay/chunk-transfer";
++import { type ChunkAssembler, createChunkAssembler, iterateBase64Chunks } from "@/relay/chunk-transfer";
+ import { loadSettingsFrom } from "@/settings/storage";
+ import { createLogger } from "@/shared/logger";
+ import type {
+@@ -291,19 +290,20 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
+   // -- MAIN world: capture-spike.ts ---------------------------------------
+ 
+   async function sendCapturedAudioChunks(videoId: string, mimeType: string, bytes: ArrayBuffer): Promise<void> {
+-    const base64 = bytesToBase64(new Uint8Array(bytes));
+-    const chunks = splitIntoChunks(base64);
+-    log(`sending captured audio for ${videoId}: ${bytes.byteLength} bytes as ${chunks.length} chunk(s)`);
+-
+-    for (let index = 0; index < chunks.length; index++) {
++    let logged = false;
++    for (const chunk of iterateBase64Chunks(new Uint8Array(bytes))) {
++      if (!logged) {
++        logged = true;
++        log(`sending captured audio for ${videoId}: ${bytes.byteLength} bytes as ${chunk.total} chunk(s)`);
++      }
+       if (videoId !== state.videoId && videoId !== prefetchVideoId) return;
+       const message: CaptureChunkMessage = {
+         type: "blk-capture-chunk",
+         videoId,
+         mimeType,
+-        index,
+-        total: chunks.length,
+-        data: chunks[index],
++        index: chunk.index,
++        total: chunk.total,
++        data: chunk.data,
+       };
+       await chrome.runtime.sendMessage(message).catch(error => {
+         throw error instanceof Error ? error : new Error(describeError(error));
+@@ -498,7 +498,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
+   }
+ 
+   function decodeStemBlob(assembler: ChunkAssembler): Blob {
+-    return new Blob([base64ToBytes(assembler.assemble())]);
++    return new Blob([assembler.assembleBytes()]);
+   }
+ 
+   function finishStemsIfReady(videoId: string): void {
+diff --git a/src/relay/chunk-transfer.test.ts b/src/relay/chunk-transfer.test.ts
+index ce7cfbd..414d4fd 100644
+--- a/src/relay/chunk-transfer.test.ts
++++ b/src/relay/chunk-transfer.test.ts
+@@ -1,5 +1,11 @@
+ import { describe, expect, it } from "vitest";
+-import { DEFAULT_CHUNK_CHARS, createChunkAssembler, splitIntoChunks } from "@/relay/chunk-transfer";
++import { bytesToBase64 } from "@/relay/base64";
++import {
++  DEFAULT_CHUNK_CHARS,
++  createChunkAssembler,
++  iterateBase64Chunks,
++  splitIntoChunks,
++} from "@/relay/chunk-transfer";
+ 
+ describe("splitIntoChunks", () => {
+   it("splits a string into chunks of the given size", () => {
+@@ -151,4 +157,117 @@ describe("DEFAULT_CHUNK_CHARS", () => {
+   it("is a positive number", () => {
+     expect(DEFAULT_CHUNK_CHARS).toBeGreaterThan(0);
+   });
++
++  it("is a whole number of base64 groups, without which the chunks cannot be decoded one at a time", () => {
++    expect(DEFAULT_CHUNK_CHARS % 4).toBe(0);
++  });
++});
++
++describe("iterateBase64Chunks", () => {
++  const bytesOf = (length: number): Uint8Array =>
++    new Uint8Array(Array.from({ length }, (_, index) => (index * 37 + 11) % 256));
++
++  it("yields the same characters as encoding the whole buffer and splitting the result", () => {
++    for (const length of [1, 2, 3, 4, 5, 17, 63, 64, 65, 1000]) {
++      const bytes = bytesOf(length);
++      const chunks = [...iterateBase64Chunks(bytes, 8)];
++      expect(chunks.map(chunk => chunk.data).join("")).toBe(bytesToBase64(bytes));
++    }
++  });
++
++  it("numbers the chunks from zero and reports the same total on each", () => {
++    const chunks = [...iterateBase64Chunks(bytesOf(100), 8)];
++    expect(chunks.map(chunk => chunk.index)).toEqual(chunks.map((_, index) => index));
++    expect(new Set(chunks.map(chunk => chunk.total))).toEqual(new Set([chunks.length]));
++  });
++
++  it("fills every chunk but the last, so nothing is sent in more messages than it needs", () => {
++    const chunks = [...iterateBase64Chunks(bytesOf(1000), 8)];
++    for (const chunk of chunks.slice(0, -1)) expect(chunk.data.length).toBe(8);
++    expect(chunks[chunks.length - 1].data.length).toBeLessThanOrEqual(8);
++  });
++
++  it("pads only the final chunk, which is what lets the earlier ones decode alone", () => {
++    for (const chunk of [...iterateBase64Chunks(bytesOf(1000), 8)].slice(0, -1)) {
++      expect(chunk.data).not.toContain("=");
++    }
++  });
++
++  it("rounds a chunk size down to whole base64 groups rather than splitting one", () => {
++    const chunks = [...iterateBase64Chunks(bytesOf(1000), 11)];
++    for (const chunk of chunks.slice(0, -1)) expect(chunk.data.length).toBe(8);
++  });
++
++  describe("edge cases", () => {
++    it("yields a single empty chunk for an empty buffer, matching how a string is split", () => {
++      expect([...iterateBase64Chunks(new Uint8Array(0))]).toEqual([{ index: 0, total: 1, data: "" }]);
++    });
++
++    it("throws for a chunk size too small to hold one base64 group", () => {
++      expect(() => [...iterateBase64Chunks(bytesOf(10), 3)]).toThrow(/chunkChars/i);
++      expect(() => [...iterateBase64Chunks(bytesOf(10), 0)]).toThrow(/chunkChars/i);
++    });
++
++    it("views the buffer rather than copying it, so a subarray is encoded on its own terms", () => {
++      const bytes = bytesOf(30);
++      const tail = bytes.subarray(9);
++      expect([...iterateBase64Chunks(tail, 8)].map(chunk => chunk.data).join("")).toBe(bytesToBase64(tail));
++    });
++  });
++
++  describe("invariants", () => {
++    it("round-trips any buffer back through the assembler byte for byte", () => {
++      for (const length of [0, 1, 3, 100, 999]) {
++        const bytes = bytesOf(length);
++        const assembler = createChunkAssembler();
++        for (const chunk of iterateBase64Chunks(bytes, 12)) {
++          assembler.addChunk(chunk.index, chunk.total, chunk.data);
++        }
++        expect([...assembler.assembleBytes()]).toEqual([...bytes]);
++      }
++    });
++  });
++});
++
++describe("assembleBytes", () => {
++  it("decodes a transfer whose chunks land on base64 group boundaries", () => {
++    const bytes = new Uint8Array([1, 2, 3, 4, 5, 6, 7]);
++    const assembler = createChunkAssembler();
++    for (const chunk of iterateBase64Chunks(bytes, 4)) {
++      assembler.addChunk(chunk.index, chunk.total, chunk.data);
++    }
++    expect([...assembler.assembleBytes()]).toEqual([...bytes]);
++  });
++
++  it("decodes a transfer split without regard for those boundaries", () => {
++    const bytes = new Uint8Array([1, 2, 3, 4, 5, 6, 7]);
++    const chunks = splitIntoChunks(bytesToBase64(bytes), 3);
++    const assembler = createChunkAssembler();
++    chunks.forEach((data, index) => assembler.addChunk(index, chunks.length, data));
++    expect([...assembler.assembleBytes()]).toEqual([...bytes]);
++  });
++
++  it("decodes chunks that arrived out of order", () => {
++    const bytes = new Uint8Array([9, 8, 7, 6, 5, 4, 3, 2, 1]);
++    const chunks = [...iterateBase64Chunks(bytes, 4)];
++    const assembler = createChunkAssembler();
++    for (const chunk of [...chunks].reverse()) assembler.addChunk(chunk.index, chunk.total, chunk.data);
++    expect([...assembler.assembleBytes()]).toEqual([...bytes]);
++  });
++
++  describe("error paths", () => {
++    it("throws while the transfer is incomplete", () => {
++      const assembler = createChunkAssembler();
++      assembler.addChunk(0, 2, "AAAA");
++      expect(() => assembler.assembleBytes()).toThrow(/incomplete|missing/i);
++    });
++
++    it("consumes the transfer, so the same bytes cannot be handed out twice", () => {
++      const assembler = createChunkAssembler();
++      assembler.addChunk(0, 1, bytesToBase64(new Uint8Array([1, 2, 3])));
++      expect([...assembler.assembleBytes()]).toEqual([1, 2, 3]);
++      expect(assembler.isComplete()).toBe(false);
++      expect(() => assembler.assembleBytes()).toThrow(/incomplete|missing/i);
++    });
++  });
+ });
+diff --git a/src/relay/chunk-transfer.ts b/src/relay/chunk-transfer.ts
+index 8a4c030..3f48c4d 100644
+--- a/src/relay/chunk-transfer.ts
++++ b/src/relay/chunk-transfer.ts
+@@ -1,5 +1,11 @@
++import { base64ToBytes, bytesToBase64 } from "@/relay/base64";
++
+ const DEFAULT_CHUNK_CHARS = 512 * 1024;
+ 
++// Base64 spends exactly four characters on every three bytes.
++const BASE64_GROUP_CHARS = 4;
++const BASE64_GROUP_BYTES = 3;
++
+ function splitIntoChunks(data: string, chunkSize: number = DEFAULT_CHUNK_CHARS): string[] {
+   if (chunkSize <= 0) {
+     throw new Error(`chunk-transfer: chunkSize must be positive, got ${chunkSize}`);
+@@ -13,10 +19,44 @@ function splitIntoChunks(data: string, chunkSize: number = DEFAULT_CHUNK_CHARS):
+   return chunks;
+ }
+ 
++interface Base64Chunk {
++  index: number;
++  total: number;
++  data: string;
++}
++
++// Because the ratio above is exact, slicing the bytes on a three-byte boundary,
++// encoding each slice, and concatenating the results gives the same string as
++// encoding the whole buffer in one go. Handing those slices out one at a time is
++// what keeps a stem from existing three times over at the moment it is sent: once
++// as bytes, once as a full base64 string, and once more as the array of slices of
++// that string. Only one slice is alive here at a time.
++function* iterateBase64Chunks(bytes: Uint8Array, chunkChars: number = DEFAULT_CHUNK_CHARS): Generator<Base64Chunk> {
++  const groups = Math.floor(chunkChars / BASE64_GROUP_CHARS);
++  if (groups < 1) {
++    throw new Error(`chunk-transfer: chunkChars must be at least ${BASE64_GROUP_CHARS}, got ${chunkChars}`);
++  }
++
++  if (bytes.length === 0) {
++    yield { index: 0, total: 1, data: "" };
++    return;
++  }
++
++  const step = groups * BASE64_GROUP_BYTES;
++  const total = Math.ceil(bytes.length / step);
++  for (let index = 0; index < total; index++) {
++    const offset = index * step;
++    yield { index, total, data: bytesToBase64(bytes.subarray(offset, offset + step)) };
++  }
++}
++
+ interface ChunkAssembler {
+   addChunk(index: number, total: number, data: string): void;
+   isComplete(): boolean;
+   assemble(): string;
++  // Consumes the transfer: the chunks are decoded in order and released as they
++  // go, so the assembler is empty afterwards and cannot be assembled twice.
++  assembleBytes(): Uint8Array<ArrayBuffer>;
+   reset(): void;
+ }
+ 
+@@ -42,17 +82,60 @@ function createChunkAssembler(): ChunkAssembler {
+     return expectedTotal !== null && parts.size === expectedTotal;
+   }
+ 
+-  function assemble(): string {
++  function requireComplete(): number {
+     if (!isComplete() || expectedTotal === null) {
+       throw new Error("chunk-transfer: cannot assemble, transfer is incomplete or missing chunks");
+     }
++    return expectedTotal;
++  }
++
++  function assemble(): string {
++    const total = requireComplete();
+     let result = "";
+-    for (let i = 0; i < expectedTotal; i++) result += parts.get(i);
++    for (let i = 0; i < total; i++) result += parts.get(i);
+     return result;
+   }
+ 
+-  return { addChunk, isComplete, assemble, reset };
++  // A chunk that ends on a base64 group boundary decodes on its own, which is
++  // true of every chunk but the last whenever the sender split on such a
++  // boundary. That is the only case worth the incremental path; anything else
++  // has to be joined before it can be read.
++  function chunksDecodeIndependently(total: number): boolean {
++    for (let i = 0; i < total - 1; i++) {
++      if ((parts.get(i) as string).length % BASE64_GROUP_CHARS !== 0) return false;
++    }
++    return true;
++  }
++
++  function assembleBytes(): Uint8Array<ArrayBuffer> {
++    const total = requireComplete();
++    if (!chunksDecodeIndependently(total)) {
++      const joined = assemble();
++      reset();
++      return base64ToBytes(joined);
++    }
++
++    const pieces: Uint8Array[] = [];
++    let byteLength = 0;
++    for (let i = 0; i < total; i++) {
++      const piece = base64ToBytes(parts.get(i) as string);
++      parts.delete(i);
++      pieces.push(piece);
++      byteLength += piece.length;
++    }
++    expectedTotal = null;
++
++    const bytes = new Uint8Array(byteLength);
++    let offset = 0;
++    for (const piece of pieces) {
++      bytes.set(piece, offset);
++      offset += piece.length;
++    }
++    return bytes;
++  }
++
++  return { addChunk, isComplete, assemble, assembleBytes, reset };
+ }
+ 
+-export { DEFAULT_CHUNK_CHARS, splitIntoChunks, createChunkAssembler };
+-export type { ChunkAssembler };
++export { DEFAULT_CHUNK_CHARS, splitIntoChunks, iterateBase64Chunks, createChunkAssembler };
++export type { Base64Chunk, ChunkAssembler };
+diff --git a/workers/track-pipeline.ts b/workers/track-pipeline.ts
+index ff0cbbd..71b8d0a 100644
+--- a/workers/track-pipeline.ts
++++ b/workers/track-pipeline.ts
+@@ -4,8 +4,7 @@ import type { SabrTransport } from "../src/acquisition/sabr-client.js";
+ import { decideCacheLookup } from "../src/orchestrator/cache-lookup.js";
+ import { decideSeparationStart, shouldRepublishStage } from "../src/orchestrator/separation-gate.js";
+ import { createRegionAccumulator } from "../src/orchestrator/region-accumulator.js";
+-import { base64ToBytes, bytesToBase64 } from "../src/relay/base64.js";
+-import { type ChunkAssembler, createChunkAssembler, splitIntoChunks } from "../src/relay/chunk-transfer.js";
++import { type ChunkAssembler, createChunkAssembler, iterateBase64Chunks } from "../src/relay/chunk-transfer.js";
+ import { computeContentKey, deleteVideoIdAlias, getContentKeyForVideoId, setVideoIdAlias } from "../src/cache/keys.js";
+ import { hasCachedModel } from "../src/cache/model-cache.js";
+ import { encodePcmToOpus } from "../src/cache/opus-codec.js";
+@@ -53,20 +52,19 @@ function post(message: TrackPipelineOutboundMessage): void {
+ 
+ async function sendStemChunks(videoId: string, stem: StemName, blob: Blob): Promise<void> {
+   const bytes = new Uint8Array(await blob.arrayBuffer());
+-  const chunks = splitIntoChunks(bytesToBase64(bytes));
+-  for (let index = 0; index < chunks.length; index++) {
++  for (const chunk of iterateBase64Chunks(bytes)) {
+     const message: StemChunkMessage = {
+       type: "blk-stem-chunk",
+       videoId,
+       stem,
+-      index,
+-      total: chunks.length,
+-      data: chunks[index],
++      index: chunk.index,
++      total: chunk.total,
++      data: chunk.data,
+     };
+     try {
+       await chrome.runtime.sendMessage(message);
+     } catch (error) {
+-      logger.error("failed to send stem chunk", stem, index, error);
++      logger.error("failed to send stem chunk", stem, chunk.index, error);
+       throw error instanceof Error ? error : new Error(toErrorMessage(error));
+     }
+   }
+@@ -189,12 +187,12 @@ class TrackPipeline {
+ 
+     if (!this.captureAssembler.isComplete()) return;
+ 
+-    const base64 = this.captureAssembler.assemble();
++    const bytes = this.captureAssembler.assembleBytes();
+     const mimeType = this.captureMimeType;
+     this.captureAssembler = null;
+     this.captureMimeType = "";
+ 
+-    this.beginSeparation(message.videoId, mimeType, base64ToBytes(base64));
++    this.beginSeparation(message.videoId, mimeType, bytes);
+   }
+ 
+   async forgetTrack(videoId: string): Promise<void> {

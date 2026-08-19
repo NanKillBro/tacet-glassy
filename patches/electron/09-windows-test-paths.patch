@@ -1,0 +1,40 @@
+diff --git a/src/pageworld/one-owner.test.ts b/src/pageworld/one-owner.test.ts
+index c9aaec2..a0aa23d 100644
+--- a/src/pageworld/one-owner.test.ts
++++ b/src/pageworld/one-owner.test.ts
+@@ -1,5 +1,5 @@
+ import { readdirSync, readFileSync, statSync } from "node:fs";
+-import { join, relative, resolve } from "node:path";
++import { join, relative, resolve, sep } from "node:path";
+ import { describe, expect, it } from "vitest";
+ 
+ // A second, weaker answer to a question that already has an owner is the most
+@@ -28,7 +28,9 @@ function sourceFiles(): string[] {
+ function filesMatching(pattern: RegExp): string[] {
+   return sourceFiles()
+     .filter(path => pattern.test(readFileSync(path, "utf8")))
+-    .map(path => relative(ROOT, path))
++    // The expectations below name paths the way the imports do, so the separator
++    // has to be the posix one on every platform this runs on.
++    .map(path => relative(ROOT, path).split(sep).join("/"))
+     .sort();
+ }
+ 
+diff --git a/src/shared/web-accessible-resources.test.ts b/src/shared/web-accessible-resources.test.ts
+index b964223..232e069 100644
+--- a/src/shared/web-accessible-resources.test.ts
++++ b/src/shared/web-accessible-resources.test.ts
+@@ -1,9 +1,12 @@
+ import { readFileSync } from "node:fs";
+ import { readdirSync } from "node:fs";
+ import { join } from "node:path";
++import { fileURLToPath } from "node:url";
+ import { describe, expect, it } from "vitest";
+ 
+-const ROOT = new URL("../..", import.meta.url).pathname;
++// pathname on a file URL keeps the leading slash that precedes a Windows drive
++// letter, and joining that onto anything yields C:\C:\..., so convert properly.
++const ROOT = fileURLToPath(new URL("../..", import.meta.url));
+ 
+ function declaredResources(): string[] {
+   const manifest = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));

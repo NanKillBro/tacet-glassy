@@ -8,9 +8,10 @@
   "packageManager": "pnpm@10.26.2",
   "scripts": {
     "preinstall": "npx --yes only-allow pnpm",
+    "apply:patches": "node tooling/apply-patches.mjs",
     "build:worker": "tsc -p workers/tsconfig.json && tsc-alias -p workers/tsconfig.json -f",
-    "dev": "pnpm build:worker && plasmo dev --verbose",
-    "build": "pnpm build:worker && plasmo build",
+    "dev": "pnpm apply:patches && pnpm build:worker && plasmo dev --verbose",
+    "build": "pnpm apply:patches && pnpm build:worker && plasmo build",
     "typecheck": "tsc --noEmit",
     "lint": "biome lint . && biome format .",
     "lint:fix": "biome lint --write . && biome format --write .",

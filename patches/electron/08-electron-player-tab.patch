@@ -1,0 +1,188 @@
+diff --git a/src/popup.tsx b/src/popup.tsx
+index 0004c16..93301f8 100644
+--- a/src/popup.tsx
++++ b/src/popup.tsx
+@@ -8,6 +8,7 @@ import { sizedArtworkUrl } from "@/capture/artwork-url";
+ import { describeAhead, isAheadActivity } from "@/orchestrator/ahead-status";
+ import { separationFill, separationText } from "@/orchestrator/separation-status";
+ import { formatBytes } from "@/settings/format-bytes";
++import { type PlayerTabQuery, findPlayerTabId } from "@/settings/player-tab";
+ import {
+   POPUP_TABS,
+   type PopupTab,
+@@ -363,13 +364,19 @@ function createCrossfadeRow(
+ 
+ // -- Better Lyrics presence ----------------------------------------------------
+ 
++// Wrapped rather than passed by reference so the overloaded chrome signature does
++// not have to line up with the narrow one findPlayerTabId asks for.
++function queryTabs(query: PlayerTabQuery): Promise<chrome.tabs.Tab[]> {
++  return chrome.tabs.query(query);
++}
++
+ async function probeBetterLyrics(): Promise<boolean> {
+   const command: HasBetterLyricsCommand = { type: "blk-has-better-lyrics" };
+-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+-  if (tab?.id === undefined) return true;
++  const tabId = await findPlayerTabId(queryTabs);
++  if (tabId === null) return true;
+ 
+   try {
+-    const response = await chrome.tabs.sendMessage(tab.id, command);
++    const response = await chrome.tabs.sendMessage(tabId, command);
+     if (!isBetterLyricsPresenceMessage(response)) {
+       console.error(`${LOG_PREFIX} unexpected Better Lyrics probe reply`, response);
+       return true;
+@@ -887,11 +894,11 @@ function createStatusSection(): StatusSection {
+ 
+ async function readTrackStatus(): Promise<TrackStatus | null> {
+   const command: GetTrackStatusCommand = { type: "blk-get-track-status" };
+-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+-  if (tab?.id === undefined) return null;
++  const tabId = await findPlayerTabId(queryTabs);
++  if (tabId === null) return null;
+ 
+   try {
+-    const response = await chrome.tabs.sendMessage(tab.id, command);
++    const response = await chrome.tabs.sendMessage(tabId, command);
+     if (!isTrackStatusMessage(response)) {
+       console.error(`${LOG_PREFIX} unexpected track status reply`, response);
+       return null;
+diff --git a/src/settings/player-tab.test.ts b/src/settings/player-tab.test.ts
+new file mode 100644
+index 0000000..c842846
+--- /dev/null
++++ b/src/settings/player-tab.test.ts
+@@ -0,0 +1,77 @@
++import { describe, expect, it, vi } from "vitest";
++import { PLAYER_URL_PATTERN, findPlayerTabId, pickPlayerTab } from "@/settings/player-tab";
++import type { PlayerTabQuery, QueryableTab } from "@/settings/player-tab";
++
++describe("pickPlayerTab", () => {
++  it("returns null for no tabs at all", () => {
++    expect(pickPlayerTab([])).toBeNull();
++  });
++
++  it("returns the only tab's id", () => {
++    expect(pickPlayerTab([{ id: 7 }])).toBe(7);
++  });
++
++  it("prefers the active tab over an earlier inactive one", () => {
++    expect(pickPlayerTab([{ id: 1, active: false }, { id: 2, active: true }])).toBe(2);
++  });
++
++  it("takes the first tab when none is marked active", () => {
++    expect(pickPlayerTab([{ id: 3 }, { id: 4 }])).toBe(3);
++  });
++
++  it("skips a tab that has no id, which cannot be sent to", () => {
++    expect(pickPlayerTab([{ active: true }, { id: 9 }])).toBe(9);
++  });
++
++  it("returns null when no tab has an id", () => {
++    expect(pickPlayerTab([{ active: true }, {}])).toBeNull();
++  });
++
++  it("keeps an id of zero, which is falsy but addressable", () => {
++    expect(pickPlayerTab([{ id: 0 }])).toBe(0);
++  });
++});
++
++describe("findPlayerTabId", () => {
++  it("asks for the player in the current window first", async () => {
++    const query = vi.fn<(query: PlayerTabQuery) => Promise<QueryableTab[]>>().mockResolvedValue([{ id: 5 }]);
++
++    expect(await findPlayerTabId(query)).toBe(5);
++    expect(query).toHaveBeenCalledTimes(1);
++    expect(query).toHaveBeenCalledWith({ url: PLAYER_URL_PATTERN, active: true, currentWindow: true });
++  });
++
++  it("falls back to a player tab anywhere when none is active here", async () => {
++    const query = vi
++      .fn<(query: PlayerTabQuery) => Promise<QueryableTab[]>>()
++      .mockResolvedValueOnce([])
++      .mockResolvedValueOnce([{ id: 11 }]);
++
++    expect(await findPlayerTabId(query)).toBe(11);
++    expect(query).toHaveBeenCalledTimes(2);
++    expect(query).toHaveBeenLastCalledWith({ url: PLAYER_URL_PATTERN });
++  });
++
++  it("returns null when no tab anywhere is the player", async () => {
++    const query = vi.fn<(query: PlayerTabQuery) => Promise<QueryableTab[]>>().mockResolvedValue([]);
++
++    expect(await findPlayerTabId(query)).toBeNull();
++    expect(query).toHaveBeenCalledTimes(2);
++  });
++
++  // Electron ignores currentWindow, so the first query answers with every active
++  // tab. Only the url filter keeps the settings window out of the result, and the
++  // picker has to survive being handed more than one.
++  it("picks the active player when the first query ignores currentWindow", async () => {
++    const query = vi
++      .fn<(query: PlayerTabQuery) => Promise<QueryableTab[]>>()
++      .mockResolvedValue([{ id: 20, active: false }, { id: 21, active: true }]);
++
++    expect(await findPlayerTabId(query)).toBe(21);
++    expect(query).toHaveBeenCalledTimes(1);
++  });
++
++  it("only ever matches the player's own origin", () => {
++    expect(PLAYER_URL_PATTERN).toBe("https://music.youtube.com/*");
++  });
++});
+diff --git a/src/settings/player-tab.ts b/src/settings/player-tab.ts
+new file mode 100644
+index 0000000..e10e377
+--- /dev/null
++++ b/src/settings/player-tab.ts
+@@ -0,0 +1,49 @@
++// -- Finding the tab the player is in --------------------------------------------
++
++// Everything the popup shows about the current track it has to ask a content
++// script for, so it first has to know which tab to ask. `currentWindow` is the
++// obvious filter and the one it cannot lean on: Electron, where this extension
++// also runs, honours only `url`, `title`, `audible`, `active` and `muted`, so a
++// query for the active tab of the current window comes back holding every active
++// tab there is — the settings window itself and the offscreen document included.
++// The url the player must have is what actually identifies it.
++
++const PLAYER_URL_PATTERN = "https://music.youtube.com/*";
++
++interface QueryableTab {
++  id?: number;
++  active?: boolean;
++}
++
++interface PlayerTabQuery {
++  url: string;
++  active?: boolean;
++  currentWindow?: boolean;
++}
++
++type TabQuery = (query: PlayerTabQuery) => Promise<QueryableTab[]>;
++
++// A tab with no id cannot be sent to. Among the rest the active one is the one
++// the listener is looking at, and any player tab is a better answer than none.
++function pickPlayerTab(tabs: readonly QueryableTab[]): number | null {
++  const addressable = tabs.filter(tab => typeof tab.id === "number");
++  const chosen = addressable.find(tab => tab.active) ?? addressable[0];
++  return chosen?.id ?? null;
++}
++
++async function findPlayerTabId(query: TabQuery): Promise<number | null> {
++  // Where currentWindow is honoured, the player in the window the popup was
++  // opened from is the one the listener means. Where it is ignored, this same
++  // query returns every active player tab and the picker narrows it.
++  const inThisWindow = pickPlayerTab(
++    await query({ url: PLAYER_URL_PATTERN, active: true, currentWindow: true })
++  );
++  if (inThisWindow !== null) return inThisWindow;
++
++  // Nothing matching is active here, so the player is in another tab or another
++  // window. Upstream of this the popup simply showed nothing in that case.
++  return pickPlayerTab(await query({ url: PLAYER_URL_PATTERN }));
++}
++
++export { PLAYER_URL_PATTERN, findPlayerTabId, pickPlayerTab };
++export type { PlayerTabQuery, QueryableTab, TabQuery };

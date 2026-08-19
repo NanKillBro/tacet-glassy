@@ -1,0 +1,357 @@
+diff --git a/workers/protocol.ts b/workers/protocol.ts
+index 236a946..7842fe3 100644
+--- a/workers/protocol.ts
++++ b/workers/protocol.ts
+@@ -35,6 +35,9 @@ export interface SeparateInitCommand {
+   type: "separate-init";
+   ortBaseUrl: string;
+   modelBytes: ArrayBuffer;
++  // Identifies the weights the bytes carry, so the worker can keep the session
++  // it already built instead of compiling the graph again for every track.
++  modelKey: string;
+   forceWasm?: boolean;
+ }
+ 
+@@ -48,6 +51,13 @@ export interface SeparateCancelCommand {
+   type: "separate-cancel";
+ }
+ 
++// Hand the inference session back. The driver sends this when it has decided the
++// weights are not worth the device memory any more, and it stops counting on the
++// session the moment it asks, so the worker never has to guess.
++export interface SeparateReleaseCommand {
++  type: "separate-release";
++}
++
+ export interface SeparateInitDoneMessage {
+   type: "separate-init-done";
+ }
+@@ -75,6 +85,12 @@ export interface SeparateCancelledMessage {
+   type: "separate-cancelled";
+ }
+ 
++// The worker gave the inference session back to the driver. Whoever is holding
++// a "this model is loaded" note has to tear it up when this arrives.
++export interface SeparateSessionReleasedMessage {
++  type: "separate-session-released";
++}
++
+ export interface SeparateErrorMessage {
+   type: "separate-error";
+   code: SeparationError["code"];
+@@ -87,6 +103,7 @@ export function isSeparateInitCommand(data: unknown): data is SeparateInitComman
+     data !== null &&
+     (data as { type?: unknown }).type === "separate-init" &&
+     typeof (data as { ortBaseUrl?: unknown }).ortBaseUrl === "string" &&
++    typeof (data as { modelKey?: unknown }).modelKey === "string" &&
+     (data as { modelBytes?: unknown }).modelBytes instanceof ArrayBuffer
+   );
+ }
+@@ -105,6 +122,10 @@ export function isSeparateCancelCommand(data: unknown): data is SeparateCancelCo
+   return typeof data === "object" && data !== null && (data as { type?: unknown }).type === "separate-cancel";
+ }
+ 
++export function isSeparateReleaseCommand(data: unknown): data is SeparateReleaseCommand {
++  return typeof data === "object" && data !== null && (data as { type?: unknown }).type === "separate-release";
++}
++
+ export function isSeparateInitDoneMessage(data: unknown): data is SeparateInitDoneMessage {
+   return typeof data === "object" && data !== null && (data as { type?: unknown }).type === "separate-init-done";
+ }
+@@ -143,6 +164,10 @@ export function isSeparateCancelledMessage(data: unknown): data is SeparateCance
+   return typeof data === "object" && data !== null && (data as { type?: unknown }).type === "separate-cancelled";
+ }
+ 
++export function isSeparateSessionReleasedMessage(data: unknown): data is SeparateSessionReleasedMessage {
++  return typeof data === "object" && data !== null && (data as { type?: unknown }).type === "separate-session-released";
++}
++
+ export function isSeparateErrorMessage(data: unknown): data is SeparateErrorMessage {
+   return (
+     typeof data === "object" &&
+@@ -153,7 +178,11 @@ export function isSeparateErrorMessage(data: unknown): data is SeparateErrorMess
+   );
+ }
+ 
+-export type SeparateInboundCommand = SeparateInitCommand | SeparateProcessCommand | SeparateCancelCommand;
++export type SeparateInboundCommand =
++  | SeparateInitCommand
++  | SeparateProcessCommand
++  | SeparateCancelCommand
++  | SeparateReleaseCommand;
+ 
+ export type SeparateOutboundMessage =
+   | SeparateInitDoneMessage
+@@ -161,4 +190,5 @@ export type SeparateOutboundMessage =
+   | SeparateRegionMessage
+   | SeparateDoneMessage
+   | SeparateCancelledMessage
++  | SeparateSessionReleasedMessage
+   | SeparateErrorMessage;
+diff --git a/workers/separation-host.ts b/workers/separation-host.ts
+index 36189b4..f7b4301 100644
+--- a/workers/separation-host.ts
++++ b/workers/separation-host.ts
+@@ -8,6 +8,7 @@ import {
+   isSeparateInitDoneMessage,
+   isSeparateProgressMessage,
+   isSeparateRegionMessage,
++  isSeparateSessionReleasedMessage,
+ } from "./protocol.js";
+ 
+ interface RegionEvent {
+@@ -34,6 +35,15 @@ interface ProcessOptions {
+ const SEPARATOR_WORKER_URL = "assets/workers/separator.js";
+ const ORT_BASE_PATH = "assets/ort/";
+ 
++// A session nobody is using still holds its weights on the device, and on an
++// integrated gpu that is system memory. Between two tracks of the same playlist
++// it is worth keeping — rebuilding costs a 163 MB read plus a graph compile — but
++// an idle one should go back. The clock lives here rather than in the worker
++// because this is the side that remembers a session exists: a worker that
++// dropped one on its own would strand the next init, which would skip posting
++// separate-init and then fail with "Session not initialized."
++const SESSION_IDLE_RELEASE_MS = 90_000;
++
+ class SeparationHost {
+   private worker: Worker | null = null;
+   private downloadAbortController: AbortController | null = null;
+@@ -41,6 +51,28 @@ class SeparationHost {
+   private currentReject: ((error: Error) => void) | null = null;
+   private currentProgress: ((processed: number, total: number) => void) | null = null;
+   private currentRegion: ((region: RegionEvent) => void) | null = null;
++  // Which weights the worker is holding, so a second track does not pay for a
++  // 163 MB cache read and a graph compile that produce the session it already has.
++  private loadedModelKey: string | null = null;
++  private idleReleaseTimer: ReturnType<typeof setTimeout> | null = null;
++
++  private cancelIdleRelease(): void {
++    if (this.idleReleaseTimer !== null) clearTimeout(this.idleReleaseTimer);
++    this.idleReleaseTimer = null;
++  }
++
++  private scheduleIdleRelease(): void {
++    this.cancelIdleRelease();
++    if (!this.worker || !this.loadedModelKey) return;
++    this.idleReleaseTimer = setTimeout(() => {
++      this.idleReleaseTimer = null;
++      if (!this.worker) return;
++      // Forget the session before asking for it back, so an init that arrives
++      // while the release is in flight rebuilds instead of trusting a corpse.
++      this.loadedModelKey = null;
++      this.worker.postMessage({ type: "separate-release" });
++    }, SESSION_IDLE_RELEASE_MS);
++  }
+ 
+   private ensureWorker(): Worker {
+     if (!this.worker) {
+@@ -64,6 +96,10 @@ class SeparationHost {
+       });
+       return;
+     }
++    if (isSeparateSessionReleasedMessage(data)) {
++      this.loadedModelKey = null;
++      return;
++    }
+     if (isSeparateInitDoneMessage(data) || isSeparateDoneMessage(data)) {
+       this.currentResolve?.();
+       this.clearCurrent();
+@@ -77,6 +113,7 @@ class SeparationHost {
+     if (isSeparateErrorMessage(data)) {
+       const error = new Error(data.message) as Error & { code?: string };
+       error.code = data.code;
++      this.loadedModelKey = null;
+       this.currentReject?.(error);
+       this.clearCurrent();
+     }
+@@ -97,6 +134,15 @@ class SeparationHost {
+   }
+ 
+   async init(opts: InitOptions): Promise<void> {
++    this.cancelIdleRelease();
++    // The provider belongs in the key: the same weights compiled for wasm are not
++    // the session someone asking for the gpu wants handed back to them.
++    const modelKey = `${opts.modelUrl}#${opts.modelSha256}#${opts.forceWasm ? "wasm" : "webgpu"}`;
++    if (this.loadedModelKey === modelKey && this.worker) {
++      opts.onDownloadProgress?.(1, 1);
++      return;
++    }
++
+     const cached = await readCachedModel(opts.modelUrl);
+     let modelBytes: ArrayBuffer;
+     if (cached) {
+@@ -120,21 +166,29 @@ class SeparationHost {
+       this.currentResolve = resolve;
+       this.currentReject = reject;
+       const ortBaseUrl = chrome.runtime.getURL(ORT_BASE_PATH);
+-      this.post({ type: "separate-init", ortBaseUrl, modelBytes, forceWasm: opts.forceWasm }, [modelBytes]);
++      this.post({ type: "separate-init", ortBaseUrl, modelBytes, modelKey, forceWasm: opts.forceWasm }, [modelBytes]);
+     });
++    this.loadedModelKey = modelKey;
+   }
+ 
+   async process(opts: ProcessOptions): Promise<void> {
+-    await new Promise<void>((resolve, reject) => {
+-      this.currentResolve = resolve;
+-      this.currentReject = reject;
+-      this.currentProgress = opts.onProgress ?? null;
+-      this.currentRegion = opts.onRegion ?? null;
+-
+-      const copies = opts.channels.map(channel => new Float32Array(channel));
+-      const transfer = copies.map(channel => channel.buffer);
+-      this.post({ type: "separate-process", channels: copies, totalFrames: opts.totalFrames }, transfer);
+-    });
++    this.cancelIdleRelease();
++    try {
++      await new Promise<void>((resolve, reject) => {
++        this.currentResolve = resolve;
++        this.currentReject = reject;
++        this.currentProgress = opts.onProgress ?? null;
++        this.currentRegion = opts.onRegion ?? null;
++
++        const copies = opts.channels.map(channel => new Float32Array(channel));
++        const transfer = copies.map(channel => channel.buffer);
++        this.post({ type: "separate-process", channels: copies, totalFrames: opts.totalFrames }, transfer);
++      });
++    } finally {
++      // However that ended, the session is idle now. Start the clock that hands
++      // its device memory back if no further track arrives.
++      this.scheduleIdleRelease();
++    }
+   }
+ 
+   cancel(): void {
+@@ -144,10 +198,12 @@ class SeparationHost {
+   }
+ 
+   dispose(): void {
++    this.cancelIdleRelease();
+     if (this.worker) {
+       this.worker.terminate();
+       this.worker = null;
+     }
++    this.loadedModelKey = null;
+     this.clearCurrent();
+   }
+ }
+diff --git a/workers/separator.ts b/workers/separator.ts
+index 124046c..319520d 100644
+--- a/workers/separator.ts
++++ b/workers/separator.ts
+@@ -13,6 +13,7 @@ import {
+   isSeparateCancelCommand,
+   isSeparateInitCommand,
+   isSeparateProcessCommand,
++  isSeparateReleaseCommand,
+ } from "./protocol.js";
+ import { createLogger } from "../src/shared/logger.js";
+ 
+@@ -188,12 +189,33 @@ interface SeparationOrtSession {
+ 
+ let separationOrt: SeparationOrt | null = null;
+ let separationSession: SeparationOrtSession | null = null;
++let separationSessionModelKey: string | null = null;
+ let separateCancelled = false;
+ 
+ function postSeparate(message: SeparateOutboundMessage, transfer?: Transferable[]): void {
+   self.postMessage(message, transfer ?? []);
+ }
+ 
++// A session that nothing is using still holds its weights on the device, so the
++// driver eventually asks for it back. It keeps it between tracks, because
++// rebuilding costs a 163 MB read plus a graph compile. The timer that decides
++// "eventually" lives there rather than here: the driver is the side that has to
++// know whether a session exists, and letting it drop one out from under itself
++// would strand the next track with a session it thought it had.
++async function releaseSession(reason: string): Promise<void> {
++  const session = separationSession;
++  separationSession = null;
++  separationSessionModelKey = null;
++  if (!session) return;
++  try {
++    await session.release?.();
++    logger.log(`released the inference session (${reason})`);
++  } catch (error) {
++    logger.warn("failed to release ORT session", error);
++  }
++  postSeparate({ type: "separate-session-released" });
++}
++
+ async function loadSeparationOrt(ortBaseUrl: string): Promise<SeparationOrt> {
+   const bundleUrl = `${ortBaseUrl}ort.webgpu.bundle.min.mjs`;
+   const runtime = (await import(bundleUrl)) as SeparationOrt;
+@@ -232,9 +254,21 @@ async function probeWithZeros(runtime: SeparationOrt, session: SeparationOrtSess
+ async function handleSeparateInit(
+   ortBaseUrl: string,
+   modelBytes: ArrayBuffer,
++  modelKey: string,
+   forceWasm: boolean | undefined
+ ): Promise<void> {
+   separateCancelled = false;
++
++  if (separationSession && separationOrt && separationSessionModelKey === modelKey) {
++    logger.log(`reusing the session already loaded for ${modelKey}`);
++    postSeparate({ type: "separate-init-done" });
++    return;
++  }
++
++  // Assigning over a live session leaks its device memory: nothing else holds a
++  // handle to it once this variable moves on.
++  await releaseSession("superseded by a new model");
++
+   try {
+     const runtime = await loadSeparationOrt(ortBaseUrl);
+     const providers = forceWasm ? ["wasm"] : ["webgpu", "wasm"];
+@@ -243,6 +277,7 @@ async function handleSeparateInit(
+       graphOptimizationLevel: "all",
+       logSeverityLevel: ORT_LOG_SEVERITY_ERROR,
+     });
++    separationSessionModelKey = modelKey;
+     separationOrt = runtime;
+     logger.log(`model bytes=${modelBytes.byteLength}`);
+     logger.log(
+@@ -253,6 +288,8 @@ async function handleSeparateInit(
+     await probeWithZeros(runtime, separationSession);
+     postSeparate({ type: "separate-init-done" });
+   } catch (error) {
++    separationSession = null;
++    separationSessionModelKey = null;
+     postSeparate({ type: "separate-error", code: "ort-failed", message: toErrorMessage(error) });
+   }
+ }
+@@ -391,13 +428,6 @@ async function handleSeparateProcess(channels: Float32Array[], totalFrames: numb
+   const tail = stitcher.flush();
+   if (tail) emitRegion(tailStart, tail, channels, normalized, totalFrames);
+ 
+-  try {
+-    await separationSession.release?.();
+-  } catch (error) {
+-    logger.warn("failed to release ORT session", error);
+-  }
+-  separationSession = null;
+-
+   postSeparate({ type: "separate-done", totalFrames });
+ }
+ 
+@@ -422,7 +452,7 @@ self.addEventListener("message", event => {
+   }
+ 
+   if (isSeparateInitCommand(data)) {
+-    handleSeparateInit(data.ortBaseUrl, data.modelBytes, data.forceWasm);
++    handleSeparateInit(data.ortBaseUrl, data.modelBytes, data.modelKey, data.forceWasm);
+     return;
+   }
+ 
+@@ -433,5 +463,12 @@ self.addEventListener("message", event => {
+ 
+   if (isSeparateCancelCommand(data)) {
+     separateCancelled = true;
++    return;
++  }
++
++  if (isSeparateReleaseCommand(data)) {
++    releaseSession("the driver asked for it back").catch(error => {
++      logger.warn("releasing the session threw", error);
++    });
+   }
+ });

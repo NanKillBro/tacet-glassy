@@ -1,0 +1,37 @@
+diff --git a/workers/separator.ts b/workers/separator.ts
+index 319520d..c79c544 100644
+--- a/workers/separator.ts
++++ b/workers/separator.ts
+@@ -192,6 +192,12 @@ let separationSession: SeparationOrtSession | null = null;
+ let separationSessionModelKey: string | null = null;
+ let separateCancelled = false;
+ 
++// Four full-segment inferences per init, purely to print RMS to the console.
++// That is minutes of GPU time before the first real chunk on a cold session and
++// far worse under wasm, so it is opt-in: call blkSetSeparationProbe(true) from
++// the offscreen console when a session looks like it is producing garbage.
++let probeOnInit = false;
++
+ function postSeparate(message: SeparateOutboundMessage, transfer?: Transferable[]): void {
+   self.postMessage(message, transfer ?? []);
+ }
+@@ -285,7 +291,7 @@ async function handleSeparateInit(
+         separationSession.outputNames
+       )}`
+     );
+-    await probeWithZeros(runtime, separationSession);
++    if (probeOnInit) await probeWithZeros(runtime, separationSession);
+     postSeparate({ type: "separate-init-done" });
+   } catch (error) {
+     separationSession = null;
+@@ -294,6 +300,10 @@ async function handleSeparateInit(
+   }
+ }
+ 
++(self as unknown as Record<string, unknown>).blkSetSeparationProbe = (enabled: boolean): void => {
++  probeOnInit = enabled;
++};
++
+ function emitRegion(
+   regionStart: number,
+   vocalsRegionRaw: Float32Array[],

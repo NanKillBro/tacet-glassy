@@ -1,0 +1,64 @@
+diff --git a/workers/offscreen.ts b/workers/offscreen.ts
+index 3a4a17d..fea5ca0 100644
+--- a/workers/offscreen.ts
++++ b/workers/offscreen.ts
+@@ -117,10 +117,23 @@ function getModelChoice(): ModelChoice {
+   return currentModelChoice;
+ }
+ 
++// -- Execution provider override -------------------------------------------
++
++// The host that opens this document decides whether the inference runs on the
++// gpu, and it says so in the url it opens. A query parameter is the only channel
++// available before the first line of this script runs, which is what it has to
++// be: the choice has to be settled before a session is ever built.
++const forceWasm = new URLSearchParams(location.search).get("forceWasm") === "1";
++if (forceWasm) logger.log("the host asked for wasm, the gpu will not be used");
++
++function getForceWasm(): boolean {
++  return forceWasm;
++}
++
+ // -- Real separation host -----------------------------------------------
+ 
+ const separationHost = new SeparationHost();
+-const trackPipeline = new TrackPipeline(separationHost, getCacheBudgetBytes, getModelChoice);
++const trackPipeline = new TrackPipeline(separationHost, getCacheBudgetBytes, getModelChoice, getForceWasm);
+ 
+ chrome.runtime.onMessage.addListener((message, sender) => {
+   if (sender.tab !== undefined && isRelayedThroughBackground(message)) return undefined;
+@@ -316,9 +329,9 @@ chrome.runtime.onMessage.addListener((message, sender) => {
+ 
+ // -- Synthetic pipeline bisect --------------------------------------------
+ 
+-async function runSelfTest(forceWasm = false): Promise<unknown> {
++async function runSelfTest(forceWasmOverride = forceWasm): Promise<unknown> {
+   const { runPipelineSelfTest } = await import("./pipeline-selftest.js");
+-  return runPipelineSelfTest(separationHost, getModelChoice(), forceWasm);
++  return runPipelineSelfTest(separationHost, getModelChoice(), forceWasmOverride);
+ }
+ 
+ (self as unknown as Record<string, unknown>).blkRunPipelineSelfTest = runSelfTest;
+diff --git a/workers/track-pipeline.ts b/workers/track-pipeline.ts
+index a559984..7782694 100644
+--- a/workers/track-pipeline.ts
++++ b/workers/track-pipeline.ts
+@@ -99,7 +99,8 @@ class TrackPipeline {
+   constructor(
+     private separationHost: SeparationHost,
+     private getCacheBudgetBytes: () => number,
+-    private getModelChoice: () => ModelChoice
++    private getModelChoice: () => ModelChoice,
++    private getForceWasm: () => boolean = () => false
+   ) {}
+ 
+   private isStale(videoId: string): boolean {
+@@ -298,7 +299,7 @@ class TrackPipeline {
+     this.sendStage(videoId, (await hasCachedModel(model.modelUrl)) ? "loading-model" : "downloading-model");
+     if (this.isStale(videoId)) return;
+ 
+-    await this.separationHost.init(model);
++    await this.separationHost.init({ ...model, forceWasm: this.getForceWasm() });
+     if (this.isStale(videoId)) return;
+ 
+     this.sendStage(videoId, "separating");

@@ -1,0 +1,50 @@
+diff --git a/workers/track-pipeline.ts b/workers/track-pipeline.ts
+index 71b8d0a..a559984 100644
+--- a/workers/track-pipeline.ts
++++ b/workers/track-pipeline.ts
+@@ -83,6 +83,9 @@ class TrackPipeline {
+   private lastProgress: { processed: number; total: number } | null = null;
+   private captureAssembler: ChunkAssembler | null = null;
+   private captureMimeType = "";
++  // Keyed by video id, the transfer that is currently streaming that track's
++  // stems to the orchestrator. A second request joins it instead of starting one.
++  private deliveriesInFlight = new Map<string, Promise<void>>();
+ 
+   private republishProgress(videoId: string): void {
+     if (shouldRepublishStage(this.currentStage)) {
+@@ -205,6 +208,18 @@ class TrackPipeline {
+   async probeCache(videoId: string): Promise<boolean> {
+     this.activeVideoId = videoId;
+ 
++    // A probe answers a question, but answering it with a hit also re-streams both
++    // stems. Repeat probes for a track already being delivered would each start
++    // their own transfer, and several megabytes of base64 per transfer is what
++    // ran the offscreen document out of heap. One delivery per track is enough.
++    const inFlight = this.deliveriesInFlight.get(videoId);
++    if (inFlight) {
++      logger.log(`already delivering ${videoId}, not starting a second copy of it`);
++      post({ type: "blk-cache-hit", videoId });
++      await inFlight;
++      return true;
++    }
++
+     const miss = (): boolean => {
+       if (!this.isStale(videoId)) post({ type: "blk-cache-miss", videoId });
+       return false;
+@@ -343,6 +358,16 @@ class TrackPipeline {
+   }
+ 
+   private async deliverBlobs(videoId: string, vocals: Blob, instrumental: Blob): Promise<void> {
++    const transfer = this.sendBothStems(videoId, vocals, instrumental);
++    this.deliveriesInFlight.set(videoId, transfer);
++    try {
++      await transfer;
++    } finally {
++      if (this.deliveriesInFlight.get(videoId) === transfer) this.deliveriesInFlight.delete(videoId);
++    }
++  }
++
++  private async sendBothStems(videoId: string, vocals: Blob, instrumental: Blob): Promise<void> {
+     await sendStemChunks(videoId, "vocals", vocals);
+     if (this.isStale(videoId)) return;
+     await sendStemChunks(videoId, "instrumental", instrumental);

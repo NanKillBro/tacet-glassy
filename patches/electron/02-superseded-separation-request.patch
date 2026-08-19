@@ -1,0 +1,43 @@
+diff --git a/workers/separation-host.ts b/workers/separation-host.ts
+index f7b4301..a31e64c 100644
+--- a/workers/separation-host.ts
++++ b/workers/separation-host.ts
+@@ -126,6 +126,18 @@ class SeparationHost {
+     this.currentRegion = null;
+   }
+ 
++  // There is one slot for the request in flight, and the worker's replies carry
++  // no request id to tell two of them apart. Overwriting the slot used to strand
++  // the earlier promise forever, which read downstream as a stage that never
++  // advanced, so the earlier caller is told it lost the slot instead.
++  private takeSlot(resolve: () => void, reject: (error: Error) => void): void {
++    const strandedReject = this.currentReject;
++    this.clearCurrent();
++    strandedReject?.(new DOMException("Superseded by a newer separation request", "AbortError"));
++    this.currentResolve = resolve;
++    this.currentReject = reject;
++  }
++
+   private post(
+     message: SeparateInitCommand | SeparateProcessCommand | { type: "separate-cancel" },
+     transfer?: Transferable[]
+@@ -163,8 +175,7 @@ class SeparationHost {
+     }
+ 
+     await new Promise<void>((resolve, reject) => {
+-      this.currentResolve = resolve;
+-      this.currentReject = reject;
++      this.takeSlot(resolve, reject);
+       const ortBaseUrl = chrome.runtime.getURL(ORT_BASE_PATH);
+       this.post({ type: "separate-init", ortBaseUrl, modelBytes, modelKey, forceWasm: opts.forceWasm }, [modelBytes]);
+     });
+@@ -175,8 +186,7 @@ class SeparationHost {
+     this.cancelIdleRelease();
+     try {
+       await new Promise<void>((resolve, reject) => {
+-        this.currentResolve = resolve;
+-        this.currentReject = reject;
++        this.takeSlot(resolve, reject);
+         this.currentProgress = opts.onProgress ?? null;
+         this.currentRegion = opts.onRegion ?? null;
+ 
