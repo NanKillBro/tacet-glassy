@@ -1,12 +1,17 @@
 // -- ISOLATED-world karaoke pipeline orchestrator ----------------------------
 
-import { enabledOrder, nextSource, sanitizeSourcePreferences } from "@/acquisition/sources";
+import { climbStep, fetchingSource, inFlightSource, startClimb } from "@/acquisition/climb";
+import type { Climb } from "@/acquisition/climb";
+import { enabledOrder, sanitizeSourcePreferences, sourceById } from "@/acquisition/sources";
 import type { SourceId } from "@/acquisition/sources";
 import { AheadStaging } from "@/orchestrator/ahead-staging";
+import { wantsAheadTrack } from "@/orchestrator/ahead-wanted";
 import { decodeOpusToPcm } from "@/cache/opus-codec";
-import { deliveredBy } from "@/orchestrator/delivery";
+import { DeliveryLog } from "@/orchestrator/delivery";
 import {
+  type AcquireAheadMessage,
   type CaptureStandDownMessage,
+  type DiscardCaptureMessage,
   type ListeningToMessage,
   type RequestCapturedAudioMessage,
   type RequestShadowUrlMessage,
@@ -31,7 +36,7 @@ import {
 } from "@/orchestrator/player-source";
 import type { PlayerState } from "@/orchestrator/player-source";
 import { describeSeparationVeto, separationVeto } from "@/orchestrator/separation-wanted";
-import type { SeparationVeto } from "@/orchestrator/separation-wanted";
+import type { SeparationRole, SeparationVeto } from "@/orchestrator/separation-wanted";
 import { decideShortStems, judgeStemCoverage, stemDurationSeconds } from "@/orchestrator/stem-coverage";
 import { trackStatusStore } from "@/orchestrator/track-status-store";
 import { NEUTRAL_MIX_LEVEL, faderArmed } from "@/pageworld/gain-law";
@@ -114,8 +119,9 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   let crossfadeArmTimer: ReturnType<typeof setTimeout> | null = null;
   let cacheProbeTimer: ReturnType<typeof setTimeout> | null = null;
   let observedTrack: PlayerState | null = null;
-  let climb: { videoId: string; tried: SourceId[]; inFlight: boolean; exhausted: boolean } | null = null;
-  let delivery: { videoId: string; source: SourceId } | null = null;
+  let climb: Climb | null = null;
+  let aheadClimb: Climb | null = null;
+  const deliveries = new DeliveryLog();
   const reacquiredVideoIds = new Set<string>();
 
   options.onStateChange(state);
@@ -168,10 +174,12 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       | LoadStemsMessage
       | StopStemsMessage
       | CaptureStandDownMessage
+      | DiscardCaptureMessage
       | ListeningToMessage
       | RequestPrefetchMessage
       | RequestShadowUrlMessage
       | RequestNextPrefetchMessage
+      | AcquireAheadMessage
       | StagedReadyMessage
       | StageDeckMessage,
     transfer?: Transferable[]
@@ -192,7 +200,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       const landing = decideCrossfadeLanding({
         kind: crossfadingIntoKind,
         status: state.status,
-        separating: separationVetoFor() === null,
+        separating: separationVetoFor("current") === null,
       });
       disarmCrossfade();
       resetStemAssembly();
@@ -200,6 +208,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       prefetchVideoId = null;
       warmAllowedFor = null;
       climb = null;
+      aheadClimb = null;
 
       if (landing === "release") {
         log(`crossfaded into ${videoId} while karaoke was ${state.status}, handing the audio back`);
@@ -238,6 +247,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     prefetchVideoId = null;
     warmAllowedFor = null;
     climb = null;
+    aheadClimb = null;
     dispatch({ type: "track-changed", videoId });
     probeCacheFor(videoId);
   }
@@ -248,13 +258,17 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   }
 
   function requestNextPrefetch(videoId: string): void {
+    if (!wantsAheadTrack({ mode: settings.separationMode, crossfadeSeconds: settings.crossfadeSeconds })) {
+      log(`not looking past ${videoId}, nothing would fade into the next track or separate it`);
+      return;
+    }
     const request: RequestNextPrefetchMessage = { type: "blk-request-next-prefetch", videoId };
     postToPageWorld(request);
   }
 
   function probeCacheFor(videoId: string): void {
     const current = videoId === state.videoId;
-    const veto = current ? separationVetoFor() : null;
+    const veto = current ? separationVetoFor("current") : null;
     if (veto) {
       log(`not checking the cache for ${videoId}, ${describeSeparationVeto(veto)}`);
       return;
@@ -291,7 +305,9 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       .catch(error => logError("failed to send a forget-track command", error))
       .finally(() => {
         if (videoId !== state.videoId) return;
-        postToPageWorld({ type: "blk-request-prefetch", videoId, fresh: true });
+        postToPageWorld({ type: "blk-discard-capture", videoId });
+        climb = startClimb(videoId);
+        maybeAcquireCurrent(videoId);
       });
   }
 
@@ -372,6 +388,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
       resetStaging();
       prefetchVideoId = data.videoId;
       warmAllowedFor = data.warm === true ? data.videoId : null;
+      aheadClimb = null;
       trackStatusStore.setActivity(data.videoId, "queued");
       log(`next up is ${data.videoId}, checking whether it needs separating`);
       probeCacheFor(data.videoId);
@@ -380,6 +397,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
 
     if (isCaptureReadyMessage(data)) {
       if (data.videoId === prefetchVideoId) {
+        recordDelivery(data.videoId, null);
         maybeSeparateAhead(data.videoId);
         return;
       }
@@ -395,10 +413,18 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
         onSourceSpent(data.videoId, data.source, data.reason);
         return;
       }
-      if (data.videoId !== state.videoId) return;
-      log(`${data.source} answered for ${data.videoId}, pulling the track`);
-      recordDelivery(data.videoId, data.source);
-      acquireFromUrl(data.videoId, data.url);
+      if (data.videoId === state.videoId) {
+        log(`${data.source} answered for ${data.videoId}, pulling the track`);
+        recordDelivery(data.videoId, data.source);
+        acquireFromUrl(data.videoId, data.url);
+        return;
+      }
+      if (aheadClimb?.videoId === data.videoId && isStagingTarget(data.videoId)) {
+        log(`${data.source} answered for the next track ${data.videoId}, pulling it into this page`);
+        recordDelivery(data.videoId, data.source);
+        const acquire: AcquireAheadMessage = { type: "blk-acquire-ahead", videoId: data.videoId, url: data.url };
+        postToPageWorld(acquire);
+      }
       return;
     }
 
@@ -518,7 +544,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     if (!doneReceived || !vocalsAssembler?.isComplete() || !instrumentalAssembler?.isComplete()) return;
     if (videoId !== state.videoId || state.status !== "processing") return;
 
-    const veto = separationVetoFor();
+    const veto = separationVetoFor("current");
     if (veto) {
       log(`not loading the stems of ${videoId} into the deck, ${describeSeparationVeto(veto)}`);
       resetStemAssembly();
@@ -578,7 +604,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
     if (isAcquireFailedMessage(message)) {
       if (message.videoId !== state.videoId) return;
       dispatch({ type: "reacquire", videoId: message.videoId });
-      const spent = climb?.videoId === message.videoId ? climb.tried[climb.tried.length - 1] : null;
+      const spent = inFlightSource(climbFor(message.videoId));
       if (spent) onSourceSpent(message.videoId, spent, message.reason);
       return;
     }
@@ -605,7 +631,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
         }
         trackStatusStore.setActivity(message.videoId, "downloading");
         log(`next track ${message.videoId} is not separated yet, warming it`);
-        postToPageWorld({ type: "blk-request-prefetch", videoId: message.videoId, ahead: true });
+        maybeAcquireAhead(message.videoId);
         return;
       }
       if (message.videoId !== state.videoId) return;
@@ -664,65 +690,78 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
 
   // -- Auto separate -------------------------------------------------------
 
-  function separationVetoFor(): SeparationVeto | null {
+  function separationVetoFor(role: SeparationRole): SeparationVeto | null {
     return separationVeto({
-      singAlongEnabled: settings.singAlongEnabled,
-      autoSeparateEnabled: settings.autoSeparateEnabled,
+      mode: settings.separationMode,
       faderArmed: faderArmed(pendingMixLevel),
+      role,
     });
   }
 
   function maybeAcquireCurrent(videoId: string): void {
     if (videoId !== state.videoId) return;
-    const veto = separationVetoFor();
+    const veto = separationVetoFor("current");
     if (veto) {
       log(`not acquiring ${videoId}, ${describeSeparationVeto(veto)}`);
       return;
     }
-    if (climb?.videoId !== videoId) climb = { videoId, tried: [], inFlight: false, exhausted: false };
-    if (climb.inFlight || climb.exhausted) return;
+    if (climb?.videoId !== videoId) climb = startClimb(videoId);
+    advanceClimb(climb, false);
+  }
 
+  function maybeAcquireAhead(videoId: string): void {
+    if (!isStagingTarget(videoId)) return;
+    if (aheadClimb?.videoId !== videoId) aheadClimb = startClimb(videoId);
+    advanceClimb(aheadClimb, true);
+  }
+
+  function advanceClimb(walk: Climb, ahead: boolean): void {
     const order = enabledOrder(sanitizeSourcePreferences(settings.sources));
-    for (;;) {
-      const source = nextSource({ order, playingTrack: true, tried: climb.tried });
-      if (!source) {
-        climb.exhausted = true;
-        log(`every source has been tried for ${videoId}`);
-        return;
-      }
-      climb.tried.push(source);
-      if (source === "player-capture") {
-        log(`${videoId} is covered by the listener's own playback once it buffers`);
-        continue;
-      }
-      climb.inFlight = true;
-      startSource(videoId, source);
-      return;
+    const step = climbStep({ climb: walk, order, playingTrack: !ahead });
+    if (step.kind === "waiting") return;
+
+    walk.tried = step.tried;
+    for (const passed of step.passedOver) {
+      log(`${sourceById(passed).label} is already running for ${walk.videoId}, so it needs no request`);
     }
+    if (step.kind === "spent") {
+      walk.exhausted = true;
+      log(`every source has been tried for ${walk.videoId}`);
+    } else {
+      walk.inFlight = true;
+      startSource(walk.videoId, step.source, ahead);
+    }
+    dispatch({ type: "fetching", videoId: walk.videoId, source: fetchingSource(walk) });
+  }
+
+  function climbFor(videoId: string): Climb | null {
+    if (videoId === state.videoId) return climb?.videoId === videoId ? climb : null;
+    if (isStagingTarget(videoId)) return aheadClimb?.videoId === videoId ? aheadClimb : null;
+    return null;
   }
 
   function recordDelivery(videoId: string, announcedSource: SourceId | null): void {
-    const inFlightSource =
-      climb?.videoId === videoId && climb.inFlight ? climb.tried[climb.tried.length - 1] ?? null : null;
-    delivery = { videoId, source: deliveredBy({ inFlightSource, announcedSource }) };
+    deliveries.note(videoId, { inFlightSource: inFlightSource(climbFor(videoId)), announcedSource });
   }
 
-  function startSource(videoId: string, source: SourceId): void {
+  function startSource(videoId: string, source: SourceId, ahead: boolean): void {
+    const which = ahead ? "the next track " : "";
     if (source === "shadow-url") {
-      log(`acquiring ${videoId} from a url a shadow player mints in this page`);
-      postToPageWorld({ type: "blk-request-shadow-url", videoId });
+      log(`acquiring ${which}${videoId} from a url a shadow player mints in this page`);
+      postToPageWorld({ type: "blk-request-shadow-url", videoId, ahead });
       return;
     }
-    log(`acquiring ${videoId} in a hidden player`);
-    postToPageWorld({ type: "blk-request-prefetch", videoId });
+    log(`acquiring ${which}${videoId} in a hidden player`);
+    postToPageWorld({ type: "blk-request-prefetch", videoId, ahead });
   }
 
   function onSourceSpent(videoId: string, source: SourceId, reason: string): void {
-    if (videoId !== state.videoId || climb?.videoId !== videoId) return;
-    if (!climb.tried.includes(source)) return;
+    const walk = climbFor(videoId);
+    if (walk === null || !walk.tried.includes(source)) return;
     log(`${source} could not get ${videoId}: ${reason}`);
-    climb.inFlight = false;
-    maybeAcquireCurrent(videoId);
+    walk.inFlight = false;
+    if (videoId === state.videoId) maybeAcquireCurrent(videoId);
+    else maybeAcquireAhead(videoId);
   }
 
   function acquireFromUrl(videoId: string, url: string): void {
@@ -733,7 +772,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
 
   function maybeSeparateAhead(videoId: string): void {
     if (videoId !== prefetchVideoId) return;
-    const veto = separationVetoFor();
+    const veto = separationVetoFor("ahead");
     if (veto) {
       trackStatusStore.setActivity(videoId, "ready");
       log(`next track ${videoId} acquired, held for a crossfade but not separated: ${describeSeparationVeto(veto)}`);
@@ -750,7 +789,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   }
 
   function maybeAutoEngage(videoId: string): void {
-    if (separationVetoFor() !== null) return;
+    if (separationVetoFor("current") !== null) return;
     if (videoId !== state.videoId || state.status !== "ready-to-engage") return;
 
     log(`auto-separating ${videoId}`);
@@ -781,6 +820,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   function destroy(): void {
     clearCacheProbeTimer();
     disarmCrossfade();
+    deliveries.clear();
     document.removeEventListener(BETTER_LYRICS_PLAYER_EVENT, onBetterLyricsPlayerState);
     window.removeEventListener("message", onWindowMessage);
     chrome.runtime.onMessage.removeListener(onRuntimeMessage);
@@ -797,7 +837,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
   }
 
   function deliveredSource(videoId: string): SourceId | null {
-    return delivery?.videoId === videoId ? delivery.source : null;
+    return deliveries.sourceOf(videoId);
   }
 
   return { engage, setSettings, deliveredSource, destroy };

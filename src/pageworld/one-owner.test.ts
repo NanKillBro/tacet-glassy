@@ -18,7 +18,7 @@ function sourceFiles(): string[] {
         walk(path);
         continue;
       }
-      if (entry.endsWith(".ts") && !entry.endsWith(".test.ts")) found.push(path);
+      if ((entry.endsWith(".ts") || entry.endsWith(".tsx")) && !entry.endsWith(".test.ts")) found.push(path);
     }
   };
   walk(ROOT);
@@ -94,15 +94,69 @@ describe("one owner for what is staged to fade into", () => {
 });
 
 describe("one owner for whether a track wants separating", () => {
-  it("only the separation-wanted rule reads the automatic separation setting", () => {
-    expect(filesMatching(/\bautoSeparateEnabled\b/)).toEqual([
+  it("only the settings, the popup that writes them and the two consumers read the mode", () => {
+    expect(filesMatching(/\bseparationMode\b/)).toEqual([
+      "contents/fader-control.ts",
       "orchestrator/karaoke-pipeline.ts",
-      "orchestrator/separation-wanted.ts",
+      "popup.tsx",
+      "settings/settings.ts",
+    ]);
+  });
+
+  it("only the mode's own module compares it against off", () => {
+    expect(filesMatching(/[Mm]ode\s*[!=]==\s*"off"/)).toEqual(["settings/separation-mode.ts"]);
+  });
+
+  it("the two booleans the mode replaced survive only in the migration that reads them", () => {
+    expect(filesMatching(/\b(singAlongEnabled|autoSeparateEnabled)\b/)).toEqual([
+      "settings/separation-mode.ts",
       "settings/settings.ts",
     ]);
   });
 
   it("only the gain law compares a mix level against neutral", () => {
     expect(filesMatching(/[Mm]ixLevel\s*[!=]==\s*NEUTRAL_MIX_LEVEL/)).toEqual(["pageworld/gain-law.ts"]);
+  });
+
+  it("the veto is the only thing the activity owner and the pipeline ask", () => {
+    expect(filesMatching(/\bseparationVeto\b/)).toEqual([
+      "orchestrator/karaoke-pipeline.ts",
+      "orchestrator/separation-activity.ts",
+      "orchestrator/separation-wanted.ts",
+    ]);
+  });
+});
+
+describe("one owner for what this track's separation is doing right now", () => {
+  it("only the fader wiring asks the activity owner, and both surfaces read the answer it hands them", () => {
+    expect(filesMatching(/\bseparationActivity\b/)).toEqual([
+      "contents/fader-control.ts",
+      "orchestrator/separation-activity.ts",
+    ]);
+  });
+});
+
+describe("one owner for which rung is fetching a track", () => {
+  it("nothing reads the last tried rung off a climb by hand", () => {
+    expect(filesMatching(/tried\[[\w.]*tried\.length\s*-\s*1\]/)).toEqual(["acquisition/climb.ts"]);
+  });
+
+  it("only the pipeline asks, and only through the climb's own two answers", () => {
+    expect(filesMatching(/\b(fetchingSource|inFlightSource)\b/)).toEqual([
+      "acquisition/climb.ts",
+      "orchestrator/delivery.ts",
+      "orchestrator/karaoke-pipeline.ts",
+    ]);
+  });
+});
+
+describe("one owner for whether a rung must be started", () => {
+  it("only the ladder and the two surfaces that name a source ask the registry", () => {
+    expect(filesMatching(/\bneedsStarting\b/)).toEqual([
+      "acquisition/climb.ts",
+      "acquisition/sources.ts",
+      "orchestrator/download-tooltip.ts",
+      "orchestrator/separation-status.ts",
+    ]);
   });
 });

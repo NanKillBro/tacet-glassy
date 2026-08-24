@@ -14,7 +14,9 @@ import type {
   TrackArtworkMessage,
 } from "@/capture/bridge-protocol";
 import {
+  isAcquireAheadMessage,
   isCaptureStandDownMessage,
+  isDiscardCaptureMessage,
   isRequestCapturedAudioMessage,
   isRequestNextPrefetchMessage,
   isRequestPrefetchMessage,
@@ -23,6 +25,8 @@ import {
   isListeningToMessage,
   isRequestShadowUrlMessage,
 } from "@/capture/bridge-protocol";
+import { acquireFromMintedUrl } from "@/acquisition/acquire";
+import { readMintedUrl } from "@/acquisition/minted-url";
 import { freshBudget, mayMint, recordMintOutcome, recordMintStarted } from "@/acquisition/shadow-budget";
 import { SHADOW_HOST_ID, mintShadowUrl } from "@/capture/shadow-player";
 import type { SourceId } from "@/acquisition/sources";
@@ -45,7 +49,6 @@ import { runSliceCapture } from "@/capture/slice-runner";
 import { installSourceBufferCapture } from "@/capture/sourcebuffer-patch";
 import { getVideoIdFromSearch } from "@/capture/video-id";
 import { readWorkerAssignment } from "@/capture/worker-frame";
-import type { DownloadSource } from "@/orchestrator/download-tooltip";
 import { isSetLoggingMessage } from "@/pageworld/protocol";
 import { selectPlaybackElement } from "@/pageworld/select-media-element";
 import { readClockDuration } from "@/pageworld/track-duration";
@@ -233,13 +236,24 @@ function announceAheadDownloadProgress(): void {
   window.postMessage(message, window.location.origin);
 }
 
+function announcePullDownloadProgress(videoId: string, receivedBytes: number, expectedBytes: number): void {
+  if (!Number.isFinite(expectedBytes) || expectedBytes <= 0) return;
+  const message: DownloadProgressMessage = {
+    type: "blk-download-progress",
+    videoId,
+    fraction: receivedBytes / expectedBytes,
+    source: "shadow-url",
+  };
+  window.postMessage(message, window.location.origin);
+}
+
 function announceDownloadProgress(element: HTMLVideoElement): void {
   announceAheadDownloadProgress();
   const videoId = listenedVideoId();
   if (!videoId || stoodDownVideoIds.has(videoId) || isAdPlayingHere()) return;
   if (prefetchStateByVideoId.get(videoId) === "done") return;
   const prefetching = hiddenPlayerOwns(videoId);
-  const source: DownloadSource = prefetching ? "hidden-player" : "listener-playback";
+  const source: SourceId = prefetching ? "hidden-player" : "player-capture";
   const against = trackDurationSeconds(element) ?? readClockDuration(document);
   const fraction = prefetching ? hiddenPlayerProgress() : computeBufferedFraction(bufferedEndSeconds(element), against);
   const message: DownloadProgressMessage = { type: "blk-download-progress", videoId, fraction, source };
@@ -400,15 +414,16 @@ function abandonPrefetch(videoId: string, ahead: boolean, reason: string): void 
   }, delay);
 }
 
-function startPrefetchFor(videoId: string, { ahead = false, fresh = false } = {}): void {
-  if (fresh) {
-    log(`discarding the capture held for videoId=${videoId} and acquiring it again`);
-    prefetchedByVideoId.delete(videoId);
-    prefetchStateByVideoId.delete(videoId);
-    prefetchAttemptsByVideoId.delete(videoId);
-    stoodDownVideoIds.delete(videoId);
-    announcedKeys.clear();
-  }
+function discardCaptureFor(videoId: string): void {
+  log(`discarding the capture held for videoId=${videoId}`);
+  prefetchedByVideoId.delete(videoId);
+  prefetchStateByVideoId.delete(videoId);
+  prefetchAttemptsByVideoId.delete(videoId);
+  stoodDownVideoIds.delete(videoId);
+  announcedKeys.clear();
+}
+
+function startPrefetchFor(videoId: string, { ahead = false } = {}): void {
   if (prefetchStateByVideoId.get(videoId) === "done" && prefetchedByVideoId.has(videoId)) {
     if (!stoodDownVideoIds.has(videoId)) announceCaptureReady(videoId);
     return;
@@ -491,8 +506,17 @@ let shadowInFlightVideoId: string | null = null;
 let shadowBudget = freshBudget();
 
 function mintShadowUrlFor(videoId: string): void {
+  if (shadowInFlightVideoId === videoId) {
+    log(`already minting a shadow url for ${videoId}, waiting on the mint already running`);
+    return;
+  }
   if (shadowInFlightVideoId !== null) {
-    log(`already minting a shadow url for ${shadowInFlightVideoId}, ignoring the request for ${videoId}`);
+    announceAcquisitionResult(
+      videoId,
+      "shadow-url",
+      null,
+      `a shadow player is already minting for ${shadowInFlightVideoId}`
+    );
     return;
   }
   const verdict = mayMint(shadowBudget, Date.now());
@@ -514,6 +538,74 @@ function mintShadowUrlFor(videoId: string): void {
       shadowBudget = recordMintOutcome(shadowBudget, false, Date.now());
       logError(`minting a shadow url for videoId=${videoId} threw`, error);
       announceAcquisitionResult(videoId, "shadow-url", null, "the shadow player crashed");
+    });
+}
+
+// -- Pulling the next track's bytes without leaving this page ------------------
+
+const aheadPullsInFlight = new Set<string>();
+
+// Measured: a refused pull answers 400, and that response carries no
+// access-control header, so the page sees an opaque TypeError while the
+// extension origin reads the status. The request itself is never blocked, and
+// the ladder is built to take over, so this is a routine outcome rather than an
+// error the listener should see in their console.
+const PAGE_PULL_OPAQUE_REASON = "the pull failed, and this page cannot read why";
+
+function urlDurationSeconds(url: string): number {
+  const minted = readMintedUrl(url);
+  if (!minted || !Number.isFinite(minted.durationSeconds) || minted.durationSeconds <= 0) return Number.NaN;
+  return minted.durationSeconds;
+}
+
+function pullAheadTrack(videoId: string, url: string): void {
+  if (aheadPullsInFlight.has(videoId)) {
+    log(`already pulling videoId=${videoId} in this page, ignoring the second request`);
+    return;
+  }
+  if (prefetchedByVideoId.has(videoId)) {
+    log(`videoId=${videoId} is already held in this page, no pull needed`);
+    announceCaptureReady(videoId);
+    return;
+  }
+
+  aheadPullsInFlight.add(videoId);
+  const startedAt = performance.now();
+  acquireFromMintedUrl({
+    url,
+    onProgress: (receivedBytes, expectedBytes) => announcePullDownloadProgress(videoId, receivedBytes, expectedBytes),
+  })
+    .then(result => {
+      aheadPullsInFlight.delete(videoId);
+      const elapsedMs = Math.round(performance.now() - startedAt);
+      if (!result.ok) {
+        log(`pulling videoId=${videoId} in this page failed after ${elapsedMs}ms: ${result.reason}`);
+        announceAcquisitionResult(videoId, "shadow-url", null, result.reason);
+        return;
+      }
+
+      const durationSeconds = urlDurationSeconds(url);
+      if (!Number.isFinite(durationSeconds)) {
+        log(`the url for videoId=${videoId} states no duration, holding the whole pull as the track anyway`);
+      }
+      holdPrefetched(videoId, {
+        mimeType: result.mimeType,
+        bytes: result.bytes,
+        complete: true,
+        coveredSeconds: durationSeconds,
+        trackSeconds: durationSeconds,
+      });
+      prefetchStateByVideoId.set(videoId, "done");
+      log(
+        `pulled videoId=${videoId} in this page, ${result.bytes.byteLength} bytes over ${result.requests} request(s) in ${elapsedMs}ms`
+      );
+      announceCaptureReady(videoId);
+    })
+    .catch((error: unknown) => {
+      aheadPullsInFlight.delete(videoId);
+      const detail = error instanceof Error ? error.message : String(error);
+      log(`pulling videoId=${videoId} in this page did not complete: ${detail}`);
+      announceAcquisitionResult(videoId, "shadow-url", null, PAGE_PULL_OPAQUE_REASON);
     });
 }
 
@@ -643,12 +735,14 @@ window.addEventListener("message", event => {
   if (isRequestPrefetchedAudioMessage(data) && runsOrchestration) respondToPrefetchedAudioRequest(data.videoId);
   if (isListeningToMessage(data) && runsOrchestration) noteListenedTrack(data.videoId);
   if (isRequestShadowUrlMessage(data) && runsOrchestration) {
-    noteListenedTrack(data.videoId);
+    if (data.ahead !== true) noteListenedTrack(data.videoId);
     mintShadowUrlFor(data.videoId);
   }
+  if (isAcquireAheadMessage(data) && runsOrchestration) pullAheadTrack(data.videoId, data.url);
+  if (isDiscardCaptureMessage(data) && runsOrchestration) discardCaptureFor(data.videoId);
   if (isRequestPrefetchMessage(data) && runsOrchestration) {
     if (data.ahead !== true) noteListenedTrack(data.videoId);
-    startPrefetchFor(data.videoId, { ahead: data.ahead === true, fresh: data.fresh === true });
+    startPrefetchFor(data.videoId, { ahead: data.ahead === true });
   }
 
   if (isRequestNextPrefetchMessage(data) && runsOrchestration) {
@@ -719,6 +813,7 @@ window.blkCaptureProbe = () => {
     capturedBytes: videoId ? prefetchedByVideoId.get(videoId)?.bytes.byteLength ?? 0 : 0,
     inFlightVideoId: slicedPrefetchVideoId,
     inFlightIsAhead: slicedPrefetchIsAhead,
+    pullingAhead: [...aheadPullsInFlight],
     workerFrames: Array.from(document.querySelectorAll<HTMLIFrameElement>(`iframe[id^="${FRAME_ID_PREFIX}"]`)).map(
       frame => frame.id
     ),
