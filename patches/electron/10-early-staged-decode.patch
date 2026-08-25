@@ -1,8 +1,8 @@
 diff --git a/src/contents/inject-main-world.ts b/src/contents/inject-main-world.ts
-index 32f20e2..749fcca 100644
+index b0b50d1..5db2561 100644
 --- a/src/contents/inject-main-world.ts
 +++ b/src/contents/inject-main-world.ts
-@@ -710,6 +710,21 @@ function cueClock(graph: PlaybackGraph | null): CueClockInput {
+@@ -743,6 +743,21 @@ function cueClock(graph: PlaybackGraph | null): CueClockInput {
    };
  }
  
@@ -24,7 +24,7 @@ index 32f20e2..749fcca 100644
  function runTransitionCue(graph: PlaybackGraph): boolean {
    if (crossfadeSeconds <= 0) return false;
    const state = graph.describe();
-@@ -730,9 +745,9 @@ function runTransitionCue(graph: PlaybackGraph): boolean {
+@@ -763,9 +778,9 @@ function runTransitionCue(graph: PlaybackGraph): boolean {
      return false;
    }
    if (cue.kind === "decode") {
@@ -37,7 +37,7 @@ index 32f20e2..749fcca 100644
      return false;
    }
  
-@@ -975,6 +990,7 @@ window.addEventListener("message", event => {
+@@ -1008,6 +1023,7 @@ window.addEventListener("message", event => {
      cancelMixRequest();
      staging.offerStems(data.videoId);
      logger.log(`${data.videoId} is staged, a transition into it is possible`);
@@ -46,10 +46,10 @@ index 32f20e2..749fcca 100644
    }
  
 diff --git a/src/orchestrator/karaoke-pipeline.ts b/src/orchestrator/karaoke-pipeline.ts
-index 78ad264..16425e1 100644
+index 0b1d77a..99aab47 100644
 --- a/src/orchestrator/karaoke-pipeline.ts
 +++ b/src/orchestrator/karaoke-pipeline.ts
-@@ -69,6 +69,9 @@ import {
+@@ -75,6 +75,9 @@ import {
  const CAPTURE_REQUEST_TIMEOUT_MS = 8000;
  const ACQUISITION_WATCHDOG_MS = 8000;
  const CROSSFADE_ARM_GRACE_SECONDS = 6;
@@ -59,7 +59,7 @@ index 78ad264..16425e1 100644
  
  const logger = createLogger("orchestrator");
  
-@@ -501,8 +504,22 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
+@@ -540,8 +543,22 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
        return;
      }
  
@@ -82,7 +82,7 @@ index 78ad264..16425e1 100644
          if (aheadStaging.heldVideoId !== videoId) return;
          const message: StageDeckMessage = {
            type: "blk-stage-deck",
-@@ -515,10 +532,11 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
+@@ -554,10 +571,11 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
          const transfer = [...vocals.channels, ...instrumental.channels].map(channel => channel.buffer);
          postToPageWorld(message, transfer);
          aheadStaging.releaseHeld(videoId);

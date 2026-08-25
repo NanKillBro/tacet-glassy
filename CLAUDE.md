@@ -90,6 +90,41 @@ Two mechanical notes about generating a new patch, both of which cost time here:
   prints for *other* things, and reported 265 on files with zero CR bytes. That false
   positive was hit twice in one session.
 
+### Refreshing the series after an upstream merge
+
+Done once, for upstream v1.3.0 (2026-08-25). Four lessons, in the order they bit:
+
+- **"Applies cleanly" does not mean "does not need regenerating."** `git apply` matches
+  by context and will happily land a patch on a moved file, but `tooling/apply-patches.mjs`
+  validates by the `index a..b` blob hashes, so a patch whose file changed upstream reads
+  as *out of step* even after applying. Patches 09 and 10 both applied clean and both still
+  had to be regenerated. **Pick the set to refresh by which files upstream touched, not by
+  which patches conflicted:**
+
+  ```sh
+  CHANGED=$(git diff --name-only <pre-merge> upstream/master)
+  for p in patches/electron/*.patch; do
+    grep '^diff --git' "$p" | sed 's|^diff --git a/||; s| b/.*$||' \
+      | grep -qFx -f <(printf '%s\n' $CHANGED) && echo "refresh $(basename $p)"
+  done
+  ```
+
+- **Regenerate by replaying the whole series from the merge commit**, capturing each target
+  patch's diff at its own point in the chain — a patch is a delta on top of the ones before
+  it, so there is no way to recover it from the final tree alone. Reset to the merge commit,
+  apply in order, and for each patch to refresh: stage its files into a scratch index
+  *before* applying it (that is the pre-state), apply, resolve, then
+  `GIT_INDEX_FILE=$scratch git diff -- <its files>`.
+- **`git apply -3` leaves the file unmerged in the *main* index, and the next `-3` in the
+  series then dies with `does not exist in index`.** `git add` each resolved file before
+  moving on. Losing an hour to this is easy because the error names the file, not the cause.
+- **A patch that creates files needs `git add -N` on them before the capture**, or
+  `git diff` silently omits them — they are untracked in the scratch index, and `git diff`
+  does not report untracked paths. This dropped both new files from patch 08 and the only
+  symptom was the patch being 50 lines instead of 188. Compare
+  `grep -c '^diff --git'` before and after.
+
+
 ## What Electron does not give the extension
 
 Verified against the Electron extensions docs and by running it, not guessed:
@@ -122,7 +157,17 @@ Verified against the Electron extensions docs and by running it, not guessed:
   and the offscreen document included. Identify the player by `url`
   (`https://music.youtube.com/*`), which `host_permissions` already covers. This is
   what patch 08 and `src/settings/player-tab.ts` are for.
-- **`chrome.storage.sync` and `.managed` are absent**; only `.local` works.
+- **`chrome.storage.sync` and `.managed` are absent**; only `.local` works. This is the
+  one Electron fix carried as *committed source* rather than a patch, and it is the only
+  thing upstream merges ever conflict on. Two traps, both hit on the v1.3.0 merge:
+  **upstream adds new `.sync` call sites with every settings feature** (v1.3.0's `sources`
+  would never have persisted), and **`storage.onChanged` handlers compare `areaName`
+  against a literal** — a stale `areaName !== "sync"` guard makes a context deaf to every
+  write the rest of the extension makes to `.local`. So after a merge, sweep rather than
+  just resolving conflicts:
+  `grep -rn 'storage\.\(sync\|managed\)' src workers` and `grep -rn 'areaName' src workers`
+  must both come back with nothing to fix.
+
 - `chrome.tabs.sendMessage`, `chrome.runtime.sendMessage` / `onMessage` do work.
 - **Electron quits only when every `BrowserWindow` is gone.** The hidden offscreen
   window is one, so it kept the whole process alive after the main window closed
@@ -281,7 +326,7 @@ kept green.
 ```sh
 npx tsc --noEmit                       # app + popup
 npx tsc -p workers/tsconfig.json --noEmit
-npx vitest run                         # 115 files, 2103 tests as of 2026-08-19
+npx vitest run                         # 124 files, 2394 tests as of 2026-08-25 (upstream v1.3.0)
 npx biome lint .                        # clean
 pnpm build
 cd ../.. && node tooling/sync-extensions.mjs
@@ -294,6 +339,13 @@ pnpm build
 pre-existing files because the working tree is CRLF (`core.autocrlf=true` in the
 system gitconfig) while the blobs are LF. `npx biome lint .` alone is clean. Do not
 "fix" that by reformatting the tree — it would bury every patch in whitespace.
+
+**Run `vitest` with the patches applied.** On an unpatched tree 20 tests fail
+(`src/pageworld/one-owner.test.ts`, `src/shared/web-accessible-resources.test.ts`) — those
+are upstream's own Windows path bugs, and patch 09 is what fixes them: `relative()` emits
+`\` and is compared against `/` literals, and `new URL(...).pathname` yields `/C:/...`
+which `join()` turns into `C:\C:\...`. Seeing those 20 fail means the series is off, not
+that something regressed.
 
 ## Known open items
 

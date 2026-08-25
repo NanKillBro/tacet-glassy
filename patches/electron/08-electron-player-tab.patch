@@ -1,16 +1,16 @@
 diff --git a/src/popup.tsx b/src/popup.tsx
-index 0004c16..93301f8 100644
+index 167638a..929d538 100644
 --- a/src/popup.tsx
 +++ b/src/popup.tsx
-@@ -8,6 +8,7 @@ import { sizedArtworkUrl } from "@/capture/artwork-url";
- import { describeAhead, isAheadActivity } from "@/orchestrator/ahead-status";
+@@ -9,6 +9,7 @@ import { describeNowArtist } from "@/orchestrator/delivery";
  import { separationFill, separationText } from "@/orchestrator/separation-status";
+ import { deadPanelReason } from "@/settings/dead-panels";
  import { formatBytes } from "@/settings/format-bytes";
 +import { type PlayerTabQuery, findPlayerTabId } from "@/settings/player-tab";
  import {
    POPUP_TABS,
    type PopupTab,
-@@ -363,13 +364,19 @@ function createCrossfadeRow(
+@@ -428,13 +429,19 @@ function createCrossfadeRow(
  
  // -- Better Lyrics presence ----------------------------------------------------
  
@@ -33,7 +33,7 @@ index 0004c16..93301f8 100644
      if (!isBetterLyricsPresenceMessage(response)) {
        console.error(`${LOG_PREFIX} unexpected Better Lyrics probe reply`, response);
        return true;
-@@ -887,11 +894,11 @@ function createStatusSection(): StatusSection {
+@@ -948,11 +955,11 @@ function createStatusSection(): StatusSection {
  
  async function readTrackStatus(): Promise<TrackStatus | null> {
    const command: GetTrackStatusCommand = { type: "blk-get-track-status" };

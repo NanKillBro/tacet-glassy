@@ -21,20 +21,20 @@ index 9edbc7c..f36d5f9 100644
      this.assembly = null;
      this.held = { videoId, ...blobs };
 diff --git a/src/orchestrator/karaoke-pipeline.ts b/src/orchestrator/karaoke-pipeline.ts
-index 792b6ee..707539c 100644
+index 843dcd0..5a40516 100644
 --- a/src/orchestrator/karaoke-pipeline.ts
 +++ b/src/orchestrator/karaoke-pipeline.ts
-@@ -44,8 +44,7 @@ import {
+@@ -50,8 +50,7 @@ import {
    isCrossfadeStartedMessage,
    isRequestStagedDeckMessage,
  } from "@/pageworld/protocol";
 -import { base64ToBytes, bytesToBase64 } from "@/relay/base64";
 -import { type ChunkAssembler, createChunkAssembler, splitIntoChunks } from "@/relay/chunk-transfer";
 +import { type ChunkAssembler, createChunkAssembler, iterateBase64Chunks } from "@/relay/chunk-transfer";
- import { loadSettingsFrom } from "@/settings/storage";
+ import type { Settings } from "@/settings/settings";
  import { createLogger } from "@/shared/logger";
  import type {
-@@ -291,19 +290,20 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
+@@ -320,19 +319,20 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
    // -- MAIN world: capture-spike.ts ---------------------------------------
  
    async function sendCapturedAudioChunks(videoId: string, mimeType: string, bytes: ArrayBuffer): Promise<void> {
@@ -63,7 +63,7 @@ index 792b6ee..707539c 100644
        };
        await chrome.runtime.sendMessage(message).catch(error => {
          throw error instanceof Error ? error : new Error(describeError(error));
-@@ -498,7 +498,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
+@@ -537,7 +537,7 @@ function createKaraokePipeline(options: KaraokePipelineOptions): KaraokePipeline
    }
  
    function decodeStemBlob(assembler: ChunkAssembler): Blob {
