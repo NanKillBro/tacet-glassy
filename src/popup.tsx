@@ -1,12 +1,13 @@
 import "./popup.css";
 import tacetIconUrl from "data-base64:../assets/brand/logo.png";
-import Sortable from "sortablejs";
 import { sanitizeSourcePreferences } from "@/acquisition/sources";
 import type { SourcePreference, SourceSpeed, SourceSpeedRank } from "@/acquisition/sources";
 import { type ModelVariant, getModelDescriptor } from "@/cache/model-url";
 import { sizedArtworkUrl } from "@/capture/artwork-url";
 import { describeAhead, isAheadActivity } from "@/orchestrator/ahead-status";
+import { describeNowArtist } from "@/orchestrator/delivery";
 import { separationFill, separationText } from "@/orchestrator/separation-status";
+import { deadPanelReason } from "@/settings/dead-panels";
 import { formatBytes } from "@/settings/format-bytes";
 import {
   POPUP_TABS,
@@ -19,17 +20,21 @@ import {
   selectTab,
   toggleAbout,
 } from "@/settings/popup-tabs";
-import { describeNowArtist } from "@/orchestrator/delivery";
 import { createSelect } from "@/settings/select";
-import { acquisitionWarning, moveSource, sourceRows, toggleSource } from "@/settings/source-rows";
+import { SEPARATION_MODE_OPTIONS, type SeparationMode, separationModeNote } from "@/settings/separation-mode";
 import {
   CACHE_BUDGET_PRESETS_BYTES,
   CROSSFADE_PRESETS_SECONDS,
   DEFAULT_SETTINGS,
   type FaderPlacement,
+  SETTINGS_STORAGE_KEY,
+  type Settings,
+  sanitizeSettings,
 } from "@/settings/settings";
+import { acquisitionWarning, moveSource, sourceRows, toggleSource } from "@/settings/source-rows";
 import { loadSettingsFrom, saveSettingsFrom } from "@/settings/storage";
 import { extensionVersion } from "@/shared/version";
+import Sortable from "sortablejs";
 import {
   type ClearModelCacheCommand,
   type ClearStemCacheCommand,
@@ -70,6 +75,36 @@ function createTextRow(labelText: string, hintText: string): { text: HTMLElement
   hint.textContent = hintText;
   text.append(label, hint);
   return { text, hint, labelId: label.id };
+}
+
+// -- Panels ---------------------------------------------------------------------
+
+interface Panel {
+  element: HTMLElement;
+  setReason(reason: string | null): void;
+}
+
+function createPanel(...children: readonly HTMLElement[]): Panel {
+  const element = createElement("div", "blk-panel");
+  element.setAttribute("role", "tabpanel");
+  const reason = createElement("p", "blk-panel__reason");
+  const body = createElement("div", "blk-panel__body");
+  body.append(...children);
+  element.append(body);
+
+  return {
+    element,
+    setReason(next) {
+      element.classList.toggle("blk-panel--inactive", next !== null);
+      body.inert = next !== null;
+      if (next === null) {
+        reason.remove();
+        return;
+      }
+      reason.textContent = next;
+      if (reason.parentElement !== element) element.prepend(reason);
+    },
+  };
 }
 
 // -- Links and icons ------------------------------------------------------------
@@ -286,6 +321,36 @@ function createModelVariantRow(
   return { row, setValue: select.setValue };
 }
 
+// -- Separation mode row -------------------------------------------------------
+
+function createSeparationModeRow(
+  initial: SeparationMode,
+  onChange: (next: SeparationMode) => void
+): { row: HTMLElement; setValue(value: SeparationMode): void } {
+  const row = createElement("div", "blk-row");
+  const { text, hint, labelId } = createTextRow("Sing-along", separationModeNote(initial));
+
+  const options = SEPARATION_MODE_OPTIONS.map(option => ({ value: option.value, label: option.label }));
+  const select = createSelect<SeparationMode>(
+    options,
+    initial,
+    next => {
+      hint.textContent = separationModeNote(next);
+      onChange(next);
+    },
+    labelId
+  );
+
+  row.append(text, select.element);
+  return {
+    row,
+    setValue(value) {
+      hint.textContent = separationModeNote(value);
+      select.setValue(value);
+    },
+  };
+}
+
 // -- Fader placement row -------------------------------------------------------
 
 function createFaderPlacementRow(
@@ -447,8 +512,7 @@ function createSpeedGauge(speed: SourceSpeed): HTMLElement {
   return gauge;
 }
 
-interface SourcesPanel {
-  element: HTMLElement;
+interface SourcesPanel extends Panel {
   render(preferences: readonly SourcePreference[]): void;
 }
 
@@ -456,9 +520,6 @@ function createSourcesPanel(
   initial: readonly SourcePreference[],
   onChange: (next: SourcePreference[]) => void
 ): SourcesPanel {
-  const element = createElement("div", "blk-panel");
-  element.setAttribute("role", "tabpanel");
-
   const heading = createElement("div", "blk-section");
   const title = createElement("span", "blk-section__title");
   title.textContent = "Where audio comes from";
@@ -534,8 +595,8 @@ function createSourcesPanel(
     },
   });
 
-  element.append(heading, list, warning);
-  return { element, render };
+  const panel = createPanel(heading, list, warning);
+  return { element: panel.element, setReason: panel.setReason, render };
 }
 
 function createReadoutRow(labelText: string): { row: HTMLElement; value: HTMLElement } {
@@ -929,37 +990,19 @@ async function main(): Promise<void> {
     status.textContent = message;
   }
 
-  const settings = await loadSettingsFrom(chrome.storage.local).catch(error => {
+  let settings = await loadSettingsFrom(chrome.storage.local).catch(error => {
     console.error(`${LOG_PREFIX} failed to load settings`, error);
     showStatus("Could not load settings.");
     return DEFAULT_SETTINGS;
   });
 
-  const singAlongToggle = createToggle(
-    "Sing-along",
-    "Sing-along and everything behind it, crossfade included. Reload YouTube Music after changing this.",
-    settings.singAlongEnabled,
-    next => {
-      saveSettingsFrom(chrome.storage.local, { singAlongEnabled: next }).catch(error => {
-        console.error(`${LOG_PREFIX} failed to save the sing-along setting`, error);
-        showStatus("Could not save that change.");
-        singAlongToggle.setChecked(!next);
-      });
-    }
-  );
-
-  const autoSeparateToggle = createToggle(
-    "Start separating automatically",
-    "Begin separation as soon as a track is captured, instead of waiting for a tap.",
-    settings.autoSeparateEnabled,
-    next => {
-      saveSettingsFrom(chrome.storage.local, { autoSeparateEnabled: next }).catch(error => {
-        console.error(`${LOG_PREFIX} failed to save the auto-separate setting`, error);
-        showStatus("Could not save that change.");
-        autoSeparateToggle.setChecked(!next);
-      });
-    }
-  );
+  const separationModeRow = createSeparationModeRow(settings.separationMode, next => {
+    saveSettingsFrom(chrome.storage.local, { separationMode: next }).catch(error => {
+      console.error(`${LOG_PREFIX} failed to save the separation mode`, error);
+      showStatus("Could not save that change.");
+      separationModeRow.setValue(settings.separationMode);
+    });
+  });
 
   const debugLoggingToggle = createToggle(
     "Console logging",
@@ -1021,33 +1064,33 @@ async function main(): Promise<void> {
     clearModelCache();
   });
 
-  const generalPanel = createElement("div", "blk-panel");
-  generalPanel.setAttribute("role", "tabpanel");
-  generalPanel.append(singAlongToggle.row, crossfadeRow.row, faderPlacementRow.row, debugLoggingToggle.row);
+  const generalPanel = createPanel(
+    separationModeRow.row,
+    crossfadeRow.row,
+    faderPlacementRow.row,
+    debugLoggingToggle.row
+  );
 
-  const separationPanel = createElement("div", "blk-panel");
-  separationPanel.setAttribute("role", "tabpanel");
-  separationPanel.append(autoSeparateToggle.row, modelVariantRow.row);
+  const separationPanel = createPanel(modelVariantRow.row);
 
   const sourcesPanel = createSourcesPanel(settings.sources, next => {
-    saveSettingsFrom(chrome.storage.sync, { sources: next }).catch(error => {
+    saveSettingsFrom(chrome.storage.local, { sources: next }).catch(error => {
       console.error(`${LOG_PREFIX} failed to save the source order`, error);
       showStatus("Could not save that.");
       sourcesPanel.render(settings.sources);
     });
   });
 
-  const storagePanel = createElement("div", "blk-panel");
-  storagePanel.setAttribute("role", "tabpanel");
-  storagePanel.append(budgetSlider.row, cacheReadout.element, stemClearRow.row, modelClearRow.row);
+  const storagePanel = createPanel(budgetSlider.row, cacheReadout.element, stemClearRow.row, modelClearRow.row);
 
-  const panels: Record<PopupTab | "about", HTMLElement> = {
+  const tabPanels: Record<PopupTab, Panel> = {
     general: generalPanel,
     separation: separationPanel,
-    sources: sourcesPanel.element,
+    sources: sourcesPanel,
     storage: storagePanel,
-    about: createAboutPanel(),
   };
+
+  const aboutPanel = createAboutPanel();
 
   const TAB_LABELS: Record<PopupTab, string> = {
     general: "General",
@@ -1085,12 +1128,28 @@ async function main(): Promise<void> {
       button.setAttribute("aria-selected", String(!view.aboutOpen && view.tab === tab));
     }
     aboutButton.setAttribute("aria-pressed", String(view.aboutOpen));
-    scroll.replaceChildren(panels[activePanel(view)]);
+    const panel = activePanel(view);
+    scroll.replaceChildren(panel === "about" ? aboutPanel : tabPanels[panel].element);
     scroll.scrollTop = 0;
   }
 
+  function applyPanelActivity(next: Settings): void {
+    settings = next;
+    for (const { tab, button } of tabButtons) {
+      const reason = deadPanelReason(tab, { mode: next.separationMode, crossfadeSeconds: next.crossfadeSeconds });
+      tabPanels[tab].setReason(reason);
+      button.classList.toggle("blk-tab--inactive", reason !== null);
+    }
+  }
+
+  chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (areaName !== "local" || !(SETTINGS_STORAGE_KEY in changes)) return;
+    applyPanelActivity(sanitizeSettings(changes[SETTINGS_STORAGE_KEY].newValue));
+  });
+
   root.append(header, statusSection.element, tabs, scroll, footer);
   document.body.append(root);
+  applyPanelActivity(settings);
   render();
 
   function refreshStatus(): void {

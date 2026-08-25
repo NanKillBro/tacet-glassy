@@ -2,7 +2,6 @@
 
 import { isSourceId } from "@/acquisition/sources";
 import type { SourceId } from "@/acquisition/sources";
-import type { DownloadSource } from "@/orchestrator/download-tooltip";
 
 export interface RequestCapturedAudioMessage {
   type: "blk-request-captured-audio";
@@ -49,7 +48,11 @@ export interface RequestPrefetchMessage {
   type: "blk-request-prefetch";
   videoId: string;
   ahead?: boolean;
-  fresh?: boolean;
+}
+
+export interface DiscardCaptureMessage {
+  type: "blk-discard-capture";
+  videoId: string;
 }
 
 export interface RequestNextPrefetchMessage {
@@ -99,7 +102,7 @@ export interface DownloadProgressMessage {
   type: "blk-download-progress";
   videoId: string;
   fraction: number;
-  source: DownloadSource;
+  source: SourceId;
 }
 
 export interface SliceCapturedMessage {
@@ -116,6 +119,13 @@ export interface SliceCapturedMessage {
 export interface RequestShadowUrlMessage {
   type: "blk-request-shadow-url";
   videoId: string;
+  ahead?: boolean;
+}
+
+export interface AcquireAheadMessage {
+  type: "blk-acquire-ahead";
+  videoId: string;
+  url: string;
 }
 
 export interface ListeningToMessage {
@@ -146,6 +156,17 @@ export function isRequestShadowUrlMessage(data: unknown): data is RequestShadowU
     data !== null &&
     (data as { type?: unknown }).type === "blk-request-shadow-url" &&
     typeof (data as { videoId?: unknown }).videoId === "string"
+  );
+}
+
+export function isAcquireAheadMessage(data: unknown): data is AcquireAheadMessage {
+  if (typeof data !== "object" || data === null) return false;
+  const url: unknown = (data as { url?: unknown }).url;
+  return (
+    (data as { type?: unknown }).type === "blk-acquire-ahead" &&
+    typeof (data as { videoId?: unknown }).videoId === "string" &&
+    typeof url === "string" &&
+    url.length > 0
   );
 }
 
@@ -234,6 +255,15 @@ export function isRequestPrefetchMessage(data: unknown): data is RequestPrefetch
   );
 }
 
+export function isDiscardCaptureMessage(data: unknown): data is DiscardCaptureMessage {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    (data as { type?: unknown }).type === "blk-discard-capture" &&
+    typeof (data as { videoId?: unknown }).videoId === "string"
+  );
+}
+
 export function isRequestNextPrefetchMessage(data: unknown): data is RequestNextPrefetchMessage {
   return (
     typeof data === "object" &&
@@ -317,7 +347,6 @@ export function isDownloadProgressMessage(data: unknown): data is DownloadProgre
     (data as { type?: unknown }).type === "blk-download-progress" &&
     typeof (data as { videoId?: unknown }).videoId === "string" &&
     typeof (data as { fraction?: unknown }).fraction === "number" &&
-    ((data as { source?: unknown }).source === "hidden-player" ||
-      (data as { source?: unknown }).source === "listener-playback")
+    isSourceId((data as { source?: unknown }).source)
   );
 }
