@@ -1,0 +1,146 @@
+diff --git a/workers/separator.ts b/workers/separator.ts
+index c79c544..72c296b 100644
+--- a/workers/separator.ts
++++ b/workers/separator.ts
+@@ -192,6 +192,116 @@ let separationSession: SeparationOrtSession | null = null;
+ let separationSessionModelKey: string | null = null;
+ let separateCancelled = false;
+ 
++// -- Choosing the execution provider, out loud ------------------------------
++
++// Just enough of WebGPU to identify an adapter; there is no @webgpu/types here and
++// the rest of this file narrows what it uses by hand too.
++interface ProbedAdapterInfo {
++  vendor?: string;
++  architecture?: string;
++  device?: string;
++  description?: string;
++  isFallbackAdapter?: boolean;
++}
++
++interface ProbedAdapter {
++  info?: ProbedAdapterInfo;
++  isFallbackAdapter?: boolean;
++  features?: { has(name: string): boolean };
++}
++
++interface ProbedGpu {
++  requestAdapter(): Promise<ProbedAdapter | null>;
++}
++
++// A WebGPU adapter that is Chromium's own CPU renderer. `isFallbackAdapter` is the
++// spec's answer and moved onto `info` along the way, so both are read; the name is
++// checked as well because that is what actually showed up in the field
++// (vendor "google", architecture "swiftshader").
++function isSoftwareAdapter(adapter: ProbedAdapter): boolean {
++  if (adapter.isFallbackAdapter === true || adapter.info?.isFallbackAdapter === true) return true;
++  const info = adapter.info ?? {};
++  const identity = [info.vendor, info.architecture, info.device, info.description].join(" ");
++  return /swiftshader/i.test(identity);
++}
++
++function describeAdapter(adapter: ProbedAdapter): string {
++  const info = adapter.info ?? {};
++  const parts = [
++    `vendor=${info.vendor || "?"}`,
++    `architecture=${info.architecture || "?"}`,
++    info.device ? `device=${info.device}` : null,
++    info.description ? `description=${info.description}` : null,
++    `f16=${adapter.features?.has("shader-f16") === true}`,
++  ];
++  return parts.filter(Boolean).join(" ");
++}
++
++// ORT is asked for a provider list and picks the first one that works, silently —
++// and it can place *individual nodes* on wasm, so a partial fallback does not show
++// up either. That silence is how htdemucs came to run on SwiftShader for months
++// while the log said nothing at all. So the choice is made here instead, and stated.
++//
++// The rejection that matters: a software WebGPU adapter is *worse* than the wasm
++// provider, not better. SwiftShader emulates compute shaders on one CPU thread,
++// where wasm gets SIMD and several. So "there is an adapter" is not the question —
++// "is it real hardware" is.
++async function chooseProviders(forceWasm: boolean | undefined): Promise<string[]> {
++  if (forceWasm) {
++    logger.log("provider: wasm (forced by the host)");
++    return ["wasm"];
++  }
++
++  if (typeof navigator === "undefined" || !("gpu" in navigator)) {
++    logger.error("provider: wasm — navigator.gpu is absent, so there is no WebGPU here at all");
++    return ["wasm"];
++  }
++
++  let adapter: ProbedAdapter | null = null;
++  try {
++    const gpu = (navigator as unknown as { gpu: ProbedGpu }).gpu;
++    adapter = (await gpu.requestAdapter()) ?? null;
++  } catch (error) {
++    logger.error(`provider: wasm — requestAdapter() threw: ${toErrorMessage(error)}`);
++    return ["wasm"];
++  }
++
++  if (!adapter) {
++    // Chromium hands out no adapter at all when WebGPU is off for the platform. On
++    // Linux that has been seen both ways: without --enable-unsafe-webgpu there is no
++    // adapter, with it there is a SwiftShader one. Neither is hardware.
++    logger.error("provider: wasm — requestAdapter() returned no adapter");
++    return ["wasm"];
++  }
++
++  if (isSoftwareAdapter(adapter)) {
++    logger.error(`provider: wasm — the only WebGPU adapter is a software renderer (${describeAdapter(adapter)})`);
++    return ["wasm"];
++  }
++
++  logger.log(`provider: webgpu on ${describeAdapter(adapter)}`);
++  return ["webgpu", "wasm"];
++}
++
++// How many threads the wasm provider may use. Upstream hardcodes 1, and ORT's own
++// default is 1 as well whenever `crossOriginIsolated` is false — which it is here,
++// since the extension manifest carries no COEP/COOP.
++//
++// But that is not the gate ORT actually enforces. Measured against the bundled ORT
++// 1.26 in Electron 42, in a worker inside an extension page: `crossOriginIsolated`
++// is false, and `numThreads = 4` is still honoured — because ORT's real test is
++// whether a SharedArrayBuffer survives a MessageChannel postMessage, and in Electron
++// it does. So the COEP/COOP work this was thought to need is not needed.
++//
++// Safe by construction: if that test ever fails, ORT warns and clamps to 1 itself,
++// which is exactly the old behaviour. Half the machine, capped at 6 — this is a
++// music player, and the stems deck under-runs if separation takes every core.
++function chooseThreadCount(): number {
++  const cores = typeof navigator !== "undefined" ? navigator.hardwareConcurrency : 0;
++  if (!cores || cores < 2) return 1;
++  return Math.min(6, Math.max(1, Math.floor(cores / 2)));
++}
++
+ // Four full-segment inferences per init, purely to print RMS to the console.
+ // That is minutes of GPU time before the first real chunk on a cold session and
+ // far worse under wasm, so it is opt-in: call blkSetSeparationProbe(true) from
+@@ -225,8 +335,14 @@ async function releaseSession(reason: string): Promise<void> {
+ async function loadSeparationOrt(ortBaseUrl: string): Promise<SeparationOrt> {
+   const bundleUrl = `${ortBaseUrl}ort.webgpu.bundle.min.mjs`;
+   const runtime = (await import(bundleUrl)) as SeparationOrt;
+-  runtime.env.wasm.numThreads = 1;
++  const threads = chooseThreadCount();
++  runtime.env.wasm.numThreads = threads;
+   runtime.env.wasm.wasmPaths = ortBaseUrl;
++  logger.log(
++    `wasm threads=${threads} (cores=${typeof navigator !== "undefined" ? navigator.hardwareConcurrency : "?"}, ` +
++      `crossOriginIsolated=${typeof self !== "undefined" ? self.crossOriginIsolated : "?"}). ` +
++      "ORT warns and drops to 1 if it disagrees."
++  );
+   return runtime;
+ }
+ 
+@@ -277,7 +393,7 @@ async function handleSeparateInit(
+ 
+   try {
+     const runtime = await loadSeparationOrt(ortBaseUrl);
+-    const providers = forceWasm ? ["wasm"] : ["webgpu", "wasm"];
++    const providers = await chooseProviders(forceWasm);
+     separationSession = await runtime.InferenceSession.create(modelBytes, {
+       executionProviders: providers,
+       graphOptimizationLevel: "all",

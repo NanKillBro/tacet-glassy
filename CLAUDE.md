@@ -65,16 +65,57 @@ The series, in apply order (order matters where two patches touch one file):
 | 08 | `electron-player-tab` | the popup finding the player tab under Electron's `tabs.query` |
 | 09 | `windows-test-paths` | two tests that only passed on posix path separators |
 | 10 | `early-staged-decode` | crossfades lost at the last second to a staged decode that started too late |
+| 11 | `host-owns-offscreen-document` | `chrome.offscreen` exists after all, so this side created a second copy of the page on top of the host's window and every track was separated twice |
+| 12 | `reject-software-adapter-and-thread-wasm` | ORT ran htdemucs on a SwiftShader WebGPU adapter, which is slower than its own wasm provider; a software adapter is now refused by name, and wasm gets more than the one hardcoded thread |
+
+Two mechanical notes about generating a new patch, both of which cost time here:
+
+- **A patch for a file an earlier patch already touches needs a temp baseline index**,
+  or `git diff` folds the earlier patches into it. Stage the fully-patched content into
+  a scratch index first, then diff against that:
+
+  ```sh
+  export GIT_INDEX_FILE="$TEMP/patch12-index"    # NOT inside this repo
+  git read-tree HEAD && git add workers/separator.ts
+  git diff --stat                                 # must be empty before you edit
+  # ...edit, then:
+  git diff -- workers/separator.ts > patches/electron/12-....patch
+  ```
+
+  `GIT_INDEX_FILE` must live **outside** the checkout: in a submodule `.git` is a file,
+  not a directory, so `.git/<name>.lock` cannot be created and git fails with
+  `fatal: Unable to create '.../.git/patch12-index.lock': No such file or directory`.
+- **To check a patch for stray CRs, use `tr -dc '\r' < f | wc -c`.** `od -c f | grep -c
+  '\r'` is not a CR check — it matches the two-character sequence `\` `r` that `od`
+  prints for *other* things, and reported 265 on files with zero CR bytes. That false
+  positive was hit twice in one session.
 
 ## What Electron does not give the extension
 
 Verified against the Electron extensions docs and by running it, not guessed:
 
-- **`chrome.offscreen` does not exist.** The parent's plugin creates a hidden 1×1
-  `BrowserWindow` on `chrome-extension://<id>/assets/offscreen.html` instead.
-  `contextIsolation` must be `false` there or `chrome.runtime.sendMessage` from the
-  page is unavailable; `backgroundThrottling` must be `false` or the hidden window's
-  timers and workers get throttled mid-separation.
+- **`chrome.offscreen` DOES exist — this note used to say it did not, and that was
+  wrong.** Re-measured 2026-08-25 on Electron 42.5.0 / Chromium 148 with a throwaway
+  probe extension: `chrome.offscreen` is an object carrying `createDocument`,
+  `hasDocument`, `closeDocument` and `Reason`, `createDocument()` resolves, and the
+  binary contains the full api schema plus Chromium's own
+  `"Only a single offscreen document may be created."`. It was presumably absent on
+  whatever Electron version this note was first written against.
+  **What is still true is that the host must not rely on it:** the parent's plugin
+  creates a hidden 1×1 `BrowserWindow` on
+  `chrome-extension://<id>/assets/offscreen.html`, because it needs something it can
+  forward `console-message` from, rebuild on `render-process-gone`, and hand the
+  execution provider to through the url (`?forceWasm=1`). `contextIsolation` must be
+  `false` there or `chrome.runtime.sendMessage` from the page is unavailable;
+  `backgroundThrottling` must be `false` or the hidden window's timers and workers get
+  throttled mid-separation.
+  **The trap:** `hasDocument()` answers **false** while that BrowserWindow is loaded,
+  because a plain window is not registered with the offscreen document manager. So the
+  extension's `if (!chrome.offscreen)` stub never installed, `hasDocument()` never
+  deduplicated, and `createDocument()` added a *second* live copy of the page — two
+  `SeparationHost`s, two ONNX sessions, every track separated twice. Patch 11. The same
+  false `hasDocument()` also silently dropped every settings broadcast, which upstream
+  gates on it.
 - **`chrome.tabs.query` honours only `url`, `title`, `audible`, `active`, `muted`.**
   `currentWindow` and `lastFocusedWindow` are silently ignored, so a query for "the
   active tab of this window" answers with *every* active tab — the settings window
@@ -148,6 +189,63 @@ repeated ~30 000 times.
    Patch 10 asks for the decode when the stems are staged instead, which is a minute or
    so earlier and costs only holding the frames longer, and times the decode so the next
    overrun says so itself.
+9. **Every track separated twice.** Two live "Better Lyrics Karaoke spike offscreen
+   document" targets, both running the whole pipeline. The host creates exactly one — the
+   only three callers of `createOffscreenWindow` all `destroyWindow('offscreen')` first —
+   so the second came from `ensureOffscreenDocument()` in `src/background.ts`, which was
+   only ever supposed to run in a real browser. It ran here because this file's own note
+   that `chrome.offscreen` "does not exist" had gone stale; see above. Found by writing a
+   ~40-line throwaway Electron app that loads a probe extension and dumps
+   `webContents.getAllWebContents()`: it reported `type=remote` and `type=window` on the
+   same url — the user-visible symptom, reproduced in isolation, on Windows, in seconds.
+   Worth keeping as a technique, because three rounds of log-reading went to hypotheses
+   that a five-minute experiment refuted. A claim about what Electron hands an extension
+   is cheap to test directly and expensive to reason about from docs; the docs were
+   consulted first here and did not settle it, since they do not list `chrome.offscreen`
+   and also say the list is not exhaustive. Patch 11. The host now marks its own window
+   with `?owner=host` so the two can be told apart at a glance.
+10. **htdemucs was running on SwiftShader, and ORT never said so.** A `requestAdapter()`
+    probe in `offscreen.html` on the Linux box answered `vendor: 'google'`,
+    `architecture: 'swiftshader'`, `f16: false`. WebGPU was not missing and ORT was not
+    falling back to wasm — it had an adapter, and the adapter *was* the CPU. That is the
+    worst of both: SwiftShader emulates compute shaders on one thread, where the wasm
+    provider gets SIMD and several. **A software WebGPU adapter is slower than no WebGPU
+    at all**, so "is there an adapter" was never the right question.
+
+    It stayed silent because `["webgpu", "wasm"]` asks ORT to pick, ORT picks the first
+    that initialises without logging which, and it can place *individual nodes* on wasm
+    so even a partial fallback is invisible. `logSeverityLevel: ORT_LOG_SEVERITY_ERROR`
+    (`workers/separator.ts`) suppresses its EP-registration output on top of that. Patch
+    12 makes the choice here instead and states it: `chooseProviders()` refuses an
+    adapter whose `isFallbackAdapter` is true (read off both the adapter and `adapter.info`,
+    the property moved between spec revisions) or whose identity matches `/swiftshader/i`,
+    and logs one line naming the provider either way.
+
+    The host-side flag is a red herring worth recording: `--enable-unsafe-webgpu` is what
+    *permits* the SwiftShader fallback. With it there is a software adapter; without it
+    Chromium hands out none at all. Neither state produces hardware on Wayland + Mesa
+    here — the Vulkan backend crashes the GPU process on Wayland and is unusably slow
+    forced onto X11 — so this box is CPU-only, and patch 12 makes that automatic rather
+    than a flag anyone has to know about.
+11. **`numThreads = 1` was hardcoded, and the reason given for keeping it was wrong.**
+    Upstream pins the wasm provider to a single thread, and ORT's own default is also 1
+    whenever `self.crossOriginIsolated` is false — which it is here, since the extension
+    manifest carries no COEP/COOP. So the plan for this said threading needed
+    `cross_origin_embedder_policy` in the manifest plus CORP headers injected host-side
+    for the model download. **Measured false**, with a throwaway Electron app loading a
+    probe extension that builds a real `["wasm"]` session in a Worker: `crossOriginIsolated`
+    is false, and `numThreads = 4` is honoured anyway.
+
+    ORT 1.26's actual gate is not `crossOriginIsolated`. It is: `SharedArrayBuffer` exists,
+    **and** a `SharedArrayBuffer` survives `new MessageChannel().port1.postMessage(...)`,
+    **and** `WebAssembly.validate()` accepts an atomics module. All three hold in Electron.
+    The control run without `--enable-features=SharedArrayBuffer` passed too, so it does
+    not even depend on that switch. Patch 12 therefore sets `min(6, floor(cores / 2))` —
+    half the machine, capped, because the stems deck under-runs if separation takes every
+    core. Safe by construction: when that gate fails ORT *warns and clamps to 1* rather
+    than throwing, so the worst case is exactly the old behaviour. Only the
+    `ort-wasm-simd-threaded.*` artifacts are shipped, so no new assets are involved.
+
 
 ## Diagnostics available
 
@@ -165,6 +263,15 @@ repeated ~30 000 times.
 - The offscreen document reads its execution provider from its own url
   (`?forceWasm=1`): the choice has to be settled before the first session is built,
   and a query parameter is the only channel available that early.
+- **The worker states its provider and thread count on every init** (patch 12) — one of
+  `provider: webgpu on vendor=… architecture=… f16=…`, `provider: wasm (forced by the
+  host)`, or a `logger.error` naming why WebGPU was refused (`no adapter`, `software
+  renderer (…)`, `navigator.gpu is absent`), followed by `wasm threads=N (cores=…,
+  crossOriginIsolated=…)`. These are the first two lines to read in any report of
+  separation being slow. Host side, the parent logs `app.getGPUFeatureStatus()` — but
+  only from `app.on('gpu-info-update')`, because before the GPU process reports Chromium
+  answers `disabled_*` for every feature and the line reads "everything is software" on
+  a perfectly healthy GPU.
 
 ## Verification chain
 
@@ -203,12 +310,18 @@ system gitconfig) while the blobs are LF. `npx biome lint .` alone is clean. Do 
   caps retained capture bytes; chunks past it are dropped from decode input but
   still counted in totals. Untouched.
 - **VRAM sits at 6–7 GB while separating** (measured 2026-08-19, after the session-reuse
-  and release fixes). Deliberately left alone: the user deprioritised it in favour of
-  "it works", so do not trade stability for it unopened. For whoever picks it up, the
-  163 MB of weights are not the story — that much VRAM is activations and ONNX Runtime's
+  and release fixes). **Update 2026-08-25: patch 11 took this to ~4 GB** — half of it was
+  the duplicate offscreen document holding a second session, so the figure below was
+  always two sessions' worth. Still deliberately left alone: the user deprioritised it in
+  favour of "it works", so do not trade stability for it unopened. For whoever picks it up,
+  the 163 MB of weights are not the story — that much VRAM is activations and ONNX Runtime's
   WebGPU buffer cache, which reuses freed buffers rather than returning them to the
   driver, so the high-water mark of one segment's intermediates is held for as long as
   the session is. Levers, roughly cheapest first: shrink the segment/overlap the
   pipeline feeds `separate-chunk`, drop the 90 s idle retention so the arena goes back
   between tracks, or move to an fp16 model. Each one costs latency or quality, which is
-  exactly why none of them were taken.
+  exactly why none of them were taken. None of it applies on a box patch 12 puts on wasm.
+- `APPROX_MODEL_BYTES = 83 * 1024 * 1024` (`src/cache/model-cache.ts`) is the **fp16**
+  size but is the progress denominator for whichever variant is downloading, so a server
+  without `content-length` reports fp32 progress running to ~196%. Untouched; it matters
+  only if the fp16 model is ever made the default.

@@ -27,6 +27,8 @@ one is written against the tree an earlier one produced.
 | 08 | `electron-player-tab` | Electron ignores `tabs.query({currentWindow})`, so the popup has to find the player by url |
 | 09 | `windows-test-paths` | two tests assumed posix path separators |
 | 10 | `early-staged-decode` | the staged stems were decoded ~14 s before the fade, and a decode that overran cost the whole transition |
+| 11 | `host-owns-offscreen-document` | Electron 42 *does* implement `chrome.offscreen`, so this side was creating a second copy of the page on top of the host's window — every track separated twice |
+| 12 | `reject-software-adapter-and-thread-wasm` | ORT was running htdemucs on WebGPU backed by SwiftShader, which is slower than its own wasm provider; now a software adapter is refused by name and the wasm provider gets more than the one hardcoded thread |
 
 ## How the applier knows what is applied
 

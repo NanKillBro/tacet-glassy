@@ -1,0 +1,100 @@
+diff --git a/src/background.ts b/src/background.ts
+index 8e04051..01d5b35 100644
+--- a/src/background.ts
++++ b/src/background.ts
+@@ -23,31 +23,32 @@ const logger = createLogger("pipeline");
+ 
+ // -- Offscreen document lifecycle -------------------------------------------
+ 
+-const OFFSCREEN_URL = "assets/offscreen.html";
+-const OFFSCREEN_JUSTIFICATION = "Separating vocals from the track the listener is playing.";
+-const ALREADY_EXISTS_MESSAGE = "single offscreen document";
+-
+-async function ensureOffscreenDocument(): Promise<void> {
+-  if (!chrome.offscreen) {
+-    (chrome as any).offscreen = {
+-      hasDocument: async () => true,
+-      createDocument: async () => {},
+-    };
+-  }
+-  const hasDocument = await chrome.offscreen.hasDocument();
+-  if (hasDocument) return;
+-
+-  try {
+-    await chrome.offscreen.createDocument({
+-      url: chrome.runtime.getURL(OFFSCREEN_URL),
+-      reasons: ["WORKERS", "AUDIO_PLAYBACK"],
+-      justification: OFFSCREEN_JUSTIFICATION,
+-    });
+-  } catch (error) {
+-    const message = error instanceof Error ? error.message : String(error);
+-    if (!message.includes(ALREADY_EXISTS_MESSAGE)) throw error;
+-  }
+-}
++// Upstream creates the offscreen document from here. Under Electron the *host*
++// creates it: createOffscreenWindow() in the parent repo's
++// src/plugins/tacet/index.ts opens a hidden 1x1 BrowserWindow on
++// assets/offscreen.html. It has to be a window rather than an offscreen document,
++// because the host needs something it can forward console-message from, rebuild on
++// render-process-gone, and hand the execution provider to through the url
++// (?forceWasm=1) — the offscreen api offers none of those.
++//
++// So this side must not create one as well. Doing both is not a cosmetic leak:
++// each copy of the page builds its own SeparationHost and its own ONNX session, so
++// every track is separated twice, on two cores, with two copies of the model
++// resident. Two live "Better Lyrics Karaoke spike offscreen document" targets in
++// devtools is the visible symptom.
++//
++// Upstream's `if (!chrome.offscreen)` guard used to make this moot — Electron did
++// not implement the api. It does now. Measured on Electron 42 / Chromium 148 with a
++// throwaway probe extension: chrome.offscreen is an object carrying createDocument,
++// hasDocument, closeDocument and Reason, and hasDocument() answers **false** while
++// the host's BrowserWindow is loaded on offscreen.html, because a plain window is
++// not registered with the offscreen document manager. So the guard never fires,
++// hasDocument() does not deduplicate, and createDocument() genuinely does add a
++// second document.
++//
++// Two consequences, both applied below: nothing here calls createDocument, and
++// nothing here gates on hasDocument() either — it reads false for a page that is in
++// fact present and ready.
+ 
+ function delay(ms: number): Promise<void> {
+   return new Promise(resolve => setTimeout(resolve, ms));
+@@ -129,7 +130,10 @@ chrome.runtime.onMessage.addListener((message: unknown, sender) => {
+ // -- Cache status and clearing relay (popup) ---------------------------------
+ 
+ async function sendToOffscreenWithRetry(message: unknown): Promise<unknown> {
+-  await ensureOffscreenDocument();
++  // No ensureOffscreenDocument() call here — the host owns the page's lifecycle
++  // (see the note at the top of this file). The retry below already covers the one
++  // gap that call closed under Electron: a page that is loaded but not yet
++  // listening.
+   try {
+     return await chrome.runtime.sendMessage(message);
+   } catch {
+@@ -175,17 +179,19 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
+   if (areaName !== "local" || !(SETTINGS_STORAGE_KEY in changes)) return;
+   setLoggingEnabled(sanitizeSettings(changes[SETTINGS_STORAGE_KEY].newValue).debugLoggingEnabled);
+ 
+-  chrome.offscreen
+-    .hasDocument()
+-    .then(async hasDocument => {
+-      if (!hasDocument) return;
+-      const settings = await loadSettingsFrom(chrome.storage.local);
++  // Upstream gates this on chrome.offscreen.hasDocument(). Under Electron that
++  // reads false for the host's BrowserWindow, so the gate would silently drop every
++  // settings change rather than forward it. Send unconditionally instead: the page
++  // is created by the host before any of this runs, and a send with no receiver
++  // rejects into the catch below, which is the same reporting the gate gave up.
++  loadSettingsFrom(chrome.storage.local)
++    .then(settings => {
+       const message: SettingsChangedMessage = {
+         type: "blk-settings-changed",
+         settings,
+         model: modelChoiceFor(settings),
+       };
+-      await chrome.runtime.sendMessage(message);
++      return chrome.runtime.sendMessage(message);
+     })
+     .catch(error => {
+       logger.error("failed to broadcast a settings change", error);
