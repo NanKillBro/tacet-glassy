@@ -168,6 +168,47 @@ Verified against the Electron extensions docs and by running it, not guessed:
   `grep -rn 'storage\.\(sync\|managed\)' src workers` and `grep -rn 'areaName' src workers`
   must both come back with nothing to fix.
 
+- **`declarativeNetRequestWithHostAccess` in the manifest crashes the host's main
+  process — do not declare it.** It was declared here and never used: no
+  `declarative_net_request` key, no ruleset, and zero references to the api in `src`
+  or `workers`. Removing it is the fix (`manifest.permissions` in `package.json`).
+
+  The symptom does not look like an extension problem at all. The **packaged** Windows
+  app died ~2.5 s after launch whenever this plugin was enabled, with no crash log and
+  no crash dialog, while `pnpm start` / `electron-vite preview` / running
+  `electron.exe .` were all perfectly fine. Two things conspired to hide it:
+
+  - **The trigger only exists in a packaged build.** The parent gates its updater on
+    `if (!is.dev() && config.get('options.autoUpdates'))` (`src/index.ts`), so a dev run
+    never fires it. electron-updater then issues a **main-process
+    `net.request` on `session.fromPartition("electron-updater")`** — a browser-initiated
+    request on a brand-new partition that has no extensions in it. With a
+    DNR-permissioned extension loaded into `defaultSession`, that request faults inside
+    the browser process. It is an Electron/Chromium bug, not one of ours; the permission
+    is simply what arms it.
+  - **The app never calls `crashReporter.start()`**, so crashpad is not connected. The
+    only trace is one line — `crashpad_client_win.cc … not connected` — after which
+    Chromium's exception filter swallows the access violation. Nothing reaches Windows
+    Error Reporting either, so Event Viewer has no entry for `Glassy Music.exe`.
+
+  Two techniques got it, and both are worth reusing. **Bisect with the config file, not
+  with builds:** flipping `options.autoUpdates` and `plugins.tacet.enabled` in
+  `%APPDATA%/Glassy Music/config.json` between launches isolated it to *updater +
+  tacet together* in about a minute, and proved `forceWasm` (so ONNX and WebGPU)
+  irrelevant. **Then make the packaged build instrumentable without rebuilding it:**
+  extract `resources/app.asar` to `resources/app`, *rename the asar aside* (Electron
+  prefers `app.asar` over `app/`, so leaving it in place changes nothing — the log paths
+  still say `app.asar`, which is how to tell), point `main` at a small wrapper that calls
+  `crashReporter.start({uploadToServer:false})`, installs `uncaughtException` /
+  `unhandledRejection` handlers and logs `before-quit`/`will-quit`/`quit`, then
+  `await import('./index.js')`. That immediately reclassified the failure: no JS handler
+  fired and no quit event fired, and the shell reported **SIGSEGV** — a native fault, not
+  a JS throw and not an orderly `app.quit()`. Restore by moving the asar back and
+  deleting `resources/app`.
+
+  Note the manifest `key` pins the extension id, so adding or removing a permission does
+  not change it — `lpcemobkiabkbcnjnoindhmmcbigbgok` is stable across the fix.
+
 - `chrome.tabs.sendMessage`, `chrome.runtime.sendMessage` / `onMessage` do work.
 - **Electron quits only when every `BrowserWindow` is gone.** The hidden offscreen
   window is one, so it kept the whole process alive after the main window closed
