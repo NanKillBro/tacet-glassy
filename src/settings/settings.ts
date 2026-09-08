@@ -49,12 +49,16 @@ interface Settings {
 }
 
 const DEFAULT_SETTINGS: Settings = {
-  separationMode: "on-demand",
+  separationMode: "off",
   cacheBudgetBytes: DEFAULT_BUDGET_BYTES,
   modelVariant: DEFAULT_MODEL_VARIANT,
   faderPlacement: "dock",
-  crossfadeSeconds: 8,
-  sources: SOURCE_IDS.map(id => ({ id, enabled: true })),
+  crossfadeSeconds: 6,
+    sources: [
+    { id: "shadow-url", enabled: false },
+    { id: "hidden-player", enabled: true },
+    { id: "player-capture", enabled: true },
+  ],
   debugLoggingEnabled: false,
 };
 
