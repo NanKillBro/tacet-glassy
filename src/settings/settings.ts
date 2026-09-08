@@ -1,4 +1,4 @@
-import { SOURCE_IDS, sanitizeSourcePreferences } from "@/acquisition/sources";
+import { sanitizeSourcePreferences } from "@/acquisition/sources";
 import type { SourcePreference } from "@/acquisition/sources";
 import { DEFAULT_MODEL_VARIANT, type ModelVariant, isModelVariant } from "@/cache/model-url";
 import { DEFAULT_BUDGET_BYTES } from "@/cache/stem-store";
